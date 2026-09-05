@@ -1,4 +1,10 @@
-"""Thin, cache-through wrappers over the GitHub REST API for a single repo.
+"""The cache-through data layer over the GitHub REST API for a single repo.
+
+These are *internal* primitives, one per REST endpoint. They are not the tools
+an agent sees -- per PLAN_ADDENDUM.md section F the agent-facing surface is the
+four consolidated, task-shaped tools in ``toolbox.github_tools``, which compose
+these. Keeping the endpoint layer separate means caching, retries, trimming and
+redaction are implemented and tested once.
 
 Design notes (they matter for the eval being deterministic):
 
@@ -63,6 +69,7 @@ REDACTED_ISSUE_FIELDS = (
 )
 
 HIDDEN_COMMENTS_NOTE = "comments hidden for the issue under evaluation"
+HIDDEN_LINKED_NOTE = "linked pull requests and commits hidden for the issue under evaluation"
 
 # Used only until contracts.context exists (this module is built before Phase 0
 # lands). _case_var() prefers the real contract once it is importable.
@@ -331,6 +338,22 @@ def call(tool_name: str, args: dict, fetch: Callable[[], Any]) -> str:
     return ok(_redact(tool_name, args, payload))
 
 
+def decode(result: str) -> tuple[dict | list | None, str | None]:
+    """Split a primitive's return into ``(payload, error)``.
+
+    The consolidated tools compose several primitives. A primitive that misses
+    the cache returns an error string; the consolidated tool must record that as
+    a gap in its answer rather than propagate it as a failure or, worse, fill it
+    in. ``(None, message)`` is a gap, ``(payload, None)`` is data.
+    """
+    if result.startswith("ERROR:"):
+        return None, result[len("ERROR:") :].strip()
+    try:
+        return json.loads(result), None
+    except json.JSONDecodeError as exc:  # pragma: no cover - primitives emit valid JSON
+        return None, f"could not decode the response ({exc})"
+
+
 # --------------------------------------------------------------------------
 # response trimming
 # --------------------------------------------------------------------------
@@ -585,3 +608,80 @@ def list_recent_commits(path: str | None = None, per_page: int | None = None) ->
         }
 
     return call("github_list_recent_commits", args, fetch)
+
+
+def get_issue_timeline(number: int, per_page: int | None = None) -> str:
+    """Cross-references and commit references on an issue.
+
+    Used to answer "which PR or commit closed this, and what files did it
+    touch" -- the strongest available evidence for a component decision.
+    """
+    args = {"repo": repo(), "number": int(number), "per_page": _per_page(per_page)}
+
+    def fetch() -> dict:
+        raw = _request(
+            _url(
+                f"/repos/{args['repo']}/issues/{args['number']}/timeline",
+                {"per_page": args["per_page"]},
+            )
+        )
+        commits: list[str] = []
+        references: list[dict] = []
+        for event in raw or []:
+            if not isinstance(event, dict):
+                continue
+            name = event.get("event")
+            if name in {"referenced", "closed"} and event.get("commit_id"):
+                commits.append(event["commit_id"])
+            elif name == "cross-referenced":
+                source = (event.get("source") or {}).get("issue") or {}
+                if source.get("number"):
+                    references.append(
+                        {
+                            "number": source["number"],
+                            "title": source.get("title"),
+                            "is_pull_request": is_pull_request(source),
+                            "state": source.get("state"),
+                        }
+                    )
+        return {
+            "issue_number": args["number"],
+            "commit_shas": commits,
+            "references": references,
+        }
+
+    return call("github_get_issue_timeline", args, fetch)
+
+
+def get_commit(sha: str) -> str:
+    """One commit with the paths it touched."""
+    args = {"repo": repo(), "sha": str(sha)}
+
+    def fetch() -> dict:
+        raw = _request(_url(f"/repos/{args['repo']}/commits/{args['sha']}"))
+        trimmed = trim_commit(raw)
+        trimmed["files"] = [
+            file.get("filename") for file in (raw.get("files") or []) if file.get("filename")
+        ]
+        return trimmed
+
+    return call("github_get_commit", args, fetch)
+
+
+def get_pull_files(number: int, per_page: int | None = None) -> str:
+    """The paths a pull request touched."""
+    args = {"repo": repo(), "number": int(number), "per_page": _per_page(per_page)}
+
+    def fetch() -> dict:
+        raw = _request(
+            _url(
+                f"/repos/{args['repo']}/pulls/{args['number']}/files",
+                {"per_page": args["per_page"]},
+            )
+        )
+        return {
+            "pull_number": args["number"],
+            "files": [file.get("filename") for file in (raw or []) if file.get("filename")],
+        }
+
+    return call("github_get_pull_files", args, fetch)
