@@ -23,6 +23,7 @@ __all__ = [
     "agent_row",
     "agent_rows",
     "case_results",
+    "distinct_agent_versions",
     "events",
     "issue_status",
     "latest_run",
@@ -193,7 +194,7 @@ def runs(
                 agent_id=event.agent_id,
                 version=event.agent_version,
                 split=run_split,
-                trials=event.get("trials", event.get("repeats")),
+                trials=event.get("trials"),
                 case_count=event.get("case_count"),
                 started=event,
                 finished=finished,
@@ -262,6 +263,19 @@ def agent_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def distinct_agent_versions(conn: sqlite3.Connection, agent_id: str) -> set[int]:
+    """Every ``agent_version`` value ever logged for this agent, via one DISTINCT query.
+
+    Cheaper than scanning and JSON-decoding every event just to read a column.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT agent_version FROM events "
+        "WHERE agent_id = ? AND agent_version IS NOT NULL",
+        (agent_id,),
+    ).fetchall()
+    return {row[0] for row in rows}
 
 
 def issue_status(conn: sqlite3.Connection, issue_ids: Iterable[str]) -> dict[str, str | None]:

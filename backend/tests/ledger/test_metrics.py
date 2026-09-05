@@ -14,6 +14,7 @@ import sqlite3
 import pytest
 
 from backend.ledger import metrics
+from backend.ledger.emit import emit as ledger_emit
 from backend.tests.ledger.seed import AGENT_ID, SeededLedger, create_schema
 
 # Population std of the v0 and v1 train per-trial rates.
@@ -122,6 +123,73 @@ def test_stable_pass_set_grows_once_the_flaky_task_settles(
     assert metrics.stable_pass_set(seeded.conn, AGENT_ID, 1) == {"c1", "c2", "c3"}
 
 
+def _tiny_case_result_payload(case_id: str, trial: int, *, passed: bool) -> dict:
+    return {
+        "case_id": case_id,
+        "trial": trial,
+        "passed": passed,
+        "score": 1.0 if passed else 0.0,
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "cost_usd": 0.0,
+        "latency_ms": 1,
+        "steps": 1,
+        "transcript_path": f"runs/r1/{case_id}.t{trial}.json",
+        "tool_calls": 0,
+        "tool_errors": 0,
+    }
+
+
+def test_stable_pass_set_requires_every_declared_trial_present() -> None:
+    """A task recorded for only 1 of 3 declared trials is not stable, even
+    though the one trial recorded passed -- a partial run must not fool the
+    gate (PLAN_ADDENDUM.md sec B: the gate accepts/rejects on pass^k)."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        ledger_emit(
+            "run_started",
+            agent_id="partial",
+            agent_version=0,
+            run_id="r1",
+            conn=conn,
+            payload={"split": "train", "case_count": 1, "trials": 3},
+        )
+        ledger_emit(
+            "case_result",
+            agent_id="partial",
+            agent_version=0,
+            run_id="r1",
+            conn=conn,
+            payload=_tiny_case_result_payload("only_one_trial", 0, passed=True),
+        )
+        ledger_emit(
+            "run_finished",
+            agent_id="partial",
+            agent_version=0,
+            run_id="r1",
+            conn=conn,
+            payload={
+                "split": "train",
+                "trials": 3,
+                "pass_at_1": 1.0,
+                "pass_pow_k": 1.0,
+                "pass_rate_std": 0.0,
+                "pass_rate_min": 1.0,
+                "pass_rate_max": 1.0,
+                "total_cost_usd": 0.0,
+                "p50_latency_ms": 1,
+                "p95_latency_ms": 1,
+                "drift_count": 0,
+                "tokens_saved_by_drift": 0,
+            },
+        )
+        assert metrics.stable_pass_set(conn, "partial", 0) == set()
+        assert metrics.pass_pow_k(conn, "partial", 0, "train")["mean"] == pytest.approx(0.0)
+    finally:
+        conn.close()
+
+
 # --------------------------------------------------------- cost and latency
 
 
@@ -156,7 +224,7 @@ def test_drift_stats(seeded: SeededLedger) -> None:
     assert stats["tokens_saved"] == 7000
     # c3 was nudged twice; it passed on trial 2 and failed on trial 1.
     assert stats["cases_recovered_by_nudge"] == 1
-    assert stats["count_by_version"] == {"0": 3, "1": 1}
+    assert stats["count_by_version"] == {0: 3, 1: 1}
 
 
 def test_drift_token_budget_is_read_from_the_environment(
@@ -211,7 +279,7 @@ def test_series_by_version_has_one_row_per_version_and_split(
     assert costs[(1, "train")]["cost_per_run"] == pytest.approx(0.06)
 
     latencies = {(r["version"], r["split"]): r for r in series["latency_by_version"]}
-    assert latencies[(1, "train")]["p50"] == pytest.approx(775.0)
+    assert latencies[(1, "train")]["p50_ms"] == pytest.approx(775.0)
 
 
 def test_series_skips_versions_with_no_finished_run(seeded: SeededLedger) -> None:
@@ -542,11 +610,99 @@ def cards_by_version(seeded: SeededLedger) -> dict[int, dict]:
     return {c["to_version"]: c for c in metrics.fix_cards(seeded.conn, AGENT_ID)}
 
 
+def _tiny_fix_proposed_payload(
+    hypothesis: str, diff_path: str = "agents/a/v1/CHANGES.diff"
+) -> dict:
+    return {
+        "from_version": 0,
+        "to_version": 1,
+        "failing_group": {"signature": "x", "case_ids": [], "count": 0},
+        "hypothesis": hypothesis,
+        "diagnosis": "d",
+        "diff_path": diff_path,
+        "diff_summary": "s",
+    }
+
+
+def test_fix_cards_omits_a_proposal_with_no_verdict_yet() -> None:
+    """contracts/api.md: a fix still in flight is omitted, not given status='proposed'."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        ledger_emit(
+            "fix_proposed",
+            agent_id="a",
+            agent_version=0,
+            lever="prompt",
+            conn=conn,
+            payload=_tiny_fix_proposed_payload("h"),
+        )
+        assert metrics.fix_cards(conn, "a") == []
+    finally:
+        conn.close()
+
+
+def test_fix_cards_keeps_the_newest_proposal_per_to_version() -> None:
+    """Two proposals at one to_version must not both spawn a card sharing one outcome."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        for hypothesis in ("first guess", "second guess"):
+            ledger_emit(
+                "fix_proposed",
+                agent_id="a",
+                agent_version=0,
+                lever="prompt",
+                conn=conn,
+                payload=_tiny_fix_proposed_payload(hypothesis),
+            )
+        ledger_emit(
+            "fix_rejected",
+            agent_id="a",
+            agent_version=1,
+            lever="prompt",
+            conn=conn,
+            payload={
+                "to_version": 1,
+                "reason": "no_gain",
+                "regressed_case_ids": [],
+                "candidate_pass_at_1": 0.5,
+            },
+        )
+        cards = metrics.fix_cards(conn, "a")
+        assert len(cards) == 1
+        assert cards[0]["hypothesis"] == "second guess"
+    finally:
+        conn.close()
+
+
 def test_fix_diff_reads_the_file_on_disk(seeded: SeededLedger) -> None:
     diff = metrics.fix_diff(seeded.conn, AGENT_ID, 1, seeded.root)
     assert diff is not None
     assert diff.startswith("--- a/memory/rules.jsonl")
     assert metrics.fix_diff(seeded.conn, AGENT_ID, 99, seeded.root) is None
+
+
+def test_fix_diff_refuses_a_path_outside_the_repo_root(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_text("nope", encoding="utf-8")
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        ledger_emit(
+            "fix_proposed",
+            agent_id="a",
+            agent_version=0,
+            lever="prompt",
+            conn=conn,
+            payload=_tiny_fix_proposed_payload("h", diff_path="../secret.txt"),
+        )
+        assert metrics.fix_diff(conn, "a", 1, root) is None
+    finally:
+        conn.close()
 
 
 # ----------------------------------------------------------------- compare

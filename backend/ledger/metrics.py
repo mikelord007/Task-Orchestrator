@@ -40,11 +40,13 @@ from backend.ledger.query import (
     agent_row,
     agent_rows,
     case_results,
+    distinct_agent_versions,
     events,
     issue_status,
     latest_run,
     runs,
 )
+from contracts.transcript import StepKind, Transcript, load_transcript
 
 __all__ = [
     "DEFAULT_DRIFT_TOKEN_BUDGET",
@@ -231,12 +233,30 @@ def _results_by_trial(results: Iterable[Event]) -> dict[int, list[Event]]:
     return by_trial
 
 
-def _stable_task_ids(by_task: dict[str, list[Event]]) -> set[str]:
-    """Tasks that passed in every trial present for them."""
+def _effective_trials(run: Any, results: Sequence[Event]) -> int:
+    """Declared ``trials`` for a run, falling back to the observed trial count.
+
+    Only used when a run somehow carries no ``trials`` field; every task must
+    still be checked against the *real* trial count, not just "however many
+    rows happen to exist for it" (that would let a task with 1 of 3 trials
+    recorded, all passing, count as stable).
+    """
+    declared = _int(run.trials)
+    if declared is not None:
+        return declared
+    return len(_results_by_trial(results))
+
+
+def _stable_task_ids(by_task: dict[str, list[Event]], required_trials: int) -> set[str]:
+    """Tasks with *every* declared trial present, all passed.
+
+    A task missing a trial (e.g. 1 of 3 recorded) is not stable even if every
+    recorded trial passed -- the gate must not be fooled by a partial run.
+    """
     return {
         task_id
         for task_id, rows in by_task.items()
-        if rows and all(bool(e.get("passed")) for e in rows)
+        if len(rows) >= required_trials and all(bool(e.get("passed")) for e in rows)
     }
 
 
@@ -302,29 +322,21 @@ def pass_pow_k(conn: sqlite3.Connection, agent_id: str, version: int, split: str
     task_count = len(by_task)
     if task_count == 0:
         return dict(_EMPTY_PASS_STAT)
-    stable = len(_stable_task_ids(by_task))
+    stable = len(_stable_task_ids(by_task, _effective_trials(run, results)))
     return _pass_stat(results, _int(run.trials), mean=stable / task_count)
 
 
 def stable_pass_set(conn: sqlite3.Connection, agent_id: str, version: int) -> set[str]:
-    """Train tasks that passed in *every* trial of the latest train run.
+    """Train tasks that passed in *every* declared trial of the latest train run.
 
-    This is the set the gate protects; a flaky task is never in it and so can
-    never be reported as a regression.
+    This is the set the gate protects; a flaky task, or one missing a trial
+    entirely, is never in it and so can never be reported as a regression.
     """
     run = latest_run(conn, agent_id, version, "train")
     if run is None:
         return set()
-    return _stable_task_ids(_results_by_task(case_results(conn, run.run_id)))
-
-
-def _stable_task_ids_for(
-    conn: sqlite3.Connection, agent_id: str, version: int, split: str
-) -> set[str]:
-    run = latest_run(conn, agent_id, version, split)
-    if run is None:
-        return set()
-    return _stable_task_ids(_results_by_task(case_results(conn, run.run_id)))
+    results = case_results(conn, run.run_id)
+    return _stable_task_ids(_results_by_task(results), _effective_trials(run, results))
 
 
 # --------------------------------------------------------------------------
@@ -463,7 +475,10 @@ def drift_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, Any]:
 
     ``tokens_saved`` sums ``DRIFT_TOKEN_BUDGET - tokens_at_detection`` over
     aborted trials (never negative). ``cases_recovered_by_nudge`` counts
-    (run, task, trial) triples that were nudged and then passed.
+    passed ``case_result`` rows whose ``drift_event_id`` names a nudge, falling
+    back to a (run, task, trial) tuple match only when that field is absent
+    (older events written before it was populated). ``count_by_version`` is an
+    extension beyond ``contracts/api.md``'s ``drift`` shape, keyed by int.
     """
     budget = drift_token_budget()
     drift_events = events(conn, kind="drift_detected", agent_id=agent_id)
@@ -471,6 +486,7 @@ def drift_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, Any]:
     count_by_kind: dict[str, int] = {}
     count_by_version: dict[int, int] = {}
     tokens_saved = 0.0
+    nudge_ids: set[int] = set()
     nudged: set[tuple[str | None, str, int]] = set()
 
     for event in drift_events:
@@ -486,16 +502,24 @@ def drift_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, Any]:
             if at_detection is not None:
                 tokens_saved += max(0.0, budget - at_detection)
         elif action == "nudge":
+            nudge_ids.add(event.id)
             case_id = event.get("case_id")
             if case_id is not None:
                 trial = event.trial() or 0
                 nudged.add((event.run_id, str(case_id), trial))
 
     recovered = 0
-    if nudged:
+    if nudge_ids or nudged:
         for event in events(conn, kind="case_result", agent_id=agent_id):
+            if not event.get("passed"):
+                continue
+            drift_event_id = _int(event.get("drift_event_id"))
+            if drift_event_id is not None:
+                if drift_event_id in nudge_ids:
+                    recovered += 1
+                continue
             case_id = event.get("case_id")
-            if case_id is None or not event.get("passed"):
+            if case_id is None:
                 continue
             key = (event.run_id, str(case_id), event.trial() or 0)
             if key in nudged:
@@ -505,7 +529,7 @@ def drift_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, Any]:
         "count_by_kind": count_by_kind,
         "tokens_saved": int(tokens_saved),
         "cases_recovered_by_nudge": recovered,
-        "count_by_version": {str(k): v for k, v in sorted(count_by_version.items())},
+        "count_by_version": dict(sorted(count_by_version.items())),
     }
 
 
@@ -551,7 +575,7 @@ def series_by_version(conn: sqlite3.Connection, agent_id: str) -> dict[str, list
             }
         )
         by_task = _results_by_task(results)
-        stable_mean = len(_stable_task_ids(by_task)) / task_count
+        stable_mean = len(_stable_task_ids(by_task, _effective_trials(run, results))) / task_count
         pass_pow_k_rows.append(
             {
                 "version": version,
@@ -575,8 +599,8 @@ def series_by_version(conn: sqlite3.Connection, agent_id: str) -> dict[str, list
             {
                 "version": version,
                 "split": split,
-                "p50": _percentile(latencies, 0.5),
-                "p95": _percentile(latencies, 0.95),
+                "p50_ms": _percentile(latencies, 0.5),
+                "p95_ms": _percentile(latencies, 0.95),
             }
         )
 
@@ -670,17 +694,14 @@ def markers(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
 
 
 def graduated_count(conn: sqlite3.Connection, agent_id: str) -> int:
-    """Distinct tasks ever marked ``task_graduated`` for this agent.
+    """The running total of ``task_graduated`` events for this agent (``contracts/api.md``).
 
-    A task graduates the first version it becomes stably passing; this counts
-    each task once even if a later regression and re-fix graduates it again.
+    The emitter (the runtime, per PLAN_ADDENDUM.md sec J) is responsible for
+    emitting one event per task per genuine graduation -- a task re-graduating
+    after a regression and a later re-fix is a second, real graduation, so
+    this is a plain count of events, not a distinct-task count.
     """
-    seen: set[str] = set()
-    for event in events(conn, kind="task_graduated", agent_id=agent_id):
-        case_id = event.get("case_id")
-        if case_id is not None:
-            seen.add(str(case_id))
-    return len(seen)
+    return len(events(conn, kind="task_graduated", agent_id=agent_id))
 
 
 def saturated(conn: sqlite3.Connection, agent_id: str) -> bool:
@@ -773,10 +794,14 @@ def rule_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, dict[str, i
 
 
 def _agent_versions(conn: sqlite3.Connection, agent_id: str) -> list[int]:
-    """Every version 0..max seen for this agent, contiguous, for charting."""
-    versions = {
-        v for v in (_int(e.agent_version) for e in events(conn, agent_id=agent_id)) if v is not None
-    }
+    """Every version 0..max seen for this agent, contiguous, for charting.
+
+    Uses one ``SELECT DISTINCT agent_version`` rather than decoding every
+    event's payload just to read a column; ``to_version`` is unioned in
+    separately since a version can appear there before any event logs it as
+    its own ``agent_version`` (e.g. a freshly proposed, not yet run, version).
+    """
+    versions = distinct_agent_versions(conn, agent_id)
     for event in events(conn, kind=("fix_proposed", "fix_accepted"), agent_id=agent_id):
         to_version = _int(event.get("to_version"))
         if to_version is not None:
@@ -902,51 +927,69 @@ def _normalized_args_key(args: Any) -> str:
         return str(args)
 
 
-def _transcript_tool_calls(
-    transcript_path: str | None, root: str | Path | None
-) -> list[dict[str, Any]] | None:
-    """The harness-recorded ``tool_calls`` list from a transcript, or None if absent.
+#: Transcript cache: absolute path string -> parsed ``Transcript`` or ``None``
+#: if the file is missing/invalid. Callers create one per top-level metric
+#: call (e.g. one per ``tool_stats_by_version`` call) and thread it through --
+#: transcripts are immutable once written, so re-reading the same path within
+#: one request is pure waste, not a staleness risk.
+_TranscriptCache = dict[str, Transcript | None]
 
-    Expected shape per call: ``{tool, args, error: bool, tokens_in: int}``. This
-    is the interface W1 needs from W2's transcript writer; until that lands,
-    callers fall back to the coarser ``case_result`` counters.
-    """
-    data = _read_json(_resolve(transcript_path, root))
-    if not isinstance(data, dict):
+
+def _load_transcript(path: Path | None, cache: _TranscriptCache) -> Transcript | None:
+    if path is None:
         return None
-    calls = data.get("tool_calls")
-    return calls if isinstance(calls, list) else None
+    key = str(path)
+    if key in cache:
+        return cache[key]
+    try:
+        transcript = load_transcript(path)
+    except (OSError, ValueError):
+        transcript = None
+    cache[key] = transcript
+    return transcript
 
 
-def _execution_tool_stats(event: Event, root: str | Path | None) -> dict[str, float]:
-    """Tool stats for one task execution (one (task, trial) pair)."""
-    calls = _transcript_tool_calls(event.get("transcript_path"), root)
-    if calls is not None:
+def _execution_tool_stats(
+    event: Event, root: str | Path | None, cache: _TranscriptCache
+) -> dict[str, float | None]:
+    """Tool stats for one task execution (one (task, trial) pair).
+
+    Derived from the transcript's ``steps[]`` (``contracts/transcript.py``):
+    each ``tool_call`` step is paired with the ``tool_return`` step right
+    after it. Falls back to the coarser ``case_result`` counters when the
+    transcript is missing or fails to parse, honestly reporting ``redundant``
+    and ``tool_tokens`` as unknown (``None``, not ``0``) in that case -- they
+    cannot be recovered from those counters alone.
+    """
+    transcript = _load_transcript(_resolve(event.get("transcript_path"), root), cache)
+    if transcript is not None:
         seen: set[str] = set()
         redundant = 0
         errors = 0
+        calls = 0
         tokens = 0.0
-        for call in calls:
-            if not isinstance(call, dict):
+        steps = transcript.steps
+        for i, step in enumerate(steps):
+            if step.kind != StepKind.tool_call:
                 continue
-            key = f"{call.get('tool')}::{_normalized_args_key(call.get('args'))}"
+            calls += 1
+            key = f"{step.tool}::{_normalized_args_key(step.args)}"
             if key in seen:
                 redundant += 1
             seen.add(key)
-            if call.get("error"):
-                errors += 1
-            tokens += _num(call.get("tokens_in")) or 0.0
+            following = steps[i + 1] if i + 1 < len(steps) else None
+            if following is not None and following.kind == StepKind.tool_return:
+                if following.error:
+                    errors += 1
+                tokens += _num(following.tokens_in) or 0.0
         return {
-            "calls": float(len(calls)),
+            "calls": float(calls),
             "errors": float(errors),
             "redundant": float(redundant),
             "tool_tokens": tokens,
             "latency_ms": _num(event.get("latency_ms")) or 0.0,
         }
 
-    # No transcript detail on disk: fall back to the coarser case_result
-    # counters. Redundant calls and tool-response tokens cannot be recovered
-    # from these alone, so they are honestly reported as unknown (None), not 0.
     return {
         "calls": _num(event.get("tool_calls")) or 0.0,
         "errors": _num(event.get("tool_errors")) or 0.0,
@@ -962,14 +1005,19 @@ def tool_call_stats(
     version: int,
     split: str,
     root: str | Path | None = None,
+    *,
+    _cache: _TranscriptCache | None = None,
 ) -> dict[str, Any]:
     """Per-task and aggregate tool usage for the latest run of ``(agent, version, split)``.
 
     ``tasks`` maps each task id to its mean stats across trials; ``aggregate``
     is the mean over every task execution (task, trial). Redundant calls are
     "same tool, identical normalized args, within one trial" (PLAN_ADDENDUM.md
-    sec K), computed from the transcript's recorded tool-call list when present.
+    sec K), computed from the transcript's ``steps[]``. ``_cache`` lets a
+    caller (``tool_stats_by_version``) share one transcript cache across
+    several calls; omit it to use a fresh, call-scoped cache.
     """
+    cache: _TranscriptCache = _cache if _cache is not None else {}
     run = latest_run(conn, agent_id, version, split)
     empty = {
         "calls": None,
@@ -985,13 +1033,13 @@ def tool_call_stats(
     if not results:
         return {"tasks": {}, "aggregate": dict(empty)}
 
-    per_execution = [_execution_tool_stats(e, root) for e in results]
+    per_execution = [_execution_tool_stats(e, root, cache) for e in results]
 
-    def field_mean(key: str, rows: Sequence[dict[str, float]]) -> float | None:
+    def field_mean(key: str, rows: Sequence[dict[str, float | None]]) -> float | None:
         values = [r[key] for r in rows if r.get(key) is not None]
         return _mean(values)
 
-    by_task: dict[str, list[dict[str, float]]] = {}
+    by_task: dict[str, list[dict[str, float | None]]] = {}
     for event, stats in zip(results, per_execution, strict=True):
         case_id = event.get("case_id")
         if case_id is None:
@@ -1011,11 +1059,13 @@ def tool_stats_by_version(
     """``[{version, split, calls, errors, redundant, tool_tokens, latency_ms}]``.
 
     One row per (version, split) with a finished run, aggregated per task.
-    Expected to fall as memory grows (judge question 4).
+    Expected to fall as memory grows (judge question 4). Shares one transcript
+    cache across every (version, split) in this call.
     """
+    cache: _TranscriptCache = {}
     out: list[dict[str, Any]] = []
     for version, split in _finished_version_splits(conn, agent_id):
-        stats = tool_call_stats(conn, agent_id, version, split, root)
+        stats = tool_call_stats(conn, agent_id, version, split, root, _cache=cache)
         if not stats["tasks"]:
             continue
         out.append({"version": version, "split": split, **stats["aggregate"]})
@@ -1046,11 +1096,16 @@ def fix_cards(
     """``FixCard`` list per ``contracts/api.md`` / PLAN_ADDENDUM.md sec A, newest first.
 
     One card per ``fix_proposed``, joined to its ``fix_accepted`` /
-    ``fix_rejected`` by ``to_version``. A proposal with no outcome yet gets
-    ``status = "proposed"`` rather than being dropped. ``memory`` fixes carry
-    ``memory_entries`` (the ``memory_written`` events for that version, merged
-    with their on-disk detail -- see ``_memory_entry_detail``) so the card can
-    show the entries instead of a text diff.
+    ``fix_rejected`` by ``to_version``. ``status`` is ``accepted`` or
+    ``rejected`` only: a proposal with no verdict yet is a fix still in
+    flight and is omitted (``contracts/api.md``: "Phase 0 reading: omit it
+    from ``/agents/{id}/fixes``"). If two proposals ever target the same
+    ``to_version``, the newest one wins (``_proposals_by_version``) so a card
+    never mixes two proposals' diff/hypothesis with one outcome.
+    ``memory`` fixes carry ``memory_entries`` (the ``memory_written`` events
+    for that version, merged with their on-disk detail -- see
+    ``_memory_entry_detail``) so the card can show the entries instead of a
+    text diff.
     """
     outcomes: dict[int, Event] = {}
     for event in events(conn, kind=("fix_accepted", "fix_rejected"), agent_id=agent_id):
@@ -1069,19 +1124,12 @@ def fix_cards(
             memory_by_v.setdefault(version, []).append(entry)
 
     cards: list[tuple[int, dict[str, Any]]] = []
-    for proposal in events(conn, kind="fix_proposed", agent_id=agent_id):
-        to_version = _int(proposal.get("to_version"))
-        if to_version is None:
-            continue
-        from_version = _int(proposal.get("from_version"))
+    for to_version, proposal in _proposals_by_version(conn, agent_id).items():
         outcome = outcomes.get(to_version)
-        status = (
-            "accepted"
-            if outcome is not None and outcome.kind == "fix_accepted"
-            else "rejected"
-            if outcome is not None
-            else "proposed"
-        )
+        if outcome is None:
+            continue  # in flight: no accept/reject yet, omit per contract
+        from_version = _int(proposal.get("from_version"))
+        status = "accepted" if outcome.kind == "fix_accepted" else "rejected"
         lever = _lever_of(proposal, outcome)
 
         before, after = _card_numbers(conn, agent_id, from_version, outcome, status)
@@ -1191,15 +1239,29 @@ def fix_diff(
     to_version: int,
     root: str | Path | None = None,
 ) -> str | None:
-    """The unified diff on disk for a fix, or None when there is no file."""
+    """The unified diff on disk for a fix, or None when there is no file.
+
+    Refuses a ``diff_path`` that resolves outside the repo root -- a
+    ``fix_proposed`` payload is machine-written today, but this is a
+    filesystem-reading endpoint and should not trust a path string blindly.
+    """
     proposal = _proposals_by_version(conn, agent_id).get(int(to_version))
     if proposal is None:
         return None
     path = _resolve(proposal.get("diff_path"), root)
-    if path is None or not path.is_file():
+    if path is None:
+        return None
+    base = repo_root(root).resolve()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+    if resolved != base and base not in resolved.parents:
+        return None
+    if not resolved.is_file():
         return None
     try:
-        return path.read_text(encoding="utf-8")
+        return resolved.read_text(encoding="utf-8")
     except OSError:
         return None
 
@@ -1210,14 +1272,11 @@ def fix_diff(
 
 
 def _final_output(transcript_path: str | None, root: str | Path | None) -> Any:
-    """``final_output`` from a transcript on disk (``contracts/transcript.py``)."""
+    """``final_output`` from a transcript on disk (``contracts/transcript.Transcript``)."""
     data = _read_json(_resolve(transcript_path, root))
     if not isinstance(data, dict):
         return None
-    for key in ("final_output", "output", "actual"):
-        if key in data:
-            return data[key]
-    return None
+    return data.get("final_output")
 
 
 def _compare_side(

@@ -7,7 +7,10 @@ recomputed by the code under test.
 Every event is written through ``backend.ledger.emit.emit``, so this fixture's
 payloads are validated against ``contracts/events.py`` exactly like any other
 caller's -- if a field name here drifts from the frozen contract, building the
-fixture fails loudly instead of silently writing an invalid row.
+fixture fails loudly instead of silently writing an invalid row. Every
+transcript is written through ``contracts.transcript.Transcript(...).write()``
+for the same reason: ``metrics.tool_call_stats`` reads real ``steps[]``
+tool_call/tool_return pairs, not an invented shape.
 
 Terminology follows PLAN_ADDENDUM.md sec J: a **task** is one evaluator case, a
 **trial** is one repeated execution of a task, the **grader** is ``score.py``.
@@ -55,6 +58,7 @@ from typing import Any
 
 from backend.db import migrate
 from backend.ledger.emit import emit as ledger_emit
+from contracts.transcript import StepKind, Transcript
 
 AGENT_ID = "agent_demo"
 AGENT_B_ID = "agent_b"
@@ -179,26 +183,45 @@ def _final_output(case_id: str, passed: bool) -> dict[str, Any]:
     return {"labels": [], "component": None}
 
 
-def _tool_call_records(
-    count: int, errors: int, redundant: int, tokens_in: int
+def _transcript_steps(
+    clock: _Clock, count: int, errors: int, redundant: int, tokens_in: int
 ) -> list[dict[str, Any]]:
-    """Synthetic per-call detail: ``redundant`` calls repeat the first call's args.
+    """``tool_call``/``tool_return`` step pairs per ``contracts/transcript.py``.
 
-    Matches the shape :func:`backend.ledger.metrics._transcript_tool_calls`
-    expects: ``{tool, args, error, tokens_in}`` per call.
+    ``redundant`` calls repeat the first call's args (same tool, same
+    normalized args) so :func:`backend.ledger.metrics._execution_tool_stats`
+    has something to detect; the last ``errors`` calls carry an error on their
+    ``tool_return``.
     """
     unique = max(count - redundant, 0)
-    calls = [
-        {"tool": "list_issues", "args": {"page": i}, "error": False, "tokens_in": tokens_in}
-        for i in range(unique)
-    ]
-    calls += [
-        {"tool": "list_issues", "args": {"page": 0}, "error": False, "tokens_in": tokens_in}
-        for _ in range(count - unique)
-    ]
-    for i in range(errors):
-        calls[-(i + 1)]["error"] = True
-    return calls
+    args_list = [{"page": i} for i in range(unique)] + [{"page": 0} for _ in range(count - unique)]
+    steps: list[dict[str, Any]] = []
+    idx = 0
+    for i, args in enumerate(args_list):
+        is_error = i >= len(args_list) - errors
+        steps.append(
+            {
+                "i": idx,
+                "ts": clock.next(),
+                "kind": StepKind.tool_call,
+                "tool": "list_issues",
+                "args": args,
+            }
+        )
+        idx += 1
+        steps.append(
+            {
+                "i": idx,
+                "ts": clock.next(),
+                "kind": StepKind.tool_return,
+                "tool": "list_issues",
+                "result": None if is_error else "ok",
+                "error": "rate_limited" if is_error else None,
+                "tokens_in": tokens_in,
+            }
+        )
+        idx += 1
+    return steps
 
 
 def _emit_run(
@@ -222,8 +245,16 @@ def _emit_run(
     tool_tokens_per_call: int = 0,
     rules: dict[str, list[str]] | None = None,
     drift: dict[tuple[str, int], dict[str, Any]] | None = None,
+    previously_stable: set[str] | None = None,
 ) -> None:
-    """Emit run_started, one case_result per (task, trial), and run_finished."""
+    """Emit run_started, one case_result per (task, trial), and run_finished.
+
+    ``previously_stable`` is the prior train run's stable pass set for this
+    agent (``None``/empty for the first run): only tasks newly stable *this*
+    run graduate, matching the real runtime's contract (``task_graduated`` is
+    a running total of genuine graduations, not "every stable task, every
+    run" -- PLAN_ADDENDUM.md sec J).
+    """
     task_ids = list(patterns)
     trials = len(next(iter(patterns.values())))
     drift = drift or {}
@@ -270,21 +301,28 @@ def _emit_run(
                 )
 
             transcript_rel = f"runs/{run_id}/{case_id}.t{trial}.json"
-            _write_json(
-                root / transcript_rel,
-                {
-                    "run_id": run_id,
-                    "case_id": case_id,
-                    "trial": trial,
-                    "agent_id": agent_id,
-                    "version": version,
-                    "tool_calls": _tool_call_records(
-                        tool_calls, tool_errors, redundant_tool_calls, tool_tokens_per_call
-                    ),
-                    "final_output": _final_output(case_id, passed),
-                    "usage": {"tokens_in": tokens_in, "tokens_out": tokens_out},
-                },
+            started_ts = clock.next()
+            steps = _transcript_steps(
+                clock, tool_calls, tool_errors, redundant_tool_calls, tool_tokens_per_call
             )
+            finished_ts = clock.next()
+            Transcript(
+                run_id=run_id,
+                case_id=case_id,
+                trial=trial,
+                agent_id=agent_id,
+                version=version,
+                started_ts=started_ts,
+                finished_ts=finished_ts,
+                steps=steps,
+                final_output=_final_output(case_id, passed),
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                tool_calls=tool_calls,
+                tool_errors=tool_errors,
+                rules_injected=rules.get(case_id, []),
+            ).write(root=root / "runs")
+            assert (root / transcript_rel).is_file()
 
             payload: dict[str, Any] = {
                 "case_id": case_id,
@@ -301,9 +339,15 @@ def _emit_run(
                 "tool_errors": tool_errors,
                 "rules_injected": rules.get(case_id, []),
             }
-            if spec is not None and spec["action"] == "abort":
-                payload["failure_signature"] = f"drift:{spec['kind']}"
+            if spec is not None:
+                # Set on any drift (nudge or abort): the real harness records
+                # which drift trigger touched a trial regardless of outcome,
+                # so cases_recovered_by_nudge can join on this field.
                 payload["drift_event_id"] = drift_ids[(case_id, trial)]
+                if spec["action"] == "abort":
+                    payload["failure_signature"] = f"drift:{spec['kind']}"
+                elif not passed:
+                    payload["failure_signature"] = "wrong_component"
             elif not passed:
                 payload["failure_signature"] = "wrong_component"
 
@@ -351,17 +395,18 @@ def _emit_run(
     )
 
     if split == "train":
-        for case_id, flags in patterns.items():
-            if all(flags):
-                _insert(
-                    conn,
-                    "task_graduated",
-                    clock.next(),
-                    agent_id=agent_id,
-                    agent_version=version,
-                    case_id=case_id,
-                    version=version,
-                )
+        previously_stable = previously_stable or set()
+        stable_now = {case_id for case_id, flags in patterns.items() if all(flags)}
+        for case_id in sorted(stable_now - previously_stable):
+            _insert(
+                conn,
+                "task_graduated",
+                clock.next(),
+                agent_id=agent_id,
+                agent_version=version,
+                case_id=case_id,
+                version=version,
+            )
 
 
 def build(conn: sqlite3.Connection, root: Path, *, ablation: bool = False) -> SeededLedger:
@@ -759,6 +804,7 @@ def build(conn: sqlite3.Connection, root: Path, *, ablation: bool = False) -> Se
                 "evidence": "13 steps > DRIFT_MAX_STEPS=12",
             }
         },
+        previously_stable={cid for cid, flags in V0_TRAIN.items() if all(flags)},
     )
     _emit_run(
         conn,
