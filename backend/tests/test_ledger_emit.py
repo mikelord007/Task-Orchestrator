@@ -128,6 +128,13 @@ def test_read_since_accepts_a_timestamp(conn):
     assert len(read(since="2026-09-03T00:00:00Z", conn=conn)) == 1
 
 
+def test_bare_kind_kwarg_is_rejected_with_a_clear_error(conn):
+    payload = {k: v for k, v in VALID_PAYLOADS["drift_detected"].items() if k != "kind"}
+    with pytest.raises(TypeError, match="payload="):
+        emit("drift_detected", agent_id="a1", conn=conn, kind="loop", **payload)
+    assert conn.execute("SELECT count(*) AS n FROM events").fetchone()["n"] == 0
+
+
 def test_ledger_module_never_updates_or_deletes():
     import inspect
 

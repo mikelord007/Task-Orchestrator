@@ -45,7 +45,7 @@ STEPS = [
 TRANSCRIPT = {
     "run_id": "r_12",
     "case_id": "issue_412",
-    "repeat": 0,
+    "trial": 0,
     "agent_id": "a_github_triage",
     "version": 3,
     "started_ts": "2026-09-06T11:20:04Z",
@@ -80,7 +80,7 @@ def test_totals_default_to_zero_and_output_may_be_null():
     t = Transcript(
         run_id="r_1",
         case_id="c1",
-        repeat=0,
+        trial=0,
         agent_id="a1",
         version=0,
         started_ts="2026-09-06T00:00:00Z",
@@ -111,7 +111,7 @@ def test_missing_required_field_is_rejected():
 
 def test_path_convention(tmp_path: Path):
     assert transcript_path("r_12", "issue_412", 2, root=tmp_path) == (
-        tmp_path / "r_12" / "issue_412.r2.json"
+        tmp_path / "r_12" / "issue_412.t2.json"
     )
 
 
@@ -119,6 +119,6 @@ def test_write_then_load_round_trips(tmp_path: Path):
     t = Transcript.model_validate(TRANSCRIPT)
     path = t.write(root=tmp_path)
 
-    assert path == tmp_path / "r_12" / "issue_412.r0.json"
+    assert path == tmp_path / "r_12" / "issue_412.t0.json"
     assert json.loads(path.read_text(encoding="utf-8"))["case_id"] == "issue_412"
     assert load_transcript(path) == t

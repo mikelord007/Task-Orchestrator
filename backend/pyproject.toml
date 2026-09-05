@@ -9,7 +9,7 @@ dependencies = [
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "openai>=1.55",
-    "python-multipart>=0.0.12",
+    "python-dotenv>=1.0",
     "httpx>=0.27",
 ]
 
@@ -26,9 +26,11 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-# rootdir is backend/, so ".." is the repo root.
+# rootdir is backend/ (invoke pytest with cwd=backend/, e.g. scripts/test.ps1
+# or `cd backend && uv run python -m pytest`), so "../evaluators" and
+# "../scripts" reach W4's evaluator tests and any script tests.
 pythonpath = [".."]
-testpaths = ["tests"]
+testpaths = ["tests", "../evaluators", "../scripts"]
 addopts = "-q"
 
 # ruff is configured repo-wide in ../ruff.toml

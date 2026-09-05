@@ -1,4 +1,4 @@
-"""Per-case transcript contract (PLAN.md section 2.8 / 6-W2).
+"""Per-task transcript contract (PLAN.md section 2.8 / PLAN_ADDENDUM.md section B).
 
 The transcript is the **harness-level record of what the agent actually did**:
 every request, every response, every tool call and its return value, every
@@ -6,9 +6,9 @@ nudge, and the token counts reported by the API. It is written by the runtime,
 never by the agent, and it is the single source of truth for the drift
 watchdog, the failure analyst, the reflection step and Neatlogs.
 
-One file per (case, repeat)::
+One file per (task, trial)::
 
-    runs/<run_id>/<case_id>.r<repeat>.json
+    runs/<run_id>/<case_id>.t<trial>.json
 
 See `contracts/transcript.md` for the prose contract.
 """
@@ -73,7 +73,7 @@ class TranscriptStep(BaseModel):
 
 
 class TranscriptDrift(BaseModel):
-    """A drift trigger on this case, mirroring the `drift_detected` event."""
+    """A drift trigger on this task, mirroring the `drift_detected` event."""
 
     model_config = ConfigDict(extra="allow", use_enum_values=True)
 
@@ -83,13 +83,13 @@ class TranscriptDrift(BaseModel):
 
 
 class Transcript(BaseModel):
-    """The whole per-case record. Totals are sums over observed steps."""
+    """The whole per-(task, trial) record. Totals are sums over observed steps."""
 
     model_config = ConfigDict(extra="allow")
 
     run_id: str
     case_id: str
-    repeat: int
+    trial: int
     agent_id: str
     version: int
     started_ts: str
@@ -104,16 +104,16 @@ class Transcript(BaseModel):
     drift: list[TranscriptDrift] = Field(default_factory=list)
 
     def write(self, root: Path | str = "runs") -> Path:
-        """Write to `runs/<run_id>/<case_id>.r<repeat>.json` and return the path."""
-        path = transcript_path(self.run_id, self.case_id, self.repeat, root=root)
+        """Write to `runs/<run_id>/<case_id>.t<trial>.json` and return the path."""
+        path = transcript_path(self.run_id, self.case_id, self.trial, root=root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.model_dump(mode="json"), indent=2), encoding="utf-8")
         return path
 
 
-def transcript_path(run_id: str, case_id: str, repeat: int, root: Path | str = "runs") -> Path:
+def transcript_path(run_id: str, case_id: str, trial: int, root: Path | str = "runs") -> Path:
     """The one path convention for transcripts. Do not build it by hand."""
-    return Path(root) / run_id / f"{case_id}.r{repeat}.json"
+    return Path(root) / run_id / f"{case_id}.t{trial}.json"
 
 
 def load_transcript(path: Path | str) -> Transcript:

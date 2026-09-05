@@ -18,6 +18,7 @@ agents/<agent_id>/v<N>/
     rules.jsonl
     tool_notes.jsonl
     episodes.jsonl
+  CHANGES.diff          # unified diff from v<N-1>; absent for v0
 ```
 
 The only mutable pointer is `agents.current_version` in SQLite.
@@ -106,11 +107,13 @@ Structured, self-written, self-correcting. Replaces the earlier flat `memory.md`
  "created_version": 1}
 ```
 
-`episodes.jsonl` — `Episode`:
+`episodes.jsonl` — `Episode`, one line per run, the agent's own one-line
+reflection (an observation over the transcript + grader verdict, never a
+self-report of success — rule §2.8):
 
 ```json
-{"id": "ep_44", "run_id": "r_12", "case_id": "issue_331", "version": 1,
- "text": "Missed the duplicate because list_issues defaulted to state=open."}
+{"version": 1, "run_id": "r_12",
+ "one_line_reflection": "Missed the duplicate because list_issues defaulted to state=open."}
 ```
 
 ### Rules the runtime and improver must honour

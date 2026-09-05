@@ -34,8 +34,8 @@ Or run them raw from the repo root:
 ```bash
 uv sync --project backend
 uv run --project backend python -m uvicorn backend.app:app --reload --port 8000
-uv run --project backend python -m pytest backend/tests
-uv run --project backend ruff check backend contracts scripts
+(cd backend && uv run python -m pytest)   # cwd=backend so ../evaluators, ../scripts resolve
+uv run --project backend ruff check backend contracts scripts evaluators agents
 cd frontend && npm ci && npm run dev
 ```
 
@@ -73,7 +73,7 @@ Phase 0: a change needs an issue labelled `contract-change`.
 | `NEATLOGS_API_KEY` | — | optional tracing; transcripts are always written locally |
 | `GITHUB_TOKEN` | — | read-only PAT for the `github_triage` tools |
 | `TO_DB_PATH` | `runs/to.sqlite3` | SQLite ledger path |
-| `EVAL_REPEATS` | `3` | runs per case — this is what produces the error bars |
+| `EVAL_TRIALS` | `3` | trials per task — this is what produces the error bars (`EVAL_REPEATS` is a deprecated alias) |
 | `EVAL_CONCURRENCY` | `4` | bounded parallelism during eval |
 | `DRIFT_MAX_STEPS` | `12` | drift watchdog: step limit |
 | `DRIFT_TOKEN_BUDGET` | `20000` | drift watchdog: per-case token budget |

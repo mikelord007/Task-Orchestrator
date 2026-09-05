@@ -68,3 +68,39 @@ def test_connect_creates_the_parent_directory(tmp_path: Path):
     conn = connect(target)
     conn.close()
     assert target.parent.is_dir()
+
+
+def test_a_failing_migration_leaves_no_partial_tables(
+    db_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import backend.db as db_module
+
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    (migrations_dir / "0001_ok.sql").write_text(
+        "CREATE TABLE dummy (id INTEGER PRIMARY KEY);", encoding="utf-8"
+    )
+    (migrations_dir / "0002_bad.sql").write_text(
+        "CREATE TABLE also_dummy (id INTEGER PRIMARY KEY);\nTHIS IS NOT SQL;",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(db_module, "MIGRATIONS_DIR", migrations_dir)
+
+    conn = connect(db_file)
+    try:
+        with pytest.raises(Exception):  # noqa: B017 - sqlite3 raises OperationalError
+            migrate(conn)
+
+        assert applied_migrations(conn) == [1]  # the good migration committed
+        tables = _tables(conn)
+        assert "dummy" in tables
+        assert "also_dummy" not in tables  # rolled back, not left half-applied
+
+        # Retrying after fixing the bad file must not choke on "already exists".
+        (migrations_dir / "0002_bad.sql").write_text(
+            "CREATE TABLE also_dummy (id INTEGER PRIMARY KEY);", encoding="utf-8"
+        )
+        assert migrate(conn) == ["0002_bad.sql"]
+        assert applied_migrations(conn) == [1, 2]
+    finally:
+        conn.close()

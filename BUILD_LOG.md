@@ -35,8 +35,40 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 
 **Phase 3** — W11 evidence, W12 README/DEMO.
 
+## Decisions — 2026-09-05 19:10Z (orchestrator session task-orchestrator-3)
+
+**Time check (§M):** deadline Sunday 2026-09-06 18:00 EDT = 22:00 UTC. Remaining at check time: **26 h 54 m**. More than 10 h remain, so the full plan applies: §B, §D, §E, §F, §G, §J, §K all in scope. Nothing cut yet. Cut order if behind, per §M: W10 → off_task drift → pass-vs-cost scatter → side-by-side domain comparison → drift nudge → generate_critic (already dropped) → Domain B improve iterations → trials to 2.
+
+**PLAN_ADDENDUM.md** is the source of truth over PLAN.md. It is stored at `C:/Users/manuj/.ao/briefs/task-orchestrator/PLAN_ADDENDUM.md` for live workers and lands on `main` via a doc-only PR (W0b).
+
+**§L reconciliation.** No workstream was merged at check time, so no `W<n>b` follow-ups were needed for merged work.
+
+| Workstream | State at check | Decision |
+|---|---|---|
+| W0 scaffold (task-orchestrator-4) | in progress, contracts drafted, unpushed | kept; §A contract changes routed to W0's PR (owns `contracts/`) |
+| W0b addendum doc (task-orchestrator-10) | not started | spawned; PR #2 merged to main at 19:15Z as eba2a1c (`PLAN_ADDENDUM.md` + one-line pointer in `PLAN.md`) |
+| W1 ledger (task-orchestrator-7) | in progress (started early on pure metrics) | kept; messaged with deltas (pass@1 / pass^k, tool_call_stats, graduation, saturation) |
+| W2 runtime (task-orchestrator-8) | in progress (started early on drift/memory/signature) | kept; messaged with deltas (trials, isolation, task_graduated, drift order) |
+| W3 architect + toolbox (task-orchestrator-9) | in progress (toolbox first) | kept; messaged: seven thin wrappers replaced by the four consolidated `github_*` tools |
+| W4 evaluators (task-orchestrator-5) | in progress, draft PR #1 | kept; messaged: reference_output, negatives, four tool names, validator assertion |
+| W5 frontend (task-orchestrator-6) | in progress | kept; messaged: §A shapes, pass@1/pass^k copy, grader-disagreed button, graduated/saturation slots |
+| W6 improver | not started | will spawn after Phase 1 merges with PLAN.md block + addendum (§E reflection first, §K tools lever, gate on pass^k) |
+| W7 issues | not started | will spawn after W1, W2 merge; text-only, grader-bug path |
+| W8 playbook | not started | unchanged; spawn after W1, W3 |
+| W9 insights | not started | spawn after W1; §B chart, memory growth, tool efficiency, graduated counter, saturation banner |
+| W10 routing | not started | shrunk to per-step model field + one measured routing change; first on the cut list |
+| W11 evidence, W12 README/DEMO | not started | spawn in Phase 3; every pass rate as pass@1 and pass^k with ± |
+
+**Domain decision:** `hackathon_extract` was never started (W4 was briefed on `github_triage` + `ticket_triage` from the outset), so Domain B stays `ticket_triage`.
+
 ## Sessions
 
 | session id | workstream | branch | PR | outcome | started | finished |
 |---|---|---|---|---|---|---|
 | `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | [#3](https://github.com/mikelord007/Task-Orchestrator/pull/3) | open | 2026-09-06 | — |
+| `task-orchestrator-10` | W0b — addendum doc (`PLAN_ADDENDUM.md`) | `ws/w0b-addendum` | #2 | merged (eba2a1c) | 2026-09-05 | 2026-09-05 |
+| `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | — | in progress | 2026-09-05 | — |
+| `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | — | in progress | 2026-09-05 | — |
+| `task-orchestrator-9` | W3 — architect + toolbox | `ws/w3-architect` | — | in progress | 2026-09-05 | — |
+| `task-orchestrator-5` | W4 — domains, fixtures, evaluators | `ws/w4-domains` | #1 | in progress | 2026-09-05 | — |
+| `task-orchestrator-6` | W5 — frontend shell | `ws/w5-frontend` | — | in progress | 2026-09-05 | — |

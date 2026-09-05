@@ -53,6 +53,6 @@ One JSON object per line:
 ## Ablation
 
 The Domain B ablation writes `reports/ablation.json`, surfaced by
-`GET /insights/compare`. It compares v0 pass rate (mean ± std over
-`EVAL_REPEATS`) with `use_playbook=false` against `use_playbook=true`, same
+`GET /insights/compare`. It compares v0's `pass@1` (mean ± std over
+`EVAL_TRIALS`) with `use_playbook=false` against `use_playbook=true`, same
 evaluator, same models. A flat or negative result is reported as-is (rule §2.4).

@@ -11,14 +11,17 @@ agent what it did.
 
 ## Path
 
-One file per (case, repeat):
+One file per (task, trial):
 
 ```
-runs/<run_id>/<case_id>.r<repeat>.json
+runs/<run_id>/<case_id>.t<trial>.json
 ```
 
-Build it with `contracts.transcript.transcript_path(run_id, case_id, repeat)`,
-not by hand. `case_result.transcript_path` points at this file.
+Build it with `contracts.transcript.transcript_path(run_id, case_id, trial)`,
+not by hand. `case_result.transcript_path` points at this file. Trial
+isolation (section J): each trial gets its own transcript, starting from a
+clean message list -- a trial never sees another trial's transcript or the
+improver's diagnoses.
 
 ## Shape
 
@@ -26,7 +29,7 @@ not by hand. `case_result.transcript_path` points at this file.
 {
   "run_id": "r_12",
   "case_id": "issue_412",
-  "repeat": 0,
+  "trial": 0,
   "agent_id": "a_github_triage",
   "version": 3,
   "started_ts": "2026-09-06T11:20:04Z",
@@ -53,7 +56,7 @@ not by hand. `case_result.transcript_path` points at this file.
 
 | field | meaning |
 |---|---|
-| `run_id`, `case_id`, `repeat` | identify the file; `repeat` is 0-based |
+| `run_id`, `case_id`, `trial` | identify the file; `trial` is 0-based, `0..trials-1` |
 | `agent_id`, `version` | the exact package snapshot that produced this |
 | `started_ts`, `finished_ts` | ISO8601 UTC, wall clock measured by the harness |
 | `steps[]` | every observed step, in order, `i` starting at 0 |
@@ -89,9 +92,9 @@ observation, `case_result` is the summary.
 ```python
 from contracts.transcript import Transcript, load_transcript, transcript_path
 
-t = Transcript(run_id="r_12", case_id="issue_412", repeat=0, agent_id="a1",
+t = Transcript(run_id="r_12", case_id="issue_412", trial=0, agent_id="a1",
                version=3, started_ts=..., finished_ts=...)
-path = t.write()                 # runs/r_12/issue_412.r0.json
+path = t.write()                 # runs/r_12/issue_412.t0.json
 same = load_transcript(path)
 ```
 

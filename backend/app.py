@@ -4,50 +4,63 @@ Run it with::
 
     uv run --project backend python -m uvicorn backend.app:app --port 8000
 
-Phase 1/2 workers register their routers by adding one line to
-`ROUTER_MODULES` below and exposing an `APIRouter` named `router` in that
-module. A module that is not merged yet is skipped with a warning, so the app
-still boots mid-merge.
+Later workstreams register a router simply by adding `backend/<pkg>/api.py`
+with an `APIRouter` named `router` -- `discover_routers()` finds every
+immediate subpackage of `backend` that exposes one and includes it. This
+replaces an explicit list of modules to import: a hand-maintained list is a
+guaranteed merge conflict once five workers are each adding one entry.
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
-import os
+import pkgutil
 from contextlib import asynccontextmanager
+from types import ModuleType
 
-from fastapi import FastAPI
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.db import db_path, init_db
+from backend.settings import env
+
+load_dotenv()  # backend.settings already does this; explicit here too per review
 
 log = logging.getLogger(__name__)
 
-__all__ = ["create_app", "app", "ROUTER_MODULES"]
+__all__ = ["create_app", "app", "discover_routers"]
 
-# Registration points for later workstreams. Uncomment as each lands.
-ROUTER_MODULES: tuple[str, ...] = (
-    # "backend.ledger.api",       # W1 - /events, /insights, /agents/{id}/fixes
-    # "backend.runtime.api",      # W2 - /agents/{id}/run, /jobs/{job_id}
-    # "backend.architect.api",    # W3 - /agents, /evaluators
-    # "backend.improver.api",     # W6 - /agents/{id}/improve
-    # "backend.issues.api",       # W7 - /issues
-    # "backend.playbook.api",     # W8 - /playbook
-)
+
+def discover_routers(package: ModuleType) -> list[APIRouter]:
+    """Every `<package>.<subpackage>.api.router` found one level down.
+
+    A subpackage with no `api.py`, or an `api.py` with no `router`, is
+    silently skipped -- that is the normal state for a workstream that has
+    not landed yet, not an error.
+    """
+    routers: list[APIRouter] = []
+    prefix = f"{package.__name__}."
+    for _finder, name, is_pkg in pkgutil.iter_modules(package.__path__, prefix=prefix):
+        if not is_pkg:
+            continue
+        try:
+            module = importlib.import_module(f"{name}.api")
+        except ModuleNotFoundError:
+            continue
+        router = getattr(module, "router", None)
+        if isinstance(router, APIRouter):
+            routers.append(router)
+        elif router is not None:
+            log.warning("%s.api.router is not an APIRouter; skipping", name)
+    return routers
 
 
 def _register_routers(app: FastAPI) -> None:
-    for module_name in ROUTER_MODULES:
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError:
-            log.warning("router module %s is not available yet; skipping", module_name)
-            continue
-        router = getattr(module, "router", None)
-        if router is None:
-            log.warning("module %s has no `router`; skipping", module_name)
-            continue
+    import backend
+
+    for router in discover_routers(backend):
         app.include_router(router)
 
 
@@ -67,7 +80,7 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    origins = env("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in origins.split(",") if o.strip()],

@@ -39,6 +39,7 @@ def test_toy_package_memory(toy_agent_path: Path):
     assert [r.id for r in memory.active_rules] == ["rule_toy0001"]  # rule_toy0002 is demoted
     assert memory.tool_notes[0].tool == "shout"
     assert memory.episodes[0].run_id == "r_toy"
+    assert "shout" in memory.episodes[0].one_line_reflection
 
 
 def test_missing_agent_yaml_is_reported(tmp_path: Path, toy_agent_path: Path):

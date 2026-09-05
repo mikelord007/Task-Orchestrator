@@ -24,6 +24,7 @@ how the drift watchdog tests build an agent that loops on one tool call.
 
 from __future__ import annotations
 
+import copy
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -189,8 +190,13 @@ class FakeLLM:
         )
 
     def _create(self, **kwargs: Any) -> _FakeResponse:
+        # Record a deep copy, and record it before consulting the script: a
+        # caller that mutates its own `messages` list after the call (a normal
+        # thing to do in a tool-use loop) must not rewrite history, and an
+        # exhausting call must still show up in `self.requests` so a test can
+        # see what request triggered `FakeLLMExhausted`.
+        self.requests.append(copy.deepcopy(kwargs))
         scripted = self._next_response()
-        self.requests.append(kwargs)
         self.call_count += 1
 
         calls = [

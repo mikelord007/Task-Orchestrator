@@ -21,6 +21,15 @@ __all__ = ["emit", "read", "LedgerEvent", "EVENT_KINDS"]
 
 LedgerEvent = dict[str, Any]
 
+# Field names that exist on some payload models but would be confusing (or, in
+# an earlier version of this function, outright impossible) to pass as a bare
+# `emit(..., kind=..., lever=...)` keyword: `kind` is a field on
+# drift_detected/memory_written, and `lever` is both a payload field
+# (fix_proposed, lesson_recorded) and this function's own column parameter.
+# Force those two through `payload={...}` so a reader is never left guessing
+# which "kind" or "lever" a call site means.
+_AMBIGUOUS_PAYLOAD_KEYS = ("kind", "lever")
+
 
 def _resolve_conn(
     conn: sqlite3.Connection | None, db: str | Path | None
@@ -42,7 +51,7 @@ def _normalize_lever(lever: Any, payload: dict[str, Any]) -> str | None:
 
 
 def emit(
-    kind: str,
+    event_kind: str,
     agent_id: str | None = None,
     agent_version: int | None = None,
     run_id: str | None = None,
@@ -59,27 +68,39 @@ def emit(
     Payload keys are passed as keyword arguments::
 
         emit("run_started", agent_id="a1", run_id="r_1",
-             split="train", case_count=42, repeats=3)
+             split="train", case_count=42, trials=3)
 
-    Two payload keys collide with this function's own parameters -- `kind`
-    (`drift_detected`, `memory_written`) and `lever` (`fix_proposed`,
-    `lesson_recorded`). Pass those in the explicit `payload=` dict::
+    `kind` and `lever` are payload field names on some event kinds
+    (`drift_detected.kind`, `fix_proposed.lever`, ...). Passing either as a
+    bare keyword argument is rejected with a clear error -- use the explicit
+    `payload=` dict instead::
 
         emit("drift_detected", agent_id="a1",
              payload={"kind": "loop", "case_id": "c1", ...})
 
-    `lever=` is the exception that is handled for you: when the event's model
-    has a `lever` field, the column value is copied into the payload.
+    `lever=` (the ledger column, distinct from any payload field of the same
+    name) is the one exception: when the event's model has a `lever` field,
+    the column value is copied into the payload automatically.
 
-    Raises `KeyError` for an unknown kind and `pydantic.ValidationError` when the
-    payload does not satisfy the contract -- in both cases nothing is written.
+    Raises `KeyError` for an unknown kind, `TypeError` for an ambiguous bare
+    keyword, and `pydantic.ValidationError` when the payload does not satisfy
+    the contract -- in every case nothing is written.
     """
+    model = PAYLOAD_MODELS.get(event_kind)
+    if model is not None:
+        for key in _AMBIGUOUS_PAYLOAD_KEYS:
+            if key in fields and key in model.model_fields:
+                raise TypeError(
+                    f"emit({event_kind!r}, ..., {key}=...) is ambiguous: {key!r} is a "
+                    f"payload field on this event. Pass it inside payload={{...}} instead: "
+                    f"emit({event_kind!r}, ..., payload={{{key!r}: ...}})"
+                )
+
     body: dict[str, Any] = {**(payload or {}), **fields}
-    model = PAYLOAD_MODELS.get(kind)
     if lever is not None and model is not None and "lever" in model.model_fields:
         body.setdefault("lever", lever.value if isinstance(lever, Lever) else lever)
 
-    validated = validate_payload(kind, body)
+    validated = validate_payload(event_kind, body)
     lever_value = _normalize_lever(lever, validated)
 
     connection, owned = _resolve_conn(conn, db)
@@ -92,7 +113,7 @@ def emit(
                 """,
                 (
                     ts or utcnow(),
-                    kind,
+                    event_kind,
                     agent_id,
                     agent_version,
                     run_id,

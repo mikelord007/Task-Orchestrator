@@ -77,12 +77,20 @@ def test_explicit_usage_overrides_the_estimate(fake: FakeLLM):
     assert out["usage"] == {"tokens_in": 1000, "tokens_out": 250}
 
 
-def test_exhausted_script_raises(fake: FakeLLM):
+def test_exhausted_script_raises_untouched_not_wrapped_in_llmerror(fake: FakeLLM):
     fake.push(text("only one"))
     llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
-    with pytest.raises(llm.LLMError) as exc:
+    with pytest.raises(FakeLLMExhausted):
         llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
-    assert isinstance(exc.value.__cause__, FakeLLMExhausted)
+
+
+def test_fake_llm_records_the_exhausting_request_before_raising(fake: FakeLLM):
+    fake.push(text("only one"))
+    llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
+    with pytest.raises(FakeLLMExhausted):
+        llm.complete([{"role": "user", "content": "second, unscripted"}], "gpt-4o")
+    assert len(fake.requests) == 2
+    assert fake.requests[1]["messages"][0]["content"] == "second, unscripted"
 
 
 def test_repeat_last_loops_forever_for_drift_tests():
@@ -95,6 +103,19 @@ def test_repeat_last_loops_forever_for_drift_tests():
         assert client.call_count == 5
     finally:
         llm.reset_client()
+
+
+def test_recorded_request_is_a_snapshot_not_a_live_reference(fake: FakeLLM):
+    """A caller mutating its own messages list afterwards must not rewrite history."""
+    fake.push(text("ok"))
+    messages = [{"role": "user", "content": "hi"}]
+    llm.complete(messages, "gpt-4o")
+
+    messages.append({"role": "user", "content": "appended after the call"})
+    messages[0]["content"] = "mutated after the call"
+
+    recorded = fake.requests[0]["messages"]
+    assert recorded == [{"role": "user", "content": "hi"}]
 
 
 def test_unknown_model_is_not_given_an_invented_price():

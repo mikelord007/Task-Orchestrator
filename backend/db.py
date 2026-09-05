@@ -78,6 +78,31 @@ def _discover_migrations() -> list[tuple[int, str, Path]]:
     return found
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Drop `-- ...` line comments. Our migrations never put `--` inside a
+    string literal, so this line-based strip is sufficient (a full SQL
+    tokenizer would be overkill for hand-written DDL)."""
+    lines = []
+    for line in sql.splitlines():
+        idx = line.find("--")
+        lines.append(line if idx == -1 else line[:idx])
+    return "\n".join(lines)
+
+
+def _split_statements(sql: str) -> list[str]:
+    """Split a migration file into individual statements for `execute()`.
+
+    `executescript()` cannot be used here: it implicitly commits any pending
+    transaction before running and does not participate in an explicit
+    transaction, so a script that fails partway leaves earlier `CREATE TABLE`
+    statements committed with no matching `schema_migrations` row -- the next
+    run then dies on "table already exists". Splitting and running each
+    statement inside one explicit transaction makes a migration atomic.
+    """
+    cleaned = _strip_sql_comments(sql)
+    return [stmt.strip() for stmt in cleaned.split(";") if stmt.strip()]
+
+
 def _ensure_migrations_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -100,7 +125,10 @@ def applied_migrations(conn: sqlite3.Connection) -> list[int]:
 def migrate(conn: sqlite3.Connection) -> list[str]:
     """Apply every pending migration in order. Returns the names applied.
 
-    Idempotent: running it again on the same database applies nothing.
+    Idempotent: running it again on the same database applies nothing. Each
+    migration's statements plus its `schema_migrations` row commit in one
+    atomic transaction -- a failure partway rolls back the whole migration, so
+    a retry never finds a half-applied schema (see `_split_statements`).
     """
     _ensure_migrations_table(conn)
     already = set(applied_migrations(conn))
@@ -108,12 +136,19 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     for version, name, sql_path in _discover_migrations():
         if version in already:
             continue
-        with conn:  # one transaction per migration
-            conn.executescript(sql_path.read_text(encoding="utf-8"))
+        statements = _split_statements(sql_path.read_text(encoding="utf-8"))
+        conn.execute("BEGIN")
+        try:
+            for stmt in statements:
+                conn.execute(stmt)
             conn.execute(
                 "INSERT INTO schema_migrations (version, name, applied_ts) VALUES (?, ?, ?)",
                 (version, name, utcnow()),
             )
+        except Exception:
+            conn.rollback()
+            raise
+        conn.commit()
         applied.append(name)
     return applied
 

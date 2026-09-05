@@ -4,9 +4,10 @@
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 
-Push-Location $repo
+# cd into backend/ so pytest's testpaths (tests, ../evaluators, ../scripts) resolve.
+Push-Location (Join-Path $repo "backend")
 try {
-    uv run --project backend python -m pytest backend/tests
+    uv run python -m pytest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {

@@ -5,7 +5,7 @@ BACKEND := $(UV) run --project backend
 
 install:
 	$(UV) sync --project backend
-	cd frontend && npm ci
+	cd frontend && npm ci   # frontend/ is owned by W5
 
 ## Both servers: backend on :8000, frontend on :3000.
 dev:
@@ -18,17 +18,17 @@ backend:
 frontend:
 	cd frontend && npm run dev
 
+## cd backend so pytest's testpaths (tests, ../evaluators, ../scripts) resolve.
 test:
-	$(BACKEND) python -m pytest backend/tests
+	cd backend && $(UV) run python -m pytest
 
 lint:
-	$(BACKEND) ruff check backend contracts scripts
-	$(BACKEND) ruff format --check backend contracts scripts
-	cd frontend && npx tsc --noEmit
+	$(BACKEND) ruff check backend contracts scripts evaluators agents
+	$(BACKEND) ruff format --check backend contracts scripts evaluators agents
 
 fmt:
-	$(BACKEND) ruff check --fix backend contracts scripts
-	$(BACKEND) ruff format backend contracts scripts
+	$(BACKEND) ruff check --fix backend contracts scripts evaluators agents
+	$(BACKEND) ruff format backend contracts scripts evaluators agents
 
 ## Placeholder: W4 seeds the evaluators, W3 generates a v0 agent.
 seed:

@@ -1,8 +1,11 @@
 name: CI
 
+# pull_request covers every push to a branch with an open PR; push is
+# restricted to main so the same commit does not trigger two runs.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,33 +26,11 @@ jobs:
         run: uv sync --project backend --locked
 
       - name: ruff check
-        run: uv run --project backend ruff check backend contracts scripts
+        run: uv run --project backend ruff check backend contracts scripts evaluators agents
 
       - name: ruff format --check
-        run: uv run --project backend ruff format --check backend contracts scripts
+        run: uv run --project backend ruff format --check backend contracts scripts evaluators agents
 
       - name: pytest
-        run: uv run --project backend python -m pytest backend/tests
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: npm ci
-        run: npm ci
-
-      - name: tsc --noEmit
-        run: npx tsc --noEmit
-
-      - name: next build
-        run: npm run build
+        working-directory: backend
+        run: uv run python -m pytest

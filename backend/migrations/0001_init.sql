@@ -10,7 +10,7 @@ CREATE TABLE events (
   agent_id      TEXT,
   agent_version INTEGER,
   run_id        TEXT,
-  lever         TEXT,                 -- prompt | tools | memory | orchestration | routing
+  lever         TEXT,                 -- prompt | tools | memory | orchestration | routing | grader
   payload       TEXT NOT NULL         -- JSON
 );
 
@@ -28,14 +28,16 @@ CREATE TABLE agents (
   created_ts      TEXT NOT NULL
 );
 
--- screenshot_path is retained for shape compatibility but unused: screenshot
--- upload is dropped in section 0.4 (text-only issues).
+-- screenshot_path is retained for shape compatibility but unused: issues are
+-- text-only (POST /issues is a JSON body, not multipart). tags is a JSON
+-- array, e.g. ["grader-bug"] from the "grader disagreed?" path.
 CREATE TABLE issues (
   id                TEXT PRIMARY KEY,
   agent_id          TEXT NOT NULL,
   title             TEXT NOT NULL,
   body              TEXT NOT NULL DEFAULT '',
   screenshot_path   TEXT,
+  tags              TEXT NOT NULL DEFAULT '[]',
   source            TEXT NOT NULL DEFAULT 'human',   -- human | auto
   status            TEXT NOT NULL DEFAULT 'open',    -- open | closed
   failure_signature TEXT,

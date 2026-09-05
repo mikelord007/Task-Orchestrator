@@ -1,53 +1,86 @@
 # REST API contract
 
-PLAN.md §4.5 plus the §0.3 compare endpoint. The frontend builds against this
-with mocks (`NEXT_PUBLIC_USE_MOCKS`). **Frozen after Phase 0.**
+PLAN.md §4.5 as amended by PLAN_ADDENDUM.md section A (which wins wherever
+they conflict). The frontend builds against this with mocks
+(`NEXT_PUBLIC_USE_MOCKS`). **Frozen after Phase 0.**
 
 Base URL: `NEXT_PUBLIC_API_URL`, default `http://localhost:8000`.
-No auth (§0: skip login/auth). All timestamps ISO8601 UTC.
+No auth (skip login/auth). All timestamps ISO8601 UTC. Vocabulary: a **task**
+is one `case_id`; a **trial** is one repeated attempt at a task; the
+**grader** is `score.py`. Field names below are the contract; prose says task/
+trial/grader.
 
-## Endpoints (§4.5, verbatim)
+## Endpoints
 
 ```
 POST /agents                      {goal, domain, tools[], evaluator_id, use_playbook}  -> {agent_id, version: 0}
 GET  /agents · GET /agents/{id} · GET /agents/{id}/versions/{n}
 POST /agents/{id}/run             {split}                                              -> {run_id}
+GET  /agents/{id}/runs            -> [RunSummary]
 POST /agents/{id}/improve         {max_attempts, issue_id?}                            -> {job_id}
 GET  /jobs/{job_id}
-GET  /issues?agent_id= · POST /issues (multipart: agent_id, title, body, screenshot?) · GET /issues/{id}
+GET  /issues?agent_id= · POST /issues {agent_id, title, body, tags?[]} · GET /issues/{id}
 POST /issues/{id}/fix
 GET  /agents/{id}/fixes           -> [FixCard]  (see below)
 GET  /agents/{id}/fixes/{to_version}/diff   -> text/plain unified diff
-GET  /insights/{agent_id}         -> {pass_rate_by_version[{version, split, mean, std, min, max}],
-                                      cost_by_version[], latency_by_version[],
-                                      fixes_by_lever{}, regressions_caught, issues{open,closed}, lessons_count,
-                                      drift{count_by_kind{}, tokens_saved, cases_recovered_by_nudge},
-                                      markers[]}
+GET  /agents/{id}/compare?case_id=   -> Compare  (see below)
+GET  /insights/{agent_id}         -> Insights  (see below)
 GET  /insights/compare            -> per-domain series + reports/ablation.json if present
 GET  /events?agent_id=&kind=&since=
 GET  /playbook
 GET  /evaluators
 ```
 
-## Added by §0.3
+`POST /issues` is a plain JSON body, not multipart — issues are **text-only**
+(no screenshot upload, dropped per the judge guidance). `tags[]` is optional;
+its one defined use so far is the "grader disagreed?" path (below), which
+sends `tags: ["grader-bug"]`.
+
+## `GET /agents/{id}/runs`
+
+One row per completed (or in-flight) evaluation run of this agent, newest first.
 
 ```
-GET  /agents/{id}/compare?case_id=   -> {expected,
-                                         v0:      {output, rules_injected[], tool_calls, tokens},
-                                         current: {output, rules_injected[], tool_calls, tokens}}
+RunSummary = {
+  run_id, agent_id, version, split: "train"|"holdout", trials,
+  started_ts, finished_ts?,
+  pass_at_1, pass_pow_k, total_cost_usd, p50_latency_ms, p95_latency_ms, drift_count,
+  tasks: TaskResult[]
+}
+TaskResult = {
+  case_id, passed_by_trial: bool[],       // length == trials
+  score, cost_usd, latency_ms, tool_calls, tool_errors, rules_injected: string[],
+  transcript_path, trace_url?, drift_kind?
+}
 ```
 
-Shows the **same case** at v0 and at the current version: the output, the memory
-entries injected in each version, and the tool-call count. This is what makes
-"the outputs got better, and here is the rule that did it" visible.
+`passed_by_trial` is the one genuinely per-trial field. Every other `TaskResult`
+field (`score`, `cost_usd`, `latency_ms`, `tool_calls`, `tool_errors`,
+`rules_injected`, `transcript_path`, `trace_url`, `drift_kind`) is taken from
+**trial 0** of that task in this run — enough to show one representative
+transcript per row without inflating the payload with `trials` copies; the
+per-trial pass/fail strip is the part that must show every trial.
 
-`output` and `expected` are the raw JSON objects (`actual` / `expected` as
-`score.py` sees them). `rules_injected[]` is a list of `MemoryRule.id`.
-`tokens` is `tokens_in + tokens_out` for that case. Values are taken from the
-`case_result` of **repeat 0** of the most recent run of that version; if the
-version has never been run on that case, the side is `null`.
+## `GET /agents/{id}/compare?case_id=`
 
-## `FixCard` (§4.5)
+```
+Compare = {expected,
+           v0:      CompareSide,
+           current: CompareSide}
+CompareSide = {output, rules_injected: string[], tool_calls, tokens} | null
+```
+
+Shows the **same task** at v0 and at the current version: the output, the
+memory entries injected in each version, and the tool-call count. This is what
+makes "the outputs got better, and here is the rule that did it" visible.
+
+`output` and `expected` are the raw JSON objects (`actual` / `expected` as the
+grader sees them). `rules_injected[]` is a list of `MemoryRule.id`. `tokens` is
+`tokens_in + tokens_out` for that task. Values are taken from **trial 0** of
+the most recent run of that version; if the version has never been run on that
+task, the side is `null`.
+
+## `FixCard`
 
 Not a table. It is the join of one `fix_proposed` with its matching
 `fix_accepted` / `fix_rejected` on `to_version`, plus the diff file at `diff_path`.
@@ -56,50 +89,83 @@ Not a table. It is the join of one `fix_proposed` with its matching
 FixCard = {
   to_version, from_version, lever, status: accepted|rejected,
   failing_group: {signature, tag, count, case_ids[]},
-  hypothesis, diagnosis,
+  hypothesis, diagnosis, metric_signal?,
   diff_summary, files_touched[], diff_url,
-  before: {train_mean, train_std, group_pass, cost_per_run},
-  after:  {train_mean, train_std, group_pass, holdout_mean, holdout_std, cost_per_run},
+  before: {pass_at_1, pass_pow_k, group_pass, cost_per_run, tool_calls_per_task},
+  after:  {pass_at_1, pass_pow_k, group_pass, holdout_pass_at_1, holdout_pass_pow_k,
+           cost_per_run, tool_calls_per_task},
   regressed_case_ids[]   // only when rejected
 }
 ```
 
-- `status` is derived, never stored (rule §4.1). A `fix_proposed` with no
-  matching accept/reject is a fix still in flight; W1 decides whether to surface
-  it (Phase 0 reading: omit it from `/agents/{id}/fixes`).
+- `status` is derived, never stored (rule §2.4/§4.1). A `fix_proposed` with no
+  matching accept/reject is a fix still in flight; Phase 0 reading: omit it
+  from `/agents/{id}/fixes`.
 - `diff_url` is `/agents/{id}/fixes/{to_version}/diff`.
+- `metric_signal` is set only for `lever = tools` fixes (the tracked-metric
+  heuristic that drove the diagnosis, e.g. "12 redundant `list_issues` calls
+  per task" — section K); `null` otherwise.
 - For `lever = memory`, `diff_summary` describes the memory entries added or
-  changed rather than a text diff (§0.2); `diff_url` still serves the unified
-  diff of the jsonl files.
-- On a rejected card, `after` carries only `train_mean` / `train_std` (from
-  `fix_rejected.train_pass_rate_candidate`); the other fields are `null`.
+  changed rather than a text diff; `diff_url` still serves the unified diff of
+  the jsonl files.
+- `before`/`after` field names mirror `fix_accepted`'s flat float fields
+  exactly (see `contracts/events.py` — a fix event is one observed fact, not a
+  nested stat). On a **rejected** card, `after` carries only `pass_at_1` (from
+  `fix_rejected.candidate_pass_at_1`); every other `after` field is `null`.
 
-## Shared shapes
+## `Insights`
 
 ```
-PassRateStat  = {mean, std, min?, max?}
-VersionPoint  = {version, split: "train"|"holdout", mean, std, min, max}
-Marker        = {version, ts, kind, lever?, diagnosis?}          // chart annotations
-Insights      = {pass_rate_by_version: VersionPoint[],
-                 cost_by_version: {version, cost_per_run}[],
-                 latency_by_version: {version, p50_ms, p95_ms}[],
-                 fixes_by_lever: {[lever]: number},
-                 regressions_caught: number,
-                 issues: {open, closed},
-                 lessons_count: number,
-                 drift: {count_by_kind: {[kind]: number}, tokens_saved, cases_recovered_by_nudge},
-                 markers: Marker[],
-                 memory_growth_by_version: {version, rules, tool_notes, mean_confidence, demotions}[],   // §0.3
-                 tool_efficiency_by_version: {version, tool_calls_per_case, tool_errors_per_case,
-                                   tokens_per_case, latency_ms_per_case}[]}                   // §0.3
-Job           = {job_id, agent_id, kind, status: queued|running|done|error,
-                 attempts, max_attempts, current_step?, result?, error?, created_ts, updated_ts}
-Issue         = {id, agent_id, title, body, source: human|auto, status: open|closed,
-                 failure_signature?, linked_case_ids[], fixed_version?, created_ts}
+GET /insights/{agent_id} -> Insights
+
+VersionPoint = {version, split: "train"|"holdout", mean, std, min, max}
+Marker       = {version, ts, kind, lever?, diagnosis?}          // chart annotations
+
+Insights = {
+  pass_at_1_by_version:  VersionPoint[],
+  pass_pow_k_by_version: VersionPoint[],
+  cost_by_version:    {version, cost_per_run}[],
+  latency_by_version: {version, p50_ms, p95_ms}[],
+  fixes_by_lever: {[lever]: number},
+  regressions_caught: number,
+  issues: {open, closed},
+  lessons_count: number,
+  memory_by_version: {version, rules, tool_notes, mean_confidence, demotions}[],
+  tool_stats_by_version: {version, split, calls, errors, redundant, tool_tokens, latency_ms}[],
+  drift: {count_by_kind: {[kind]: number}, tokens_saved, cases_recovered_by_nudge},
+  graduated_count: number,
+  saturated: boolean,
+  flagged_tasks: string[],       // case_ids at 0% across the last 3 versions
+  markers: Marker[]
+}
 ```
 
-`memory_growth_by_version` and `tool_efficiency_by_version` are the two charts §0.3 adds to Insights;
-they are part of the `GET /insights/{agent_id}` response, not new endpoints.
+- `pass_at_1_by_version` / `pass_pow_k_by_version` replace the old single
+  `pass_rate_by_version` — the pass-rate chart plots both lines, each with a
+  mean±std band and min/max whiskers, subtitled `trials = N`. Train and
+  holdout both appear (`split` distinguishes them).
+- `memory_by_version` and `tool_stats_by_version` are the two extra charts
+  that answer "does memory grow" and "does tool use get more efficient":
+  memory growth (rules + tool notes count and mean confidence per version,
+  demotions marked) and tool-usage efficiency. `tool_stats_by_version` values
+  are per-task averages for that version and split — `calls`, `errors`, and
+  `redundant` (same tool + identical normalized args within one trial) are all
+  expected to fall as the agent improves.
+- `graduated_count` is the running total of `task_graduated` events.
+  `saturated` is `true` once train `pass_at_1` >= 0.95 for two consecutive
+  versions (Insights should show "capability suite saturated — add harder
+  tasks"). `flagged_tasks` lists tasks stuck at 0% for the last 3 versions —
+  section J's rule that this usually means a broken task, not an incapable
+  agent.
+- Empty ledger returns honest empty arrays / zeros, never placeholder numbers
+  (rule §2.4).
+
+## "Grader disagreed?"
+
+Any failed trial can be flagged from the UI: `POST /issues` with a prefilled
+title/body and `tags: ["grader-bug"]`. A fix that follows from such an issue
+uses `lever = grader` and is **excluded from the agent's improvement curve**
+(it fixes the measuring stick, not the agent).
 
 ## Conventions
 
@@ -107,12 +173,6 @@ they are part of the `GET /insights/{agent_id}` response, not new endpoints.
 - `POST /agents/{id}/run` and `POST /agents/{id}/improve` are **async**: they
   return immediately with `{run_id}` / `{job_id}`; progress is polled from
   `GET /jobs/{job_id}`.
-- `POST /issues` is `multipart/form-data` for shape compatibility, but the
-  `screenshot` field is **dropped in §0.4** — text only. The field stays in the
-  contract as optional and ignored so the frontend form does not need a contract
-  change if it is ever restored.
-- Empty ledger returns honest empty arrays / zeros, never placeholder numbers
-  (rule §2.4).
 
 ## Internal Python signature
 

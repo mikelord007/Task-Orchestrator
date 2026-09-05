@@ -7,7 +7,8 @@ An agent version is an immutable directory snapshot::
       prompt.md     # system prompt
       tools/*.py    # each exposes TOOL = {name, description, input_schema}
                     # and run(input: dict) -> str
-      memory/       # rules.jsonl, tool_notes.jsonl, episodes.jsonl  (0.2)
+      memory/       # rules.jsonl, tool_notes.jsonl, episodes.jsonl  (section E)
+      CHANGES.diff  # unified diff from v<N-1>, written by whichever lever changed it
 
 Phase 0 decisions where 4.2 was ambiguous:
 
@@ -19,7 +20,12 @@ Phase 0 decisions where 4.2 was ambiguous:
   owned by the orchestration mode (e.g. `planner`, `worker`); the contract only
   fixes the value domain.
 * Loading a package imports its `tools/*.py` modules, which executes them. Agent
-  packages are locally generated artifacts, not untrusted input.
+  packages are locally generated artifacts, not untrusted input. Note for W2:
+  `_load_tool_module` pops the module from `sys.modules` after exec, so the
+  imported `run` callable is not picklable -- fine for a thread-based eval
+  loop, not for a process pool.
+* `CHANGES.diff` is not validated by `load_package`/`validate_package` (it is
+  provenance, not runtime input); W6 is the only writer.
 """
 
 from __future__ import annotations
@@ -130,15 +136,13 @@ class ToolNote(BaseModel):
 
 
 class Episode(BaseModel):
-    """`memory/episodes.jsonl` -- one-line reflection per run."""
+    """`memory/episodes.jsonl` -- one-line reflection per run (section E)."""
 
     model_config = ConfigDict(extra="allow")
 
-    id: str
-    run_id: str
-    case_id: str
     version: int
-    text: str
+    run_id: str
+    one_line_reflection: str
 
 
 class AgentMemory(BaseModel):

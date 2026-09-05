@@ -2,11 +2,16 @@
 
 Every model call in the system goes through `complete()`. It returns text, tool
 calls, usage **taken from the API response** (never from the model's own claim),
-and the cost derived from `COST_TABLE`.
+and the cost derived from the cost table.
 
-Configuration (see `.env.example`):
+Configuration (see `.env.example`), read lazily via `backend.settings` so
+`.env` loading and test monkeypatching both work:
 
     LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_STRONG, LLM_MODEL_CHEAP
+
+`MODEL_STRONG`, `MODEL_CHEAP` and `COST_TABLE` are available as module
+attributes (`llm.MODEL_STRONG`, ...) via `__getattr__` (PEP 562) -- each access
+re-reads the environment, it is not a constant frozen at import time.
 
 Tests never hit the network: `backend.testing.fake_llm.FakeLLM` is injected with
 `set_client()`.
@@ -15,16 +20,17 @@ Tests never hit the network: `backend.testing.fake_llm.FakeLLM` is injected with
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
+from backend.settings import env, env_float
+
 __all__ = [
     "ModelCost",
-    "COST_TABLE",
-    "MODEL_STRONG",
-    "MODEL_CHEAP",
+    "MODEL_STRONG",  # noqa: F822 - provided by module __getattr__ below
+    "MODEL_CHEAP",  # noqa: F822 - provided by module __getattr__ below
+    "COST_TABLE",  # noqa: F822 - provided by module __getattr__ below
     "LLMError",
     "complete",
     "cost_for",
@@ -40,13 +46,12 @@ class LLMError(RuntimeError):
     """Raised when the LLM endpoint is unusable (missing config, API failure)."""
 
 
-def _env(name: str, default: str) -> str:
-    value = os.environ.get(name)
-    return value if value else default
+def _model_strong() -> str:
+    return env("LLM_MODEL_STRONG", "gpt-4o")
 
 
-MODEL_STRONG = _env("LLM_MODEL_STRONG", "gpt-4o")
-MODEL_CHEAP = _env("LLM_MODEL_CHEAP", "gpt-4o-mini")
+def _model_cheap() -> str:
+    return env("LLM_MODEL_CHEAP", "gpt-4o-mini")
 
 
 @dataclass(frozen=True)
@@ -74,9 +79,10 @@ _BUILTIN_COSTS: dict[str, ModelCost] = {
 }
 
 
-def _load_cost_table() -> dict[str, ModelCost]:
+def _cost_table() -> dict[str, ModelCost]:
+    """Read fresh every call so `LLM_COST_TABLE` and monkeypatched env apply."""
     table = dict(_BUILTIN_COSTS)
-    raw = os.environ.get("LLM_COST_TABLE")
+    raw = env("LLM_COST_TABLE")
     if raw:
         try:
             override = json.loads(raw)
@@ -87,16 +93,13 @@ def _load_cost_table() -> dict[str, ModelCost]:
     return table
 
 
-COST_TABLE: dict[str, ModelCost] = _load_cost_table()
-
-
 def cost_for(model: str, tokens_in: int, tokens_out: int) -> float:
-    """USD cost of one call, from COST_TABLE. Unknown model -> the env default."""
-    entry = COST_TABLE.get(model)
+    """USD cost of one call, from the cost table. Unknown model -> the env default."""
+    entry = _cost_table().get(model)
     if entry is None:
         entry = ModelCost(
-            float(_env("LLM_COST_DEFAULT_IN", "0")),
-            float(_env("LLM_COST_DEFAULT_OUT", "0")),
+            env_float("LLM_COST_DEFAULT_IN", 0.0),
+            env_float("LLM_COST_DEFAULT_OUT", 0.0),
         )
     return round(
         tokens_in / 1_000_000 * entry.usd_per_mtok_in
@@ -108,10 +111,22 @@ def cost_for(model: str, tokens_in: int, tokens_out: int) -> float:
 def model_for_tier(tier: str) -> str:
     """Map `strong` / `cheap` (agent.yaml routing) to a concrete model id."""
     if tier == "cheap":
-        return MODEL_CHEAP
+        return _model_cheap()
     if tier == "strong":
-        return MODEL_STRONG
+        return _model_strong()
     raise LLMError(f"unknown model tier {tier!r}; expected 'strong' or 'cheap'")
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy module attributes: `llm.MODEL_STRONG` etc. re-read the environment
+    on every access instead of freezing a value at import time (PEP 562)."""
+    if name == "MODEL_STRONG":
+        return _model_strong()
+    if name == "MODEL_CHEAP":
+        return _model_cheap()
+    if name == "COST_TABLE":
+        return _cost_table()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # --------------------------------------------------------------------------
@@ -138,7 +153,7 @@ def get_client() -> Any:
     global _client
     if _client is not None:
         return _client
-    api_key = os.environ.get("LLM_API_KEY")
+    api_key = env("LLM_API_KEY")
     if not api_key:
         raise LLMError(
             "LLM_API_KEY is not set. Set it in .env, or inject a test double "
@@ -148,7 +163,7 @@ def get_client() -> Any:
         from openai import OpenAI
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise LLMError("the `openai` package is required for live LLM calls") from exc
-    _client = OpenAI(base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key)
+    _client = OpenAI(base_url=env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key)
     return _client
 
 
@@ -249,6 +264,11 @@ def complete(
     started = time.perf_counter()
     try:
         response = client.chat.completions.create(**kwargs)
+    except AssertionError:
+        # A test-double's own assertion (e.g. FakeLLM's "script exhausted"),
+        # not an LLM/provider error -- let it surface as itself rather than
+        # being laundered into an LLMError.
+        raise
     except Exception as exc:  # noqa: BLE001 - surface every provider error the same way
         raise LLMError(f"LLM call to {model!r} failed: {exc}") from exc
     latency_ms = int((time.perf_counter() - started) * 1000)
