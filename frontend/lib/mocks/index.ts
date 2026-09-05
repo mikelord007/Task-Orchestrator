@@ -176,7 +176,8 @@ export async function createIssue(body: CreateIssueRequest): Promise<Issue> {
     source: "human",
     status: "open",
     created_ts: new Date().toISOString(),
-    linked_case_ids: [],
+    linked_case_ids: body.case_id ? [body.case_id] : [],
+    tags: body.tags,
   };
   createdIssues.unshift(issue);
   return delay(clone(issue));
