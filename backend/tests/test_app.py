@@ -66,8 +66,12 @@ def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pyte
 
 
 def test_discover_routers_skips_subpackages_with_no_api_module():
+    from fastapi import APIRouter
+
     import backend
     from backend.app import discover_routers
 
-    # backend.tests, backend.testing etc. have no api.py; must not raise.
-    assert discover_routers(backend) == []
+    # backend.tests, backend.testing etc. have no api.py and must not raise or
+    # contribute a router - unlike backend.runtime, which by now does (W2).
+    routers = discover_routers(backend)
+    assert all(isinstance(r, APIRouter) for r in routers)

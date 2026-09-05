@@ -24,9 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-MEMORY_BLOCK_START = (
-    "=== AGENT MEMORY (injected by the runtime from observed results) ==="
-)
+MEMORY_BLOCK_START = "=== AGENT MEMORY (injected by the runtime from observed results) ==="
 MEMORY_BLOCK_END = "=== END AGENT MEMORY ==="
 
 RULES_FILE = "rules.jsonl"
@@ -189,9 +187,7 @@ def build_memory_block(
         for note in notes:
             tool = note.get("tool")
             prefix = f"({tool}) " if tool else ""
-            lines.append(
-                f"- [{note.get('id')}] {prefix}{note.get('note', '')}".rstrip()
-            )
+            lines.append(f"- [{note.get('id')}] {prefix}{note.get('note', '')}".rstrip())
     if selected:
         lines.append("")
         lines.append(f"Rules (top {len(selected)} by keyword match):")
@@ -258,9 +254,7 @@ def demotion_candidates(
     out = [
         DemotionCandidate(entry_id=entry_id, hits=stats.hits, misses=stats.misses)
         for entry_id, stats in usage.items()
-        if entry_id not in already_demoted
-        and stats.uses >= min_uses
-        and stats.misses > stats.hits
+        if entry_id not in already_demoted and stats.uses >= min_uses and stats.misses > stats.hits
     ]
     out.sort(key=lambda c: c.entry_id)
     return out

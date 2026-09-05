@@ -71,9 +71,7 @@ def normalize_response(raw: Any) -> ModelResponse:
         tool_calls=list(raw.get("tool_calls") or []),
         usage={
             "tokens_in": int(usage.get("tokens_in") or usage.get("prompt_tokens") or 0),
-            "tokens_out": int(
-                usage.get("tokens_out") or usage.get("completion_tokens") or 0
-            ),
+            "tokens_out": int(usage.get("tokens_out") or usage.get("completion_tokens") or 0),
         },
         cost_usd=float(raw.get("cost_usd") or 0.0),
         raw=raw,
@@ -185,12 +183,8 @@ def run_loop(
             _handle(timeout, transcript, messages, on_drift, result)
             return result
 
-        transcript.record_request(
-            model=model, messages=messages, tools=specs, phase=phase
-        )
-        response = normalize_response(
-            complete(messages, model=model, tools=specs or None)
-        )
+        transcript.record_request(model=model, messages=messages, tools=specs, phase=phase)
+        response = normalize_response(complete(messages, model=model, tools=specs or None))
         transcript.record_response(
             model=model,
             text=response.text,

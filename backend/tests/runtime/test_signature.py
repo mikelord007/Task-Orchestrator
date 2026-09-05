@@ -31,10 +31,7 @@ def test_parts_are_combined_in_a_stable_order():
         first_tool_error="ValueError: bad page",
         missing_keys=["priority", "component"],
     )
-    assert (
-        sig
-        == "missing fields | tool_error valueerror bad page | missing component,priority"
-    )
+    assert sig == "missing fields | tool_error valueerror bad page | missing component,priority"
 
 
 def test_missing_keys_order_does_not_matter():

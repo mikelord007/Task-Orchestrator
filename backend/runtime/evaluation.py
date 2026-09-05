@@ -38,7 +38,6 @@ from typing import Any
 from backend.runtime import memory as mem
 from backend.runtime import neatlogs
 from backend.runtime.config import Knobs, load_knobs
-from backend.runtime.context import case_scope
 from backend.runtime.drift import (
     ACTION_ABORT,
     ACTION_NUDGE,
@@ -71,6 +70,7 @@ from backend.runtime.signature import (
 )
 from backend.runtime.store import resolve_agent
 from backend.runtime.transcript import Transcript
+from contracts.context import case_scope
 
 DEFAULT_RUNS_DIR = Path("runs")
 TRAIN_SPLIT = "train"
@@ -158,9 +158,7 @@ def stable_pass_set(outcomes: list[CaseOutcome], trials: int) -> set[str]:
     for outcome in outcomes:
         by_case.setdefault(outcome.case_id, []).append(outcome.passed)
     return {
-        case_id
-        for case_id, results in by_case.items()
-        if len(results) >= trials and all(results)
+        case_id for case_id, results in by_case.items() if len(results) >= trials and all(results)
     }
 
 
@@ -179,21 +177,15 @@ def pass_rate_stats(outcomes: list[CaseOutcome], trials: int) -> dict[str, float
     for outcome in outcomes:
         by_case.setdefault(outcome.case_id, []).append(outcome.passed)
         by_trial.setdefault(outcome.trial, []).append(outcome.passed)
-    case_rates = [
-        sum(1 for p in results if p) / max(1, trials) for results in by_case.values()
-    ]
+    case_rates = [sum(1 for p in results if p) / max(1, trials) for results in by_case.values()]
     trial_rates = [
-        sum(1 for p in results if p) / len(results)
-        for results in by_trial.values()
-        if results
+        sum(1 for p in results if p) / len(results) for results in by_trial.values() if results
     ]
     stable = len(stable_pass_set(outcomes, trials))
     return {
         "pass_at_1": round(statistics.fmean(case_rates), 6),
         "pass_pow_k": round(stable / len(by_case), 6) if by_case else 0.0,
-        "std": round(
-            statistics.pstdev(trial_rates) if len(trial_rates) > 1 else 0.0, 6
-        ),
+        "std": round(statistics.pstdev(trial_rates) if len(trial_rates) > 1 else 0.0, 6),
         "min": round(min(trial_rates), 6) if trial_rates else 0.0,
         "max": round(max(trial_rates), 6) if trial_rates else 0.0,
     }
@@ -210,11 +202,7 @@ class _CaseRun:
 
 def _user_message(case: dict[str, Any]) -> str:
     payload = case.get("input")
-    body = (
-        payload
-        if isinstance(payload, str)
-        else json.dumps(payload, indent=2, default=str)
-    )
+    body = payload if isinstance(payload, str) else json.dumps(payload, indent=2, default=str)
     return f"Case id: {case.get('id')}\n\nCase input:\n{body}\n"
 
 
@@ -298,9 +286,7 @@ def run_case(
             transcript.passed = False
             transcript.score = 0.0
             transcript.score_notes = f"runtime error: {type(exc).__name__}: {exc}"
-            transcript.failure_signature = failure_signature(
-                score_notes=transcript.score_notes
-            )
+            transcript.failure_signature = failure_signature(score_notes=transcript.score_notes)
             transcript.finish()
             return _CaseRun(transcript=transcript, decisions=decisions)
         transcript.trace_url = trace.url
@@ -369,21 +355,15 @@ def run_eval(
     complete = complete or default_complete
     read_events = read_events or default_read_events
 
-    agent_row = (
-        resolve_agent(agent_id) if (package is None or evaluator_path is None) else {}
-    )
+    agent_row = resolve_agent(agent_id) if (package is None or evaluator_path is None) else {}
     if package is None:
-        version = (
-            version if version is not None else agent_row.get("current_version", 0)
-        )
+        version = version if version is not None else agent_row.get("current_version", 0)
         package = load(agent_id, int(version or 0), agents_dir)
     version = package.version
 
     if evaluator_path is None:
         evaluator_id = (
-            evaluator_id
-            or agent_row.get("evaluator_id")
-            or package.config.get("evaluator_id")
+            evaluator_id or agent_row.get("evaluator_id") or package.config.get("evaluator_id")
         )
         if not evaluator_id:
             raise ValueError(f"no evaluator_id known for agent {agent_id}")
@@ -394,14 +374,10 @@ def run_eval(
     import os
 
     model_strong = model_strong or str(
-        package.config.get("model_strong")
-        or os.environ.get("LLM_MODEL_STRONG")
-        or "strong"
+        package.config.get("model_strong") or os.environ.get("LLM_MODEL_STRONG") or "strong"
     )
     model_cheap = model_cheap or str(
-        package.config.get("model_cheap")
-        or os.environ.get("LLM_MODEL_CHEAP")
-        or "cheap"
+        package.config.get("model_cheap") or os.environ.get("LLM_MODEL_CHEAP") or "cheap"
     )
 
     memory = mem.load_memory(package.directory)
@@ -456,15 +432,16 @@ def run_eval(
             for decision in case_run.decisions:
                 drift_count += 1
                 if decision.action == ACTION_ABORT:
-                    tokens_saved += max(
-                        0, knobs.drift_token_budget - decision.tokens_at_detection
-                    )
+                    tokens_saved += max(0, knobs.drift_token_budget - decision.tokens_at_detection)
+                # payload=: drift_detected.kind collides with emit()'s own
+                # positional "kind" name, so it must go through payload=, not
+                # **kwargs (backend/ledger/emit.py rejects the bare keyword).
                 emitted = emit(
                     "drift_detected",
                     agent_id=agent_id,
                     agent_version=version,
                     run_id=run_id,
-                    **decision.to_payload(
+                    payload=decision.to_event_payload(
                         case_id=transcript.case_id, trial=transcript.trial
                     ),
                 )
@@ -552,9 +529,7 @@ def run_eval(
     return summary
 
 
-def _attach_event_id(
-    transcript: Transcript, decision: DriftDecision, event_id: int | None
-) -> None:
+def _attach_event_id(transcript: Transcript, decision: DriftDecision, event_id: int | None) -> None:
     if event_id is None:
         return
     for entry in transcript.drift:
@@ -564,15 +539,6 @@ def _attach_event_id(
             and "event_id" not in entry
         ):
             entry["event_id"] = event_id
-            break
-    for step in transcript.steps:
-        if (
-            step.get("type") == "drift"
-            and step.get("step") == decision.step
-            and step.get("kind") == decision.kind
-            and "event_id" not in step
-        ):
-            step["event_id"] = event_id
             break
     # The last drift event wins: for a nudged case that then passed this points
     # at the nudge, which is exactly what cases_recovered_by_nudge needs.
@@ -598,9 +564,7 @@ def _stable_set_from_ledger(
             continue
         by_case.setdefault(case_id, []).append(bool(payload.get("passed")))
     return {
-        case_id
-        for case_id, results in by_case.items()
-        if len(results) >= trials and all(results)
+        case_id for case_id, results in by_case.items() if len(results) >= trials and all(results)
     }
 
 
@@ -612,11 +576,7 @@ def _demoted_rule_ids(read_events: ReadEventsFn, agent_id: str) -> set[str]:
         rows = read_events(agent_id=agent_id, kind="memory_demoted")
     except Exception:  # noqa: BLE001 - an unreadable ledger must not block a run
         return set()
-    return {
-        str((row.get("payload") or {}).get("entry_id"))
-        for row in rows
-        if row.get("payload")
-    }
+    return {str((row.get("payload") or {}).get("entry_id")) for row in rows if row.get("payload")}
 
 
 def apply_demotions(

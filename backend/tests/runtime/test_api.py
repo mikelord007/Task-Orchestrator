@@ -1,20 +1,70 @@
-"""Tests for the plain-function handlers behind /agents/{id}/run and
-/agents/{id}/runs."""
+"""Tests for the /agents/{id}/run, /agents/{id}/runs and /jobs/{id} handlers
+and their FastAPI routes."""
 
 from __future__ import annotations
 
-import sqlite3
 import time
 
-from backend.runtime.api import list_runs, start_run
-from backend.runtime.jobs import STATUS_DONE, STATUS_FAILED, JobStore
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.runtime.api import list_runs, router, start_run
+from backend.runtime.jobs import STATUS_DONE, STATUS_ERROR, JobStore, default_connection_factory
+
+
+def seed_case_result(
+    ledger, *, run_id: str, case_id: str, agent_version: int = 0, **fields
+) -> None:
+    defaults = {
+        "trial": 0,
+        "passed": True,
+        "score": 1.0,
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "cost_usd": 0.0,
+        "latency_ms": 1,
+        "steps": 1,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "transcript_path": f"runs/{run_id}/{case_id}.t0.json",
+    }
+    defaults.update(fields)
+    ledger.emit(
+        "case_result",
+        agent_id="toy",
+        agent_version=agent_version,
+        run_id=run_id,
+        case_id=case_id,
+        **defaults,
+    )
+
+
+def seed_run_finished(ledger, *, run_id: str, agent_version: int = 0, **fields) -> None:
+    defaults = {
+        "split": "train",
+        "trials": 1,
+        "pass_at_1": 1.0,
+        "pass_pow_k": 1.0,
+        "pass_rate_std": 0.0,
+        "pass_rate_min": 1.0,
+        "pass_rate_max": 1.0,
+        "total_cost_usd": 0.0,
+        "p50_latency_ms": 0,
+        "p95_latency_ms": 0,
+        "drift_count": 0,
+        "tokens_saved_by_drift": 0,
+    }
+    defaults.update(fields)
+    ledger.emit(
+        "run_finished", agent_id="toy", agent_version=agent_version, run_id=run_id, **defaults
+    )
 
 
 def test_list_runs_is_empty_for_an_unknown_agent(ledger):
     assert list_runs("nobody", read_events=ledger.read) == []
 
 
-def test_list_runs_builds_one_row_per_case_newest_run_first(ledger):
+def test_list_runs_builds_one_row_per_task_newest_run_first(ledger):
     ledger.emit(
         "run_started",
         agent_id="toy",
@@ -25,58 +75,43 @@ def test_list_runs_builds_one_row_per_case_newest_run_first(ledger):
         trials=2,
     )
     for trial, passed in enumerate([True, False]):
-        ledger.emit(
-            "case_result",
-            agent_id="toy",
-            agent_version=0,
+        seed_case_result(
+            ledger,
             run_id="run_a",
             case_id="t1",
             trial=trial,
             passed=passed,
-            score=1.0 if passed else 0.0,
+            score=1.0 if trial == 0 else 0.0,
             cost_usd=0.001,
-            latency_ms=100.0,
+            latency_ms=100,
             transcript_path=f"runs/run_a/t1.t{trial}.json",
             trace_url="https://trace/1" if trial == 0 else None,
-            drift_event_id=None,
         )
-    ledger.emit(
-        "run_finished",
-        agent_id="toy",
-        agent_version=0,
-        run_id="run_a",
-        split="train",
-        trials=2,
-        pass_at_1=0.5,
-        pass_pow_k=0.0,
-        pass_rate_std=0.5,
-        pass_rate_min=0.0,
-        pass_rate_max=1.0,
-        total_cost_usd=0.002,
-        p50_latency_ms=100,
-        p95_latency_ms=100,
-        drift_count=0,
-        tokens_saved_by_drift=0,
-    )
+    seed_run_finished(ledger, run_id="run_a", trials=2, pass_at_1=0.5, pass_pow_k=0.0)
 
-    listings = list_runs("toy", read_events=ledger.read)
-    assert len(listings) == 1
-    run = listings[0]
+    summaries = list_runs("toy", read_events=ledger.read)
+    assert len(summaries) == 1
+    run = summaries[0]
     assert run["run_id"] == "run_a"
-    assert run["finished"] is True
+    assert run["agent_id"] == "toy"
+    assert run["version"] == 0
+    assert run["finished_ts"] is not None
     assert run["pass_at_1"] == 0.5
-    assert len(run["cases"]) == 1
-    row = run["cases"][0]
-    assert row["case_id"] == "t1"
-    assert row["passed_by_trial"] == [True, False]
-    assert row["score"] == 0.5
-    assert row["cost_usd"] == 0.002
-    assert row["transcript_paths"] == ["runs/run_a/t1.t0.json", "runs/run_a/t1.t1.json"]
-    assert row["trace_url"] == "https://trace/1"
-    assert row["drift"] is False
+    assert len(run["tasks"]) == 1
+
+    task = run["tasks"][0]
+    assert task["case_id"] == "t1"
+    # passed_by_trial is the one field that reflects every trial.
+    assert task["passed_by_trial"] == [True, False]
+    # Everything else is trial 0's value, not an aggregate.
+    assert task["score"] == 1.0
+    assert task["cost_usd"] == 0.001
+    assert task["transcript_path"] == "runs/run_a/t1.t0.json"
+    assert task["trace_url"] == "https://trace/1"
+    assert task["drift_kind"] is None
 
 
-def test_a_run_still_in_progress_is_listed_with_finished_false(ledger):
+def test_a_run_still_in_progress_has_no_finished_ts(ledger):
     ledger.emit(
         "run_started",
         agent_id="toy",
@@ -86,28 +121,15 @@ def test_a_run_still_in_progress_is_listed_with_finished_false(ledger):
         case_count=2,
         trials=1,
     )
-    ledger.emit(
-        "case_result",
-        agent_id="toy",
-        agent_version=0,
-        run_id="run_b",
-        case_id="t1",
-        trial=0,
-        passed=True,
-        score=1.0,
-        cost_usd=0.0,
-        latency_ms=1.0,
-        transcript_path="runs/run_b/t1.t0.json",
-    )
+    seed_case_result(ledger, run_id="run_b", case_id="t1")
 
-    listings = list_runs("toy", read_events=ledger.read)
-    assert len(listings) == 1
-    assert listings[0]["finished"] is False
-    assert listings[0]["case_count"] == 2
-    assert len(listings[0]["cases"]) == 1
+    summaries = list_runs("toy", read_events=ledger.read)
+    assert len(summaries) == 1
+    assert summaries[0]["finished_ts"] is None
+    assert len(summaries[0]["tasks"]) == 1
 
 
-def test_a_case_that_hit_drift_is_flagged(ledger):
+def test_a_task_that_hit_drift_reports_its_kind(ledger):
     ledger.emit(
         "run_started",
         agent_id="toy",
@@ -117,22 +139,27 @@ def test_a_case_that_hit_drift_is_flagged(ledger):
         case_count=1,
         trials=1,
     )
-    ledger.emit(
-        "case_result",
+    drift_id = ledger.emit(
+        "drift_detected",
         agent_id="toy",
         agent_version=0,
         run_id="run_c",
-        case_id="t1",
-        trial=0,
-        passed=False,
-        score=0.0,
-        cost_usd=0.0,
-        latency_ms=1.0,
-        transcript_path="runs/run_c/t1.t0.json",
-        drift_event_id=7,
+        payload={
+            "case_id": "t1",
+            "trial": 0,
+            "step": 3,
+            "kind": "loop",
+            "evidence": "{}",
+            "action": "abort",
+            "tokens_at_detection": 100,
+        },
     )
-    listings = list_runs("toy", read_events=ledger.read)
-    assert listings[0]["cases"][0]["drift"] is True
+    seed_case_result(
+        ledger, run_id="run_c", case_id="t1", passed=False, score=0.0, drift_event_id=drift_id
+    )
+
+    summaries = list_runs("toy", read_events=ledger.read)
+    assert summaries[0]["tasks"][0]["drift_kind"] == "loop"
 
 
 def test_runs_are_ordered_newest_first(ledger):
@@ -146,29 +173,12 @@ def test_runs_are_ordered_newest_first(ledger):
             case_count=0,
             trials=1,
         )
-        ledger.emit(
-            "run_finished",
-            agent_id="toy",
-            agent_version=0,
-            run_id=run_id,
-            split="train",
-            trials=1,
-            pass_at_1=1.0,
-            pass_pow_k=1.0,
-            pass_rate_std=0.0,
-            pass_rate_min=1.0,
-            pass_rate_max=1.0,
-            total_cost_usd=0.0,
-            p50_latency_ms=0,
-            p95_latency_ms=0,
-            drift_count=0,
-            tokens_saved_by_drift=0,
-        )
-    listings = list_runs("toy", read_events=ledger.read)
-    assert [listing["run_id"] for listing in listings] == ["run_2", "run_1"]
+        seed_run_finished(ledger, run_id=run_id)
+    summaries = list_runs("toy", read_events=ledger.read)
+    assert [s["run_id"] for s in summaries] == ["run_2", "run_1"]
 
 
-def test_start_run_runs_the_real_eval_and_reports_a_job(
+def test_start_run_returns_the_run_id_and_runs_the_real_eval(
     toy_package, evaluator_path, ledger, tmp_path
 ):
     def always_answers_billing(messages, model, tools=None):
@@ -179,13 +189,8 @@ def test_start_run_runs_the_real_eval_and_reports_a_job(
             "cost_usd": 0.0,
         }
 
-    def connect() -> sqlite3.Connection:
-        connection = sqlite3.connect(tmp_path / "jobs.sqlite3")
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    store = JobStore(connection_factory=connect, ensure_schema=True)
-    job_id = start_run(
+    store = JobStore(connection_factory=default_connection_factory(tmp_path / "jobs.sqlite3"))
+    run_id = start_run(
         "toy",
         split="train",
         trials=1,
@@ -197,14 +202,64 @@ def test_start_run_runs_the_real_eval_and_reports_a_job(
         read_events=ledger.read,
         runs_dir=tmp_path / "runs",
     )
+    assert run_id.startswith("run_")
 
     for _ in range(200):
-        job = store.get(job_id)
-        if job.status in (STATUS_DONE, STATUS_FAILED):
+        job = store.get(run_id)
+        if job.status in (STATUS_DONE, STATUS_ERROR):
             break
         time.sleep(0.01)
     assert job.status == STATUS_DONE
-    assert job.progress == 1.0
+    assert job.result["run_id"] == run_id
     assert job.result["split"] == "train"
     assert "pass_at_1" in job.result
-    assert ledger.of_kind("run_finished")
+    assert ledger.of_kind("run_finished")[0]["run_id"] == run_id
+
+
+# -- routes ---------------------------------------------------------------
+
+
+def test_routes_are_registered_under_the_expected_paths():
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    paths = set(client.get("/openapi.json").json()["paths"])
+    assert "/agents/{agent_id}/run" in paths
+    assert "/agents/{agent_id}/runs" in paths
+    assert "/jobs/{job_id}" in paths
+
+
+def test_get_job_returns_404_for_an_unknown_job(monkeypatch, tmp_path):
+    from backend.runtime import jobs as jobs_module
+
+    monkeypatch.setattr(
+        jobs_module,
+        "default_store",
+        JobStore(connection_factory=default_connection_factory(tmp_path / "jobs.sqlite3")),
+    )
+    # api.py imported default_store by reference at module load time, so patch
+    # it there too.
+    import backend.runtime.api as api_module
+
+    monkeypatch.setattr(api_module, "default_store", jobs_module.default_store)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    response = client.get("/jobs/does_not_exist")
+    assert response.status_code == 404
+
+
+def test_get_job_returns_the_job_once_created(tmp_path, monkeypatch):
+    import backend.runtime.api as api_module
+
+    store = JobStore(connection_factory=default_connection_factory(tmp_path / "jobs.sqlite3"))
+    monkeypatch.setattr(api_module, "default_store", store)
+    job_id = store.create("toy", "run")
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    response = client.get(f"/jobs/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["job_id"] == job_id

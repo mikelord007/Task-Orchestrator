@@ -45,9 +45,7 @@ class ModeContext:
     on_drift: DriftSink | None = None
 
     def model_for(self, step: str) -> str:
-        return self.package.model_for(
-            step, strong=self.model_strong, cheap=self.model_cheap
-        )
+        return self.package.model_for(step, strong=self.model_strong, cheap=self.model_cheap)
 
     def messages(self, system_prompt: str) -> list[dict[str, Any]]:
         return [
@@ -92,7 +90,9 @@ def run_planner_worker(ctx: ModeContext) -> LoopResult:
     ctx.transcript.record_note("plan produced by the planning step", plan=plan_text)
     worker_prompt = ctx.system_prompt
     if plan_text:
-        worker_prompt = f"{ctx.system_prompt.rstrip()}\n\n{PLAN_BLOCK_START}\n{plan_text}\n{PLAN_BLOCK_END}\n"
+        worker_prompt = (
+            f"{ctx.system_prompt.rstrip()}\n\n{PLAN_BLOCK_START}\n{plan_text}\n{PLAN_BLOCK_END}\n"
+        )
     result = run_loop(
         package=ctx.package,
         transcript=ctx.transcript,

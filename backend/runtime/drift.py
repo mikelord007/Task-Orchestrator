@@ -50,8 +50,7 @@ _MESSAGE_EXCERPT_CHARS = 240
 def _canonicalize(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            str(k): _canonicalize(v)
-            for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+            str(k): _canonicalize(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
         }
     if isinstance(value, (list, tuple)):
         return [_canonicalize(v) for v in value]
@@ -62,9 +61,7 @@ def _canonicalize(value: Any) -> Any:
 
 def normalize_args(args: Any) -> str:
     """Stable string form of tool arguments, used to detect identical calls."""
-    return json.dumps(
-        _canonicalize(args), sort_keys=True, separators=(",", ":"), default=str
-    )
+    return json.dumps(_canonicalize(args), sort_keys=True, separators=(",", ":"), default=str)
 
 
 @dataclass(frozen=True)
@@ -77,7 +74,13 @@ class DriftDecision:
     message: str | None = None
 
     def to_payload(self, *, case_id: str, trial: int) -> dict[str, Any]:
-        """The ``drift_detected`` payload (PLAN_ADDENDUM.md section A)."""
+        """Rich dict form, ``evidence`` included as a structured dict.
+
+        Used for the transcript's own ``drift[]`` entries (``TranscriptDrift``
+        allows arbitrary extra fields of any type) and for tests. For the
+        ledger's ``drift_detected`` event use :meth:`to_event_payload`, whose
+        ``evidence`` the contract requires to be a plain string.
+        """
         return {
             "case_id": case_id,
             "trial": trial,
@@ -87,6 +90,12 @@ class DriftDecision:
             "action": self.action,
             "tokens_at_detection": self.tokens_at_detection,
         }
+
+    def to_event_payload(self, *, case_id: str, trial: int) -> dict[str, Any]:
+        """The ``drift_detected`` event payload (contracts/events.py)."""
+        payload = self.to_payload(case_id=case_id, trial=trial)
+        payload["evidence"] = json.dumps(self.evidence, sort_keys=True, default=str)
+        return payload
 
 
 class DriftWatchdog:
@@ -222,9 +231,7 @@ class DriftWatchdog:
             action=action,
             evidence={
                 "expected_keys": list(self.expected_keys),
-                "last_messages": [
-                    (m.text or "")[:_MESSAGE_EXCERPT_CHARS] for m in recent
-                ],
+                "last_messages": [(m.text or "")[:_MESSAGE_EXCERPT_CHARS] for m in recent],
             },
             tokens_at_detection=transcript.tokens_used,
             step=transcript.step_count,

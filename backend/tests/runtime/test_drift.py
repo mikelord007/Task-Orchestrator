@@ -23,9 +23,7 @@ def make_transcript() -> Transcript:
     )
 
 
-def respond(
-    t: Transcript, text: str = "", tool_calls=None, tokens_out: int = 10
-) -> None:
+def respond(t: Transcript, text: str = "", tool_calls=None, tokens_out: int = 10) -> None:
     t.record_response(
         model="m",
         text=text,
@@ -121,9 +119,7 @@ def test_budget_aborts_once_cumulative_tokens_exceed_the_budget():
 
 
 def test_step_limit_aborts_once_steps_exceed_the_maximum():
-    knobs = Knobs(
-        drift_max_steps=3, drift_token_budget=10**9, drift_repeat_call_limit=99
-    )
+    knobs = Knobs(drift_max_steps=3, drift_token_budget=10**9, drift_repeat_call_limit=99)
     t = make_transcript()
     wd = DriftWatchdog(knobs, expected_keys=["labels"])
     for i in range(3):

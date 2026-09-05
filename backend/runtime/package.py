@@ -1,28 +1,27 @@
-"""Agent package loading and the tool registry (PLAN.md section 4.2).
+"""Agent package loading (PLAN.md section 4.2).
 
 A package version lives at ``agents/<agent_id>/v<N>/`` and holds ``agent.yaml``,
-``prompt.md``, ``tools/*.py`` and ``memory/``. Each tool module exposes
-``TOOL = {name, description, input_schema}`` and ``run(input: dict) -> str``.
+``prompt.md``, ``tools/*.py`` and ``memory/``. ``contracts.agent.load_package``
+owns parsing and validation (including importing ``tools/*.py`` and building
+the callable tool registry); this module only adapts its result into the
+shape the loop/eval harness use and adds :func:`invoke_tool`, which turns a
+tool exception into an error string instead of ever crashing a case.
 
-A tool that raises is *never* fatal: the exception is turned into an error
-string handed back to the model and counted in ``tool_errors``.
+Memory (``rules.jsonl``/``tool_notes.jsonl``) is read separately, straight off
+disk, by ``backend/runtime/memory.py`` - the runtime injects and demotes rules
+by id, which does not need the contract's pydantic ``MemoryRule`` objects.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-import uuid
-from collections.abc import Callable
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from contracts.agent import AgentPackage, load_package
+
 DEFAULT_AGENTS_DIR = Path("agents")
-
-
-class PackageError(RuntimeError):
-    """Raised when a package version cannot be loaded at all."""
 
 
 @dataclass
@@ -30,7 +29,7 @@ class Tool:
     name: str
     description: str
     input_schema: dict[str, Any]
-    run: Callable[[dict[str, Any]], Any]
+    run: Any
     source_path: str | None = None
 
     def spec(self) -> dict[str, Any]:
@@ -57,11 +56,7 @@ class LoadedPackage:
     @property
     def routing(self) -> dict[str, str]:
         routing = self.config.get("routing") or {}
-        return (
-            {str(k): str(v) for k, v in routing.items()}
-            if isinstance(routing, dict)
-            else {}
-        )
+        return {str(k): str(v) for k, v in routing.items()} if isinstance(routing, dict) else {}
 
     def tool_specs(self) -> list[dict[str, Any]]:
         return [tool.spec() for tool in self.tools.values()]
@@ -78,154 +73,58 @@ class LoadedPackage:
         return cheap if tier == "cheap" else strong
 
 
-# -- tool registry ------------------------------------------------------
-
-
-def load_tool_module(path: Path) -> Any:
-    module_name = f"_agent_tool_{path.stem}_{uuid.uuid4().hex[:8]}"
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise PackageError(f"cannot import tool module {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:
-        sys.modules.pop(module_name, None)
-        raise PackageError(f"tool module {path.name} failed to import: {exc}") from exc
-    return module
-
-
-def build_tool_registry(
-    tools_dir: Path, allowed: list[str] | None = None
-) -> dict[str, Tool]:
-    """Import every ``tools/*.py`` and register those exposing TOOL + run."""
-    registry: dict[str, Tool] = {}
-    if not tools_dir.exists():
-        return registry
-    for path in sorted(tools_dir.glob("*.py")):
-        if path.name.startswith("_"):
-            continue
-        module = load_tool_module(path)
-        descriptor = getattr(module, "TOOL", None)
-        runner = getattr(module, "run", None)
-        if not isinstance(descriptor, dict) or not callable(runner):
-            continue
-        name = str(descriptor.get("name") or path.stem)
-        registry[name] = Tool(
-            name=name,
-            description=str(descriptor.get("description") or ""),
-            input_schema=dict(descriptor.get("input_schema") or {}),
-            run=runner,
-            source_path=str(path).replace("\\", "/"),
+def _adapt(contract_package: AgentPackage, agent_id: str, directory: Path) -> LoadedPackage:
+    tools = {
+        name: Tool(
+            name=loaded.name,
+            description=loaded.spec.description,
+            input_schema=loaded.spec.input_schema,
+            run=loaded.run,
+            source_path=loaded.module_path,
         )
-    if allowed:
-        wanted = {str(n) for n in allowed}
-        filtered = {n: t for n, t in registry.items() if n in wanted}
-        # An agent.yaml naming a tool the package does not ship is a package
-        # problem, not a silent one - but only fail if nothing at all resolves.
-        if filtered or not registry:
-            return filtered
-    return registry
+        for name, loaded in contract_package.tools.items()
+    }
+    return LoadedPackage(
+        agent_id=agent_id,
+        version=contract_package.version,
+        directory=directory,
+        config=contract_package.config.model_dump(mode="json"),
+        prompt=contract_package.prompt,
+        tools=tools,
+    )
+
+
+def package_dir(agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR) -> Path:
+    return Path(agents_dir) / agent_id / f"v{version}"
+
+
+def load(agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR) -> LoadedPackage:
+    """Load and validate an agent package version. Raises ``contracts.agent.PackageError``
+    listing every contract violation if the package on disk is invalid."""
+    directory = package_dir(agent_id, version, agents_dir)
+    return _adapt(load_package(directory), agent_id, directory)
+
+
+def load_from_dir(
+    directory: Path | str, agent_id: str = "", version: int | None = None
+) -> LoadedPackage:
+    """Load a package straight off a directory (used by tests, and by
+    :func:`load` once the directory is resolved)."""
+    directory = Path(directory)
+    contract_package = load_package(directory)
+    resolved_id = agent_id or contract_package.config.name
+    return _adapt(contract_package, resolved_id, directory)
 
 
 def invoke_tool(tool: Tool, args: dict[str, Any]) -> tuple[str, bool]:
     """Run a tool. Returns ``(result_text, is_error)``; never raises."""
     try:
         result = tool.run(args if isinstance(args, dict) else {"input": args})
-    except Exception as exc:  # noqa: BLE001 - deliberately swallowed, see docstring
+    except Exception as exc:  # noqa: BLE001 - deliberately swallowed, see module docstring
         return f"ERROR: {type(exc).__name__}: {exc}", True
     if isinstance(result, str):
         return result, False
-    import json
-
     try:
         return json.dumps(result, default=str), False
     except Exception:  # noqa: BLE001
         return str(result), False
-
-
-# -- package loading ----------------------------------------------------
-
-
-def _parse_yaml(text: str) -> dict[str, Any]:
-    import yaml
-
-    data = yaml.safe_load(text) or {}
-    if not isinstance(data, dict):
-        raise PackageError("agent.yaml must parse to a mapping")
-    return data
-
-
-def load_from_dir(
-    directory: Path | str, agent_id: str = "", version: int | None = None
-) -> LoadedPackage:
-    """Load a package straight off disk (used by tests and by :func:`load`)."""
-    directory = Path(directory)
-    if not directory.exists():
-        raise PackageError(f"agent package not found: {directory}")
-    config_path = directory / "agent.yaml"
-    config = (
-        _parse_yaml(config_path.read_text(encoding="utf-8"))
-        if config_path.exists()
-        else {}
-    )
-    prompt_path = directory / "prompt.md"
-    prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
-    if version is None:
-        version = int(config.get("version") or 0)
-    return LoadedPackage(
-        agent_id=agent_id
-        or str(config.get("agent_id") or config.get("name") or directory.name),
-        version=version,
-        directory=directory,
-        config=config,
-        prompt=prompt,
-        tools=build_tool_registry(directory / "tools", config.get("tools")),
-    )
-
-
-def package_dir(
-    agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR
-) -> Path:
-    return Path(agents_dir) / agent_id / f"v{version}"
-
-
-def load(
-    agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR
-) -> LoadedPackage:
-    """Load an agent package version via ``contracts.agent.load_package``.
-
-    ``contracts`` owns the package schema; the runtime only adds the executable
-    tool registry on top of whatever it returns.
-    """
-    directory = package_dir(agent_id, version, agents_dir)
-    config: dict[str, Any] | None = None
-    prompt: str | None = None
-    try:
-        from contracts.agent import load_package  # type: ignore[import-not-found]
-    except Exception:  # noqa: BLE001 - contracts not importable, fall back to disk
-        load_package = None  # type: ignore[assignment]
-    if load_package is not None:
-        contract_package = load_package(agent_id, version)
-        directory = Path(getattr(contract_package, "directory", None) or directory)
-        raw_config = getattr(contract_package, "config", None)
-        if raw_config is None:
-            raw_config = getattr(contract_package, "agent_yaml", None)
-        if hasattr(raw_config, "model_dump"):
-            config = raw_config.model_dump()
-        elif isinstance(raw_config, dict):
-            config = dict(raw_config)
-        elif hasattr(contract_package, "model_dump"):
-            config = contract_package.model_dump()
-        prompt = getattr(contract_package, "prompt", None)
-
-    package = load_from_dir(directory, agent_id=agent_id, version=version)
-    if config:
-        merged = dict(package.config)
-        merged.update({k: v for k, v in config.items() if v is not None})
-        package.config = merged
-        package.tools = build_tool_registry(directory / "tools", merged.get("tools"))
-    if prompt:
-        package.prompt = prompt
-    return package

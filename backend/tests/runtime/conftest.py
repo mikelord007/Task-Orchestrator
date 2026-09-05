@@ -10,56 +10,49 @@ from backend.runtime.config import Knobs
 from backend.runtime.package import load_from_dir
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-TOY_AGENT_V0 = FIXTURES / "toy_agent" / "v0"
+# W2's own drift/memory/loop scenario fixture - not backend/tests/fixtures/toy_agent/v0/,
+# which is Phase 0's shared shout-tool fixture used by the contract tests.
+TOY_AGENT_V0 = FIXTURES / "toy_triage_agent" / "v0"
 TOY_EVALUATOR = FIXTURES / "toy_evaluator"
 
 
-class RecordingLedger:
-    """Stand-in for backend/ledger/emit.py: records instead of inserting."""
+class RealLedger:
+    """The real ``backend.ledger.emit``/``read``, bound to one temp sqlite file
+    per test.
 
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
+    This is deliberately not a hand-rolled test double: routing every write
+    through the genuine ``emit()`` means every payload is validated against
+    ``contracts/events.py`` for real, in every test - the same "kind"/"lever"
+    collision or evidence-shape bug a production caller would hit shows up
+    here too.
+    """
+
+    def __init__(self, db_path: Path) -> None:
+        from backend.db import init_db
+
+        self._db = db_path
+        init_db(db_path).close()
 
     def emit(self, kind: str, /, **fields: Any) -> int:
-        event_id = len(self.events) + 1
-        payload = {
-            k: v
-            for k, v in fields.items()
-            if k not in {"agent_id", "agent_version", "run_id", "lever"}
-        }
-        self.events.append(
-            {
-                "id": event_id,
-                "kind": kind,
-                "agent_id": fields.get("agent_id"),
-                "agent_version": fields.get("agent_version"),
-                "run_id": fields.get("run_id"),
-                "lever": fields.get("lever"),
-                "payload": payload,
-            }
-        )
-        return event_id
+        from backend.ledger.emit import emit
 
-    def read(
-        self, agent_id: str | None = None, kind: str | None = None
-    ) -> list[dict[str, Any]]:
-        return [
-            event
-            for event in self.events
-            if (agent_id is None or event["agent_id"] == agent_id)
-            and (kind is None or event["kind"] == kind)
-        ]
+        return emit(kind, db=self._db, **fields)
+
+    def read(self, agent_id: str | None = None, kind: str | None = None) -> list[dict[str, Any]]:
+        from backend.ledger.emit import read
+
+        return read(agent_id=agent_id, kind=kind, db=self._db)
 
     def of_kind(self, kind: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["kind"] == kind]
+        return self.read(kind=kind)
 
     def kinds(self) -> list[str]:
-        return [event["kind"] for event in self.events]
+        return [event["kind"] for event in self.read()]
 
 
 @pytest.fixture
-def ledger() -> RecordingLedger:
-    return RecordingLedger()
+def ledger(tmp_path: Path) -> RealLedger:
+    return RealLedger(tmp_path / "ledger_test.sqlite3")
 
 
 @pytest.fixture
@@ -100,8 +93,6 @@ def evaluator_path() -> Path:
 def toy_cases() -> list[dict[str, Any]]:
     return [
         json.loads(line)
-        for line in (TOY_EVALUATOR / "cases.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (TOY_EVALUATOR / "cases.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]

@@ -2,11 +2,18 @@
 
 PLAN.md rule 2.8: everything here is written by the runtime as it happens. No
 step is ever produced by asking the model to describe its own behaviour, and
-``passed`` comes from the evaluator's ``score.py`` only.
+``passed`` comes from the grader (``score.py``) only.
 
-The transcript is the single source of truth for the drift watchdog, the failure
-analyst (W6) and Neatlogs. It is persisted to
-``runs/<run_id>/<case_id>.t<trial>.json``.
+The transcript is the single source of truth for the drift watchdog, the
+failure analyst (W6), W1's ``tool_call_stats`` and Neatlogs. Recording happens
+through this convenient mutable builder; :meth:`write` (and :meth:`to_dict`)
+produce the exact shape ``contracts.transcript.Transcript`` validates -
+``i``/``kind`` per step (not this module's earlier ``index``/``type``),
+``result``/``error`` as separate optional strings on a ``tool_return`` step,
+``drift`` as its own top-level list rather than steps mixed in, and
+``version`` (not ``agent_version``) at the top level. Extra bookkeeping this
+module wants (``phase``, ``cost_usd``, per-step ``elapsed_ms``, ...) rides
+along as allowed extra fields (the contract's models are ``extra="allow"``).
 """
 
 from __future__ import annotations
@@ -14,27 +21,35 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-TRANSCRIPT_VERSION = 1
+from contracts.transcript import Transcript as ContractTranscript
+from contracts.transcript import transcript_path as contract_transcript_path
 
 
 def utc_now() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def transcript_path(
-    runs_dir: Path | str, run_id: str, case_id: str, trial: int
-) -> Path:
-    """``runs/<run_id>/<case_id>.t<trial>.json`` (task id made filename-safe)."""
-    safe = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in str(case_id))
-    return Path(runs_dir) / run_id / f"{safe}.t{trial}.json"
+def transcript_path(runs_dir: Path | str, run_id: str, case_id: str, trial: int) -> Path:
+    """``runs/<run_id>/<case_id>.t<trial>.json`` - the one contract path convention."""
+    return contract_transcript_path(run_id, case_id, trial, root=runs_dir)
+
+
+def _estimate_tokens(text: str | None) -> int:
+    """~4 characters per token.
+
+    Used only for a ``tool_return`` step's ``tokens_in``, which the API gives
+    us no exact per-tool-call attribution for: the "usage" field on the next
+    LLM response covers the whole growing prompt, not just this tool's
+    contribution to it. This is a documented approximation, not a measurement
+    (W1's ``tool_call_stats`` reads it as such).
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
 
 
 @dataclass
@@ -84,7 +99,7 @@ class Transcript:
         self.case_input = case_input
         self.expected_keys = list(expected_keys or [])
         self.system_prompt = system_prompt
-        # Written by the runtime, never by the agent (PLAN.md 0.2).
+        # Written by the runtime, never by the agent (PLAN_ADDENDUM.md section E/0).
         self.rules_injected = list(rules_injected or [])
         self.tool_notes_injected = list(tool_notes_injected or [])
 
@@ -95,6 +110,7 @@ class Transcript:
 
         self.steps: list[dict[str, Any]] = []
         self.drift: list[dict[str, Any]] = []
+        self.notes: list[dict[str, Any]] = []
         self.assistant_messages: list[AssistantMessage] = []
         self.tool_call_history: list[ToolCallRecord] = []
 
@@ -133,12 +149,12 @@ class Transcript:
         return time.monotonic() - self._t0
 
     def _append(self, kind: str, /, **payload: Any) -> dict[str, Any]:
-        # kind is positional-only: several payloads (e.g. a drift entry) carry
-        # their own "kind" field, which would otherwise collide with this one's
-        # keyword name.
+        # kind is positional-only: some payloads carry their own "kind" field
+        # (drift, before it moved to its own list) which would otherwise
+        # collide with this one's keyword name.
         step = {
-            "index": len(self.steps),
-            "type": kind,
+            "i": len(self.steps),
+            "kind": kind,
             "ts": utc_now(),
             "elapsed_ms": int((time.monotonic() - self._t0) * 1000),
             **payload,
@@ -186,13 +202,12 @@ class Transcript:
             phase=phase,
             model=model,
             text=text or "",
+            tokens_in=t_in,
+            tokens_out=t_out,
             tool_calls=json.loads(json.dumps(tool_calls or [], default=str)),
-            usage={"tokens_in": t_in, "tokens_out": t_out},
             cost_usd=float(cost_usd or 0.0),
         )
-        message = AssistantMessage(
-            text=text or "", tool_calls=list(tool_calls or []), phase=phase
-        )
+        message = AssistantMessage(text=text or "", tool_calls=list(tool_calls or []), phase=phase)
         self.assistant_messages.append(message)
         return message
 
@@ -201,15 +216,16 @@ class Transcript:
     ) -> None:
         self.tool_calls += 1
         self.tool_call_history.append(
-            ToolCallRecord(
-                tool=tool, normalized_args=normalized_args, step=self.step_count
-            )
+            ToolCallRecord(tool=tool, normalized_args=normalized_args, step=self.step_count)
         )
         self._append(
             "tool_call",
             tool=tool,
-            call_id=call_id,
+            # The exact dict passed to run() - W1's redundant-call detection
+            # (same tool + identical normalized args within one trial) needs
+            # the raw shape, not a rendered string.
             args=json.loads(json.dumps(args, default=str)),
+            call_id=call_id,
             normalized_args=normalized_args,
         )
 
@@ -229,27 +245,32 @@ class Transcript:
         self._append(
             "tool_return",
             tool=tool,
+            result=None if is_error else result,
+            error=result if is_error else None,
+            # See _estimate_tokens: an approximation, not a measurement - the
+            # API gives no exact per-tool-call token attribution.
+            tokens_in=_estimate_tokens(result),
             call_id=call_id,
-            result=result,
-            error=is_error,
             duration_ms=duration_ms,
         )
 
     def record_nudge(self, *, kind: str, message: str) -> None:
-        self._append("nudge", kind=kind, message=message)
+        self._append("nudge", text=message, drift_kind=kind)
 
-    def record_drift(
-        self, payload: dict[str, Any], event_id: int | None = None
-    ) -> None:
+    def record_drift(self, payload: dict[str, Any], event_id: int | None = None) -> None:
+        """Append one drift trigger to ``drift[]`` - a dedicated top-level
+        list per the contract, not a step (``StepKind`` has no "drift" value)."""
         entry = dict(payload)
         if event_id is not None:
             entry["event_id"] = event_id
             self.drift_event_id = event_id
         self.drift.append(entry)
-        self._append("drift", **entry)
 
     def record_note(self, note: str, **payload: Any) -> None:
-        self._append("note", note=note, **payload)
+        """Runtime commentary (a plan produced by the planning step, a
+        swallowed exception, ...) that isn't one of the five contract step
+        kinds. Kept as an allowed extra top-level list, not in ``steps``."""
+        self.notes.append({"ts": utc_now(), "note": note, **payload})
 
     # -- finishing ------------------------------------------------------
 
@@ -259,39 +280,39 @@ class Transcript:
             self.latency_ms = int((time.monotonic() - self._t0) * 1000)
 
     def to_dict(self) -> dict[str, Any]:
+        """The exact shape ``contracts.transcript.Transcript`` validates,
+        plus this module's own extra fields (allowed by that contract)."""
         self.finish()
         return {
-            "transcript_version": TRANSCRIPT_VERSION,
             "run_id": self.run_id,
-            "agent_id": self.agent_id,
-            "agent_version": self.agent_version,
             "case_id": self.case_id,
             "trial": self.trial,
-            "orchestration": self.orchestration,
+            "agent_id": self.agent_id,
+            "version": self.agent_version,
             "started_ts": self.started_ts,
             "finished_ts": self.finished_ts,
-            "latency_ms": self.latency_ms,
+            "steps": self.steps,
+            "final_output": self.final_output,
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "tool_calls": self.tool_calls,
+            "tool_errors": self.tool_errors,
+            "rules_injected": self.rules_injected,
+            "drift": self.drift,
+            # -- extras: not part of the contract, allowed alongside it --
+            "orchestration": self.orchestration,
             "case_input": self.case_input,
             "expected_keys": self.expected_keys,
             "system_prompt": self.system_prompt,
-            "rules_injected": self.rules_injected,
             "tool_notes_injected": self.tool_notes_injected,
-            "steps": self.steps,
-            "drift": self.drift,
-            "totals": {
-                "steps": self.step_count,
-                "llm_calls": self.llm_calls,
-                "tool_calls": self.tool_calls,
-                "tool_errors": self.tool_errors,
-                "tokens_in": self.tokens_in,
-                "tokens_out": self.tokens_out,
-                "cost_usd": round(self.cost_usd, 8),
-            },
+            "notes": self.notes,
             "final_text": self.final_text,
-            "final_output": self.final_output,
             "aborted": self.aborted,
             "abort_kind": self.abort_kind,
             "trace_url": self.trace_url,
+            "cost_usd": round(self.cost_usd, 8),
+            "latency_ms": self.latency_ms,
+            "llm_calls": self.llm_calls,
             "result": {
                 "passed": self.passed,
                 "score": self.score,
@@ -302,9 +323,8 @@ class Transcript:
         }
 
     def write(self, runs_dir: Path | str) -> str:
-        path = transcript_path(runs_dir, self.run_id, self.case_id, self.trial)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8"
-        )
+        """Validate against ``contracts.transcript.Transcript`` and write to
+        ``runs/<run_id>/<case_id>.t<trial>.json``."""
+        validated = ContractTranscript.model_validate(self.to_dict())
+        path = validated.write(runs_dir)
         return str(path).replace("\\", "/")

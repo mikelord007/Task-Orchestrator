@@ -1,93 +1,79 @@
-"""Background-job helper over the ``improve_jobs`` table.
+"""Background-job helper over the ``improve_jobs`` table (migration 0001).
 
 A tiny wrapper so ``POST /agents/{id}/run`` and (later) W6's
 ``POST /agents/{id}/improve`` can hand work to a background thread and let the
 frontend poll ``GET /jobs/{job_id}`` for progress, without either endpoint
 touching sqlite directly.
 
-The connection is injectable (see :func:`default_connection`) so tests never
-touch the real database; the default reaches for ``backend.db`` once Phase 0
-lands. Schema (created by W0's migrations):
+Schema (``backend/migrations/0001_init.sql``)::
 
-``improve_jobs(job_id TEXT PRIMARY KEY, kind TEXT, agent_id TEXT, status TEXT,
-progress REAL, result TEXT, error TEXT, created_ts TEXT, updated_ts TEXT)``
+    improve_jobs(job_id, agent_id, kind, status, attempts, max_attempts,
+                 issue_id, current_step, result, error, created_ts, updated_ts)
+
+``status`` is one of ``queued | running | done | error``. There is no numeric
+progress column - progress is reported as a short human-readable
+``current_step`` (e.g. ``"12/40 cases"``), matching what the migration models.
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-STATUS_PENDING = "pending"
+from backend.db import init_db, utcnow
+
+STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_DONE = "done"
-STATUS_FAILED = "failed"
+STATUS_ERROR = "error"
 
-ConnectionFn = Callable[[], sqlite3.Connection]
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS improve_jobs (
-    job_id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent_id TEXT,
-    status TEXT NOT NULL,
-    progress REAL NOT NULL DEFAULT 0,
-    result TEXT,
-    error TEXT,
-    created_ts TEXT NOT NULL,
-    updated_ts TEXT NOT NULL
-)
-"""
+ConnectionFactory = Callable[[], Any]
 
 
-def _now() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
+def default_connection_factory(db: str | Path | None = None) -> ConnectionFactory:
+    """A factory opening a fresh, migrated connection to ``db`` (or the
+    default db) each call. ``init_db`` (not ``connect``) so the schema is
+    guaranteed to exist even if ``backend.app``'s startup migration has not
+    run yet (e.g. a script using this module directly)."""
 
+    def factory() -> Any:
+        return init_db(db)
 
-def default_connection() -> sqlite3.Connection:
-    from backend import db
-
-    for name in ("connect", "get_connection", "connection"):
-        factory = getattr(db, name, None)
-        if callable(factory):
-            connection = factory()
-            connection.row_factory = sqlite3.Row
-            return connection
-    raise RuntimeError("backend.db exposes no connection factory")
+    return factory
 
 
 @dataclass
 class Job:
     job_id: str
+    agent_id: str
     kind: str
-    agent_id: str | None
     status: str
-    progress: float
+    attempts: int
+    max_attempts: int
+    issue_id: str | None
+    current_step: str | None
     result: Any
     error: str | None
     created_ts: str
     updated_ts: str
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> Job:
+    def from_row(cls, row: Any) -> Job:
         raw_result = row["result"]
-        result = json.loads(raw_result) if raw_result else None
         return cls(
             job_id=row["job_id"],
-            kind=row["kind"],
             agent_id=row["agent_id"],
+            kind=row["kind"],
             status=row["status"],
-            progress=float(row["progress"] or 0.0),
-            result=result,
+            attempts=int(row["attempts"] or 0),
+            max_attempts=int(row["max_attempts"] or 3),
+            issue_id=row["issue_id"],
+            current_step=row["current_step"],
+            result=json.loads(raw_result) if raw_result else None,
             error=row["error"],
             created_ts=row["created_ts"],
             updated_ts=row["updated_ts"],
@@ -95,34 +81,40 @@ class Job:
 
 
 class JobStore:
-    """Thin, injectable wrapper over ``improve_jobs``."""
+    """Thin, injectable wrapper over ``improve_jobs``.
 
-    def __init__(
+    ``connection_factory`` is called fresh for every operation (matching how
+    ``backend.db.connect`` is meant to be used) so this is safe to share
+    across the background thread and the request thread.
+    """
+
+    def __init__(self, connection_factory: ConnectionFactory | None = None) -> None:
+        self._connection_factory = connection_factory or default_connection_factory()
+
+    def _connect(self) -> Any:
+        return self._connection_factory()
+
+    def create(
         self,
-        connection_factory: ConnectionFn = default_connection,
-        ensure_schema: bool = False,
-    ) -> None:
-        self._connection_factory = connection_factory
-        self._ensure_schema = ensure_schema
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = self._connection_factory()
-        if self._ensure_schema:
-            connection.execute(_SCHEMA)
-        return connection
-
-    def create(self, kind: str, agent_id: str | None = None) -> str:
-        job_id = f"job_{uuid.uuid4().hex[:12]}"
-        now = _now()
+        agent_id: str,
+        kind: str = "run",
+        *,
+        job_id: str | None = None,
+        issue_id: str | None = None,
+        max_attempts: int = 3,
+    ) -> str:
+        job_id = job_id or f"job_{uuid.uuid4().hex[:12]}"
+        now = utcnow()
         connection = self._connect()
         try:
-            connection.execute(
-                "INSERT INTO improve_jobs "
-                "(job_id, kind, agent_id, status, progress, result, error, created_ts, updated_ts) "
-                "VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)",
-                (job_id, kind, agent_id, STATUS_PENDING, now, now),
-            )
-            connection.commit()
+            with connection:
+                connection.execute(
+                    "INSERT INTO improve_jobs "
+                    "(job_id, agent_id, kind, status, attempts, max_attempts, issue_id, "
+                    " current_step, result, error, created_ts, updated_ts) "
+                    "VALUES (?, ?, ?, ?, 0, ?, ?, NULL, NULL, NULL, ?, ?)",
+                    (job_id, agent_id, kind, STATUS_QUEUED, max_attempts, issue_id, now, now),
+                )
         finally:
             connection.close()
         return job_id
@@ -130,8 +122,10 @@ class JobStore:
     def update(
         self,
         job_id: str,
+        *,
         status: str | None = None,
-        progress: float | None = None,
+        attempts: int | None = None,
+        current_step: str | None = None,
         result: Any = None,
         error: str | None = None,
     ) -> None:
@@ -140,9 +134,12 @@ class JobStore:
         if status is not None:
             sets.append("status = ?")
             params.append(status)
-        if progress is not None:
-            sets.append("progress = ?")
-            params.append(float(progress))
+        if attempts is not None:
+            sets.append("attempts = ?")
+            params.append(attempts)
+        if current_step is not None:
+            sets.append("current_step = ?")
+            params.append(current_step)
         if result is not None:
             sets.append("result = ?")
             params.append(json.dumps(result, default=str))
@@ -150,21 +147,20 @@ class JobStore:
             sets.append("error = ?")
             params.append(error)
         sets.append("updated_ts = ?")
-        params.append(_now())
+        params.append(utcnow())
         params.append(job_id)
         connection = self._connect()
         try:
-            connection.execute(
-                f"UPDATE improve_jobs SET {', '.join(sets)} WHERE job_id = ?", params
-            )
-            connection.commit()
+            with connection:
+                connection.execute(
+                    f"UPDATE improve_jobs SET {', '.join(sets)} WHERE job_id = ?", params
+                )
         finally:
             connection.close()
 
     def get(self, job_id: str) -> Job | None:
         connection = self._connect()
         try:
-            connection.row_factory = sqlite3.Row
             row = connection.execute(
                 "SELECT * FROM improve_jobs WHERE job_id = ?", (job_id,)
             ).fetchone()
@@ -173,22 +169,21 @@ class JobStore:
         return Job.from_row(row) if row is not None else None
 
     def mark_running(self, job_id: str) -> None:
-        self.update(job_id, status=STATUS_RUNNING, progress=0.0)
+        self.update(job_id, status=STATUS_RUNNING, current_step="starting")
 
     def mark_progress(self, job_id: str, done: int, total: int) -> None:
-        fraction = (done / total) if total else 1.0
-        self.update(job_id, progress=round(fraction, 4))
+        self.update(job_id, current_step=f"{done}/{total} cases")
 
     def mark_done(self, job_id: str, result: Any) -> None:
         self.update(
             job_id,
             status=STATUS_DONE,
-            progress=1.0,
+            current_step="done",
             result=result if result is not None else {},
         )
 
     def mark_failed(self, job_id: str, error: str) -> None:
-        self.update(job_id, status=STATUS_FAILED, error=error)
+        self.update(job_id, status=STATUS_ERROR, current_step="error", error=error)
 
 
 default_store = JobStore()
@@ -199,15 +194,19 @@ def run_in_background(
     kind: str,
     agent_id: str,
     work: Callable[[Callable[[int, int], None]], Any],
+    *,
+    job_id: str | None = None,
 ) -> str:
     """Create a job, run ``work`` on a daemon thread, and report its outcome.
 
     ``work`` receives a ``progress(done, total)`` callback it should call as it
-    makes progress; the return value becomes the job's result on success.
+    makes progress; the return value becomes the job's result on success. Pass
+    ``job_id`` to reuse an id already handed to the caller (e.g. the run id
+    ``POST /agents/{id}/run`` returns) instead of minting a fresh one.
     """
     import threading
 
-    job_id = store.create(kind, agent_id)
+    job_id = store.create(agent_id, kind, job_id=job_id)
 
     def target() -> None:
         store.mark_running(job_id)

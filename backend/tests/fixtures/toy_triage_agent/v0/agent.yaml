@@ -1,7 +1,6 @@
 name: toy_triage
 version: 0
 domain: toy
-evaluator_id: toy_evaluator
 model_strong: strong-model
 model_cheap: cheap-model
 orchestration: single

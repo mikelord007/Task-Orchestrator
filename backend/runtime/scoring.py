@@ -32,9 +32,7 @@ class ScoreResult:
     notes: str
 
 
-def evaluator_dir(
-    evaluator_id: str, evaluators_dir: Path | str = DEFAULT_EVALUATORS_DIR
-) -> Path:
+def evaluator_dir(evaluator_id: str, evaluators_dir: Path | str = DEFAULT_EVALUATORS_DIR) -> Path:
     return Path(evaluators_dir) / evaluator_id
 
 

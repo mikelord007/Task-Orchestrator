@@ -1,34 +1,29 @@
-"""Plain-function handlers behind ``POST /agents/{id}/run`` and
-``GET /agents/{id}/runs``.
+"""``POST /agents/{id}/run``, ``GET /agents/{id}/runs``, ``GET /jobs/{job_id}``
+(contracts/api.md).
 
-Kept separate from any web framework so they can be unit tested now and wired
-into ``backend/app.py`` as one-line route bodies once Phase 0 lands:
-
-    @app.post("/agents/{agent_id}/run")
-    def run_agent(agent_id: str, body: RunRequest):
-        return {"run_id_job": start_run(agent_id, body.split)}
-
-    @app.get("/jobs/{job_id}")
-    def get_job_status(job_id: str):
-        return jobs.default_store.get(job_id)
-
-    @app.get("/agents/{agent_id}/runs")
-    def get_runs(agent_id: str):
-        return list_runs(agent_id)
+The route bodies are one line each; the actual logic (``start_run``,
+``list_runs``) is plain functions so they are unit-testable without spinning
+up FastAPI or touching the real ledger/db.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from backend.runtime.evaluation import DEFAULT_RUNS_DIR, LoadedPackage, run_eval
 from backend.runtime.events import EmitFn, ReadEventsFn, default_read_events
-from backend.runtime.jobs import JobStore, default_store, run_in_background
+from backend.runtime.jobs import Job, JobStore, default_store, run_in_background
 from backend.runtime.loop import CompleteFn
 from backend.runtime.package import DEFAULT_AGENTS_DIR
 from backend.runtime.scoring import DEFAULT_EVALUATORS_DIR
+
+router = APIRouter()
 
 
 def start_run(
@@ -46,14 +41,17 @@ def start_run(
     emit: EmitFn | None = None,
     read_events: ReadEventsFn | None = None,
 ) -> str:
-    """Start ``run_eval`` on a background thread; return its job id.
+    """Generate the run id, start ``run_eval`` on it in the background, and
+    return the run id immediately (``POST /agents/{id}/run`` -> ``{run_id}``,
+    per contracts/api.md - the run id is known upfront, unlike a job id).
 
-    Job progress tracks cases done / total (``run_eval``'s ``progress``
-    callback); the job's result is the run summary on success. The keyword
-    overrides below exist for tests - the FastAPI route calls this with just
-    ``(agent_id, split)`` and lets ``run_eval`` resolve everything from disk,
-    ``backend.llm`` and the real ledger.
+    Progress (cases done / total) is tracked in ``improve_jobs`` under a job
+    whose id equals the run id, so ``GET /jobs/{run_id}`` also works. The
+    keyword overrides below exist for tests; the FastAPI route calls this with
+    just ``(agent_id, split)`` and lets ``run_eval`` resolve everything else
+    from disk, ``backend.llm`` and the real ledger.
     """
+    run_id = f"run_{uuid4().hex[:12]}"
     store = store or default_store
 
     def work(progress):
@@ -61,6 +59,7 @@ def start_run(
             agent_id,
             split=split,
             trials=trials,
+            run_id=run_id,
             agents_dir=agents_dir,
             evaluators_dir=evaluators_dir,
             runs_dir=runs_dir,
@@ -73,64 +72,62 @@ def start_run(
         )
         return {"run_id": summary.run_id, **summary.finished_payload()}
 
-    return run_in_background(store, "run", agent_id, work)
+    run_in_background(store, "run", agent_id, work, job_id=run_id)
+    return run_id
 
 
 @dataclass
-class CaseRow:
-    """One row of the per-run case table (PLAN_ADDENDUM.md section A)."""
+class TaskResult:
+    """One row of ``RunSummary.tasks`` (contracts/api.md).
+
+    Every field except ``passed_by_trial`` is taken from trial 0 of this run -
+    enough for one representative transcript per row without inflating the
+    payload with ``trials`` copies; the per-trial pass/fail strip is the part
+    that must show every trial.
+    """
 
     case_id: str
     passed_by_trial: list[bool]
     score: float
     cost_usd: float
-    latency_ms: float
-    transcript_paths: list[str]
-    drift: bool
+    latency_ms: int
+    tool_calls: int
+    tool_errors: int
+    rules_injected: list[str]
+    transcript_path: str | None
     trace_url: str | None
+    drift_kind: str | None
 
     def payload(self) -> dict[str, Any]:
         return {
             "case_id": self.case_id,
             "passed_by_trial": self.passed_by_trial,
-            "score": round(self.score, 6),
-            "cost_usd": round(self.cost_usd, 8),
-            "latency_ms": round(self.latency_ms, 2),
-            "transcript_paths": self.transcript_paths,
-            "drift": self.drift,
+            "score": self.score,
+            "cost_usd": self.cost_usd,
+            "latency_ms": self.latency_ms,
+            "tool_calls": self.tool_calls,
+            "tool_errors": self.tool_errors,
+            "rules_injected": self.rules_injected,
+            "transcript_path": self.transcript_path,
             "trace_url": self.trace_url,
+            "drift_kind": self.drift_kind,
         }
 
 
-@dataclass
-class RunListing:
-    run_id: str
-    split: str
-    trials: int
-    case_count: int
-    finished: dict[str, Any] | None = None
-    cases: list[CaseRow] = field(default_factory=list)
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            "run_id": self.run_id,
-            "split": self.split,
-            "trials": self.trials,
-            "case_count": self.case_count,
-            **(self.finished or {}),
-            "finished": self.finished is not None,
-            "cases": [c.payload() for c in self.cases],
-        }
+def _drift_kinds_by_event_id(read_events: ReadEventsFn, agent_id: str) -> dict[int, str]:
+    return {
+        row["id"]: row["payload"]["kind"]
+        for row in read_events(agent_id=agent_id, kind="drift_detected")
+        if row.get("id") is not None
+    }
 
 
-def list_runs(
-    agent_id: str, *, read_events: ReadEventsFn | None = None
-) -> list[dict[str, Any]]:
-    """``run_finished`` summaries with per-task rows, newest first.
+def list_runs(agent_id: str, *, read_events: ReadEventsFn | None = None) -> list[dict[str, Any]]:
+    """``[RunSummary]`` (contracts/api.md), newest first.
 
     A run that has ``run_started`` but no ``run_finished`` yet (still running,
     or crashed) is reported with whatever ``case_result`` rows exist so far and
-    ``finished: null``.
+    ``finished_ts: null``.
     """
     read_events = read_events or default_read_events
 
@@ -144,71 +141,104 @@ def list_runs(
         for row in read_events(agent_id=agent_id, kind="run_finished")
         if row.get("run_id")
     }
+    drift_kind_of = _drift_kinds_by_event_id(read_events, agent_id)
 
     by_run: dict[str, list[dict[str, Any]]] = {}
+    agent_version_of: dict[str, int] = {}
     for row in read_events(agent_id=agent_id, kind="case_result"):
         run_id = row.get("run_id")
-        if run_id:
-            by_run.setdefault(run_id, []).append(row.get("payload") or {})
+        if not run_id:
+            continue
+        by_run.setdefault(run_id, []).append(row.get("payload") or {})
+        if row.get("agent_version") is not None:
+            agent_version_of[run_id] = row["agent_version"]
 
-    listings: list[RunListing] = []
-    run_ids = set(started) | set(finished) | set(by_run)
-    for run_id in run_ids:
-        start_payload = (started.get(run_id) or {}).get("payload") or {}
+    summaries: list[dict[str, Any]] = []
+    for run_id in set(started) | set(finished) | set(by_run):
+        start_row = started.get(run_id)
         finish_row = finished.get(run_id)
-        finish_payload = dict(finish_row["payload"]) if finish_row else None
-        split = (
-            start_payload.get("split") or (finish_payload or {}).get("split") or "train"
+        start_payload = (start_row or {}).get("payload") or {}
+        finish_payload = (finish_row or {}).get("payload") or {}
+        version = (
+            (start_row or {}).get("agent_version")
+            or (finish_row or {}).get("agent_version")
+            or agent_version_of.get(run_id)
+            or 0
         )
-        trials = (
-            start_payload.get("trials") or (finish_payload or {}).get("trials") or 0
-        )
-        case_count = start_payload.get("case_count") or 0
+        split = start_payload.get("split") or finish_payload.get("split") or "train"
+        trials = int(start_payload.get("trials") or finish_payload.get("trials") or 0)
 
         by_case: dict[str, list[dict[str, Any]]] = {}
         for payload in by_run.get(run_id, []):
-            case_id = str(payload.get("case_id"))
-            by_case.setdefault(case_id, []).append(payload)
+            by_case.setdefault(str(payload.get("case_id")), []).append(payload)
 
-        cases: list[CaseRow] = []
+        tasks: list[TaskResult] = []
         for case_id in sorted(by_case):
-            rows = sorted(
-                by_case[case_id], key=lambda p: p.get("trial", p.get("repeat", 0))
-            )
-            scores = [float(r.get("score") or 0.0) for r in rows]
-            costs = [float(r.get("cost_usd") or 0.0) for r in rows]
-            latencies = [float(r.get("latency_ms") or 0.0) for r in rows]
-            trace_url = next(
-                (r.get("trace_url") for r in rows if r.get("trace_url")), None
-            )
-            cases.append(
-                CaseRow(
+            rows = sorted(by_case[case_id], key=lambda p: p.get("trial", p.get("repeat", 0)))
+            first = rows[0]
+            drift_event_id = first.get("drift_event_id")
+            tasks.append(
+                TaskResult(
                     case_id=case_id,
                     passed_by_trial=[bool(r.get("passed")) for r in rows],
-                    score=sum(scores) / len(scores) if scores else 0.0,
-                    cost_usd=sum(costs),
-                    latency_ms=sum(latencies) / len(latencies) if latencies else 0.0,
-                    transcript_paths=[str(r.get("transcript_path")) for r in rows],
-                    drift=any(r.get("drift_event_id") is not None for r in rows),
-                    trace_url=trace_url,
+                    score=float(first.get("score") or 0.0),
+                    cost_usd=float(first.get("cost_usd") or 0.0),
+                    latency_ms=int(first.get("latency_ms") or 0),
+                    tool_calls=int(first.get("tool_calls") or 0),
+                    tool_errors=int(first.get("tool_errors") or 0),
+                    rules_injected=list(first.get("rules_injected") or []),
+                    transcript_path=first.get("transcript_path"),
+                    trace_url=first.get("trace_url"),
+                    drift_kind=drift_kind_of.get(drift_event_id)
+                    if drift_event_id is not None
+                    else None,
                 )
             )
 
-        listings.append(
-            RunListing(
-                run_id=run_id,
-                split=split,
-                trials=int(trials),
-                case_count=int(case_count) or len(cases),
-                finished=finish_payload,
-                cases=cases,
-            )
+        summaries.append(
+            {
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "version": int(version),
+                "split": split,
+                "trials": trials,
+                "started_ts": (start_row or finish_row or {}).get("ts"),
+                "finished_ts": (finish_row or {}).get("ts"),
+                "pass_at_1": finish_payload.get("pass_at_1"),
+                "pass_pow_k": finish_payload.get("pass_pow_k"),
+                "total_cost_usd": finish_payload.get("total_cost_usd"),
+                "p50_latency_ms": finish_payload.get("p50_latency_ms"),
+                "p95_latency_ms": finish_payload.get("p95_latency_ms"),
+                "drift_count": finish_payload.get("drift_count"),
+                "tasks": [t.payload() for t in tasks],
+                "_sort_id": (finish_row or start_row or {}).get("id", 0),
+            }
         )
 
-    def sort_key(listing: RunListing) -> Any:
-        finish_row = finished.get(listing.run_id)
-        start_row = started.get(listing.run_id)
-        return (finish_row or start_row or {}).get("id", 0)
+    summaries.sort(key=lambda s: s.pop("_sort_id"), reverse=True)
+    return summaries
 
-    listings.sort(key=sort_key, reverse=True)
-    return [listing.payload() for listing in listings]
+
+# -- routes ---------------------------------------------------------------
+
+
+class RunRequest(BaseModel):
+    split: str = "train"
+
+
+@router.post("/agents/{agent_id}/run")
+def post_agent_run(agent_id: str, body: RunRequest) -> dict[str, str]:
+    return {"run_id": start_run(agent_id, body.split)}
+
+
+@router.get("/agents/{agent_id}/runs")
+def get_agent_runs(agent_id: str) -> list[dict[str, Any]]:
+    return list_runs(agent_id)
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str) -> Job:
+    job = default_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"no such job: {job_id}")
+    return job

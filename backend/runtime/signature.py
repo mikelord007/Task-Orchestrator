@@ -45,11 +45,7 @@ def failure_signature(
         parts.append(f"tool_error {tool_error}")
     if missing_keys:
         keys = sorted(
-            {
-                _normalize(str(k)).replace(" ", "_")
-                for k in missing_keys
-                if str(k).strip()
-            }
+            {_normalize(str(k)).replace(" ", "_") for k in missing_keys if str(k).strip()}
         )
         keys = [k for k in keys if k]
         if keys:
