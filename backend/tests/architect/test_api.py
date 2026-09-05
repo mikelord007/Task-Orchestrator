@@ -78,7 +78,8 @@ def test_post_agents_then_get_agent_returns_row_and_package(client: TestClient):
     assert body["current_version"] == 0
     assert body["agent_yaml"]["orchestration"] == "single"
     assert body["agent_yaml"]["orchestration_reason"] == "One call suffices."
-    assert set(body["tools"]) == {"json_validate", "date_parse"}
+    assert {tool["name"] for tool in body["tools"]} == {"json_validate", "date_parse"}
+    assert all(tool["description"] for tool in body["tools"])
     assert body["memory"] == {"rules": [], "tool_notes": [], "episodes": []}
     assert "# Answer with" in body["prompt"] or "Answer with" in body["prompt"]
 
@@ -123,3 +124,15 @@ def test_get_evaluators_lists_the_synthetic_fixture(client: TestClient):
     assert len(body) == 1
     assert body[0]["evaluator_id"] == "widget_triage"
     assert body[0]["case_counts"] == {"train": 2, "holdout": 1}
+
+
+def test_post_agents_unknown_evaluator_is_404(client: TestClient):
+    _script_responses(_script())
+    response = client.post("/agents", json=_create_body(evaluator_id="does_not_exist"))
+    assert response.status_code == 404
+
+
+def test_post_agents_unknown_tools_is_422(client: TestClient):
+    _script_responses(_script())
+    response = client.post("/agents", json=_create_body(tools=["not_a_real_tool"]))
+    assert response.status_code == 422

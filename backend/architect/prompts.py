@@ -80,11 +80,11 @@ def tool_selection_prompt(
         "the allow-list cannot provide. Reply with ONLY a JSON object: "
         '{"tools": [<names from the allow-list you are given, choose a '
         'subset>], "glue_tool": null | {"name": "<snake_case identifier, not '
-        'one of the allow-listed names>", "description": "<what it does, '
-        'when to use it, what it does NOT do>", "code": "<a complete Python '
-        "module defining TOOL = {'name', 'description', 'input_schema'} and "
-        'def run(input: dict) -> str, self-contained, stdlib only>", '
-        '"test_code": "<a complete pytest module that loads the sibling '
+        'one of the allow-listed names>", "code": "<a complete Python module '
+        "defining TOOL = {'name', 'description', 'input_schema'} -- the "
+        "description there is what it does, when to use it, and what it does "
+        "NOT do -- and def run(input: dict) -> str, self-contained, stdlib "
+        'only>", "test_code": "<a complete pytest module that loads the sibling '
         "module by file path with importlib (do not use a relative import) "
         'and asserts run() behaves correctly on at least one example>"}}. '
         "Only propose a glue_tool if none of the allowed tools, used directly "

@@ -15,8 +15,11 @@ from pydantic import BaseModel, Field
 from backend.db import REPO_ROOT, init_db
 from backend.settings import env
 
+from .evaluator_reader import EvaluatorNotFoundError
 from .evaluators import list_evaluators
 from .generate import generate
+from .inspect_package import PackageReadError, read_package_view
+from .steps import ArchitectStepError
 
 router = APIRouter(tags=["architect"])
 
@@ -53,40 +56,38 @@ def _agent_row(conn, agent_id: str) -> dict:
 
 
 def _package_view(package_dir: Path) -> dict:
-    """agent.yaml + prompt + tool names + memory entries for one version."""
-    from contracts.agent import PackageError, load_package
+    """agent.yaml + prompt + tool specs + memory entries for one version.
 
+    Reads structurally (``inspect_package.read_package_view``), never by
+    importing the package -- a stored package can contain an LLM-authored
+    glue tool (``ARCHITECT_ALLOW_GLUE_TOOLS``), and this endpoint must not
+    execute it just because someone looked the agent up.
+    """
     try:
-        pkg = load_package(package_dir)
-    except PackageError as exc:
+        return read_package_view(package_dir)
+    except PackageReadError as exc:
         raise HTTPException(
             status_code=500, detail=f"stored package at {package_dir} is invalid: {exc.errors}"
         ) from exc
 
-    return {
-        "agent_yaml": pkg.config.model_dump(),
-        "prompt": pkg.prompt,
-        "tools": sorted(pkg.tools),
-        "memory": {
-            "rules": [rule.model_dump() for rule in pkg.memory.rules],
-            "tool_notes": [note.model_dump() for note in pkg.memory.tool_notes],
-            "episodes": [episode.model_dump() for episode in pkg.memory.episodes],
-        },
-    }
-
 
 @router.post("/agents")
 def create_agent(body: CreateAgentRequest) -> dict:
-    result = generate(
-        goal=body.goal,
-        domain=body.domain,
-        tools=body.tools,
-        evaluator_id=body.evaluator_id,
-        use_playbook=body.use_playbook,
-        agents_root=agents_root(),
-        evaluators_root=evaluators_root(),
-        playbook_path=playbook_path(),
-    )
+    try:
+        result = generate(
+            goal=body.goal,
+            domain=body.domain,
+            tools=body.tools,
+            evaluator_id=body.evaluator_id,
+            use_playbook=body.use_playbook,
+            agents_root=agents_root(),
+            evaluators_root=evaluators_root(),
+            playbook_path=playbook_path(),
+        )
+    except EvaluatorNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArchitectStepError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"agent_id": result.agent_id, "version": result.version}
 
 

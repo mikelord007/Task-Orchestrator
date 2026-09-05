@@ -66,6 +66,11 @@ REDACTED_ISSUE_FIELDS = (
     "state",
     "closed_at",
     "state_reason",
+    # updated_at is ~= closed_at on a closed issue (whichever event happened
+    # last), and comments (the count) hints whether the issue was discussed --
+    # both leak toward the answer, so they go with the rest.
+    "updated_at",
+    "comments",
 )
 
 HIDDEN_COMMENTS_NOTE = "comments hidden for the issue under evaluation"

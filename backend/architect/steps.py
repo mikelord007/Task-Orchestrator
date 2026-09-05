@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 
+from backend.settings import env
+
 from . import prompts
 from .json_extract import JSONExtractionError, extract_json_object
 from .llm_client import CompleteFn
@@ -15,6 +17,19 @@ _JSON_RETRY_HINT = "Reply with ONLY the JSON object described above. No other te
 
 class ArchitectStepError(Exception):
     """A step's LLM output could not be used even after one retry."""
+
+
+def glue_tools_allowed() -> bool:
+    """`ARCHITECT_ALLOW_GLUE_TOOLS=1` opts in to LLM-authored glue tools.
+
+    Default off. Glue-tool code is written into the package verbatim and, once
+    written, gets imported (executed) whenever the package is loaded --
+    ``contracts.agent.load_package`` has no sandbox, and building one is out
+    of scope for the hackathon. The four consolidated GitHub tools plus the
+    offline helpers already cover `github_triage` and `ticket_triage` without
+    a glue tool, so leaving this off costs nothing by default.
+    """
+    return env("ARCHITECT_ALLOW_GLUE_TOOLS") in {"1", "true", "True", "yes"}
 
 
 def filter_known_tools(tools: list[str]) -> list[str]:
@@ -58,7 +73,7 @@ def choose_orchestration(
     return {"mode": mode, "reason": reason.strip()}, response
 
 
-def _ensure_json_output_instruction(prompt_text: str, expected_keys: list[str]) -> str:
+def ensure_json_output_instruction(prompt_text: str, expected_keys: list[str]) -> str:
     keys = expected_keys or ["result"]
     if "json" in prompt_text.lower() and all(key in prompt_text for key in keys):
         return prompt_text
@@ -84,7 +99,7 @@ def draft_prompt(
     text = (response.get("text") or "").strip()
     if not text:
         raise ArchitectStepError("prompt drafting step returned empty text")
-    return _ensure_json_output_instruction(text, evaluator["expected_keys"]), response
+    return ensure_json_output_instruction(text, evaluator["expected_keys"]), response
 
 
 def _valid_glue_tool(glue_tool: object, allowed_tools: list[str]) -> bool:
@@ -132,7 +147,9 @@ def select_tools(
         selected = list(allowed_tools)
 
     glue_tool = parsed.get("glue_tool") or None
-    if glue_tool is not None and not _valid_glue_tool(glue_tool, allowed_tools):
+    if glue_tool is not None and not (
+        glue_tools_allowed() and _valid_glue_tool(glue_tool, allowed_tools)
+    ):
         glue_tool = None
 
     return {"tools": selected, "glue_tool": glue_tool}, response

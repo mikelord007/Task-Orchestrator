@@ -129,7 +129,23 @@ VALID_GLUE_TOOL = {
 }
 
 
-def test_select_tools_accepts_a_syntactically_valid_glue_tool(evaluator, make_complete):
+def test_select_tools_drops_a_glue_tool_by_default_even_if_syntactically_valid(
+    evaluator, make_complete, monkeypatch
+):
+    monkeypatch.delenv("ARCHITECT_ALLOW_GLUE_TOOLS", raising=False)
+    complete, _fake = make_complete(
+        [json.dumps({"tools": ["json_validate"], "glue_tool": VALID_GLUE_TOOL})]
+    )
+    result, _ = steps.select_tools(
+        "goal", "domain", evaluator, ["json_validate"], complete, "strong"
+    )
+    assert result["glue_tool"] is None
+
+
+def test_select_tools_accepts_a_syntactically_valid_glue_tool_when_the_flag_is_on(
+    evaluator, make_complete, monkeypatch
+):
+    monkeypatch.setenv("ARCHITECT_ALLOW_GLUE_TOOLS", "1")
     complete, _fake = make_complete(
         [json.dumps({"tools": ["json_validate"], "glue_tool": VALID_GLUE_TOOL})]
     )
@@ -139,7 +155,8 @@ def test_select_tools_accepts_a_syntactically_valid_glue_tool(evaluator, make_co
     assert result["glue_tool"]["name"] == "combine_labels"
 
 
-def test_select_tools_drops_a_glue_tool_with_invalid_python(evaluator, make_complete):
+def test_select_tools_drops_a_glue_tool_with_invalid_python(evaluator, make_complete, monkeypatch):
+    monkeypatch.setenv("ARCHITECT_ALLOW_GLUE_TOOLS", "1")
     bad = {**VALID_GLUE_TOOL, "code": "def broken(:\n"}
     complete, _fake = make_complete([json.dumps({"tools": ["json_validate"], "glue_tool": bad})])
     result, _ = steps.select_tools(
@@ -149,15 +166,19 @@ def test_select_tools_drops_a_glue_tool_with_invalid_python(evaluator, make_comp
 
 
 def test_select_tools_drops_a_glue_tool_that_shadows_an_allowed_or_toolbox_name(
-    evaluator, make_complete
+    evaluator, make_complete, monkeypatch
 ):
+    monkeypatch.setenv("ARCHITECT_ALLOW_GLUE_TOOLS", "1")
     shadowing = {**VALID_GLUE_TOOL, "name": "json_validate"}
     complete, _fake = make_complete([json.dumps({"tools": ["date_parse"], "glue_tool": shadowing})])
     result, _ = steps.select_tools("goal", "domain", evaluator, ["date_parse"], complete, "strong")
     assert result["glue_tool"] is None
 
 
-def test_select_tools_drops_a_glue_tool_missing_required_fields(evaluator, make_complete):
+def test_select_tools_drops_a_glue_tool_missing_required_fields(
+    evaluator, make_complete, monkeypatch
+):
+    monkeypatch.setenv("ARCHITECT_ALLOW_GLUE_TOOLS", "1")
     incomplete = {"name": "x"}
     complete, _fake = make_complete(
         [json.dumps({"tools": ["date_parse"], "glue_tool": incomplete})]

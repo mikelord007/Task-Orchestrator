@@ -60,7 +60,11 @@ def test_write_package_creates_the_full_layout(tmp_path):
 def test_write_package_writes_a_glue_tool_verbatim_and_lists_it_in_agent_yaml(tmp_path):
     glue_tool = {
         "name": "combine_labels",
-        "code": "TOOL = {}\n\n\ndef run(input):\n    return '{}'\n",
+        "code": (
+            "TOOL = {'name': 'combine_labels', 'description': 'd', "
+            "'input_schema': {'type': 'object', 'properties': {}}}\n\n"
+            "def run(input):\n    return '{}'\n"
+        ),
         "test_code": "def test_x():\n    assert True\n",
     }
     package_dir = package.write_package(
@@ -79,11 +83,20 @@ def test_write_package_writes_a_glue_tool_verbatim_and_lists_it_in_agent_yaml(tm
     assert (package_dir / "tools" / "combine_labels.py").read_text(encoding="utf-8") == glue_tool[
         "code"
     ]
-    assert (package_dir / "tools" / "test_combine_labels.py").read_text(
+    # Leading underscore: contracts.agent's tools/*.py loader must skip this
+    # file, or "test_<name>.py" glob-matches as an undeclared second tool
+    # (D2) and POST /agents 500s whenever a glue tool is proposed.
+    assert (package_dir / "tools" / "_test_combine_labels.py").read_text(
         encoding="utf-8"
     ) == glue_tool["test_code"]
+    assert not (package_dir / "tools" / "test_combine_labels.py").exists()
+
     agent_yaml = yaml.safe_load((package_dir / "agent.yaml").read_text(encoding="utf-8"))
     assert agent_yaml["tools"] == ["json_validate", "combine_labels"]
+
+    from contracts.agent import validate_package
+
+    assert validate_package(package_dir) == []
 
 
 def test_write_package_does_not_clobber_existing_memory_files(tmp_path):

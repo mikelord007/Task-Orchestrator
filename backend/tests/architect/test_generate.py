@@ -17,7 +17,15 @@ def _responses(*, use_playbook: bool = False) -> list[str]:
     ]
     if use_playbook:
         responses.append(
-            json.dumps({"prompt": "Revised prompt with lesson.", "applied_lesson_ids": ["l1"]})
+            json.dumps(
+                {
+                    "prompt": (
+                        "Revised prompt with lesson. Answer with a JSON object "
+                        "with keys: labels, component, priority."
+                    ),
+                    "applied_lesson_ids": ["l1"],
+                }
+            )
         )
     return responses
 
@@ -69,6 +77,7 @@ def test_generate_writes_a_valid_package_and_finalizes(
     assert payload["goal"] == "triage github issues"
     assert payload["tools"] == ["json_validate", "date_parse"]
     assert payload["orchestration"] == "single"
+    assert payload["orchestration_reason"] == "One call is enough for this task."
     assert payload["applied_lessons"] == []
 
 
@@ -96,17 +105,50 @@ def test_generate_emits_applied_lessons_when_the_playbook_is_used(
         conn=conn,
     )
     assert result.applied_lessons == ["l1"]
-    assert result.prompt_text == "Revised prompt with lesson."
+    assert result.prompt_text.startswith("Revised prompt with lesson.")
     assert len(result.llm_calls) == 4
     assert fake.call_count == 4
     assert result.finalized is True
     assert validate_package(result.package_dir) == []
-    assert (result.package_dir / "prompt.md").read_text(
-        encoding="utf-8"
-    ) == "Revised prompt with lesson."
+    assert (
+        (result.package_dir / "prompt.md")
+        .read_text(encoding="utf-8")
+        .startswith("Revised prompt with lesson.")
+    )
 
     events = read_events(kind="agent_created", agent_id=result.agent_id, conn=conn)
-    assert events[0]["payload"]["applied_lessons"] == ["l1"]
+    payload = events[0]["payload"]
+    assert payload["applied_lessons"] == ["l1"]
+    assert payload["orchestration_reason"] == "One call is enough for this task."
+
+
+def test_generate_reinstates_the_json_output_instruction_after_a_playbook_revision_drops_it(
+    evaluator_dir, tmp_path, make_complete, conn
+):
+    """Regression for the case apply_playbook's own output can't be trusted to keep."""
+    responses = [
+        json.dumps({"mode": "single", "reason": "One call is enough for this task."}),
+        "Answer with a JSON object with keys: labels, component.",
+        json.dumps({"tools": ["json_validate"], "glue_tool": None}),
+        json.dumps({"prompt": "A prompt with no output format at all.", "applied_lesson_ids": []}),
+    ]
+    complete, _fake = make_complete(responses)
+    result = generate(
+        goal="triage github issues",
+        domain="github_triage",
+        tools=["json_validate"],
+        evaluator_id="widget_triage",
+        use_playbook=True,
+        complete=complete,
+        model="strong-model",
+        agents_root=tmp_path / "agents",
+        evaluators_root=evaluator_dir,
+        playbook_path=tmp_path / "no_lessons.jsonl",
+        conn=conn,
+    )
+    assert result.prompt_text.startswith("A prompt with no output format at all.")
+    assert "Output format" in result.prompt_text
+    assert "labels" in result.prompt_text and "component" in result.prompt_text
 
 
 def test_generate_ignores_the_playbook_when_not_asked(evaluator_dir, tmp_path, make_complete, conn):

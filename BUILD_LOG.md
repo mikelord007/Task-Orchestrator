@@ -61,6 +61,8 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 
 **Domain decision:** `hackathon_extract` was never started (W4 was briefed on `github_triage` + `ticket_triage` from the outset), so Domain B stays `ticket_triage`.
 
+**W3 note (PR #9 review):** `applied_lessons` cannot live in `agent.yaml` -- `AgentConfig` is `extra="forbid"` and does not define the field. It is recorded on the `agent_created` ledger event only (which does define it); `GET /agents/{id}` and `/versions/{n}` should read it from there rather than expecting it on the package.
+
 ## Sessions
 
 | session id | workstream | branch | PR | outcome | started | finished |

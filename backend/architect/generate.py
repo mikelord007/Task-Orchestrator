@@ -95,7 +95,12 @@ def generate(
         playbook_result, response = steps.apply_playbook(
             goal, domain, prompt_text, lessons, complete, model
         )
-        prompt_text = playbook_result["prompt"]
+        # apply_playbook can hand back a prompt that dropped the JSON-output
+        # instruction (or never had it) -- re-run the same guarantee draft_prompt
+        # gives every prompt.
+        prompt_text = steps.ensure_json_output_instruction(
+            playbook_result["prompt"], evaluator["expected_keys"]
+        )
         applied_lessons = playbook_result["applied_lessons"]
         llm_calls.append({"step": "playbook", **_usage(response)})
 
@@ -173,6 +178,7 @@ def _finalize(
                 "tools": result.tools,
                 "evaluator_id": evaluator_id,
                 "orchestration": result.orchestration["mode"],
+                "orchestration_reason": result.orchestration["reason"],
                 "applied_lessons": result.applied_lessons,
             },
         )

@@ -31,7 +31,11 @@ def make_agent_id(domain: str) -> str:
 def _write_glue_tool(tools_dir: Path, glue_tool: dict) -> None:
     name = glue_tool["name"]
     (tools_dir / f"{name}.py").write_text(glue_tool["code"], encoding="utf-8")
-    (tools_dir / f"test_{name}.py").write_text(glue_tool["test_code"], encoding="utf-8")
+    # Leading underscore: contracts.agent's tools/*.py loader skips these, so
+    # the test file is never mistaken for a second tool module (a bare
+    # "test_<name>.py" glob-matches *.py and load_package rejects it as an
+    # undeclared duplicate-shaped tool).
+    (tools_dir / f"_test_{name}.py").write_text(glue_tool["test_code"], encoding="utf-8")
 
 
 def write_package(
