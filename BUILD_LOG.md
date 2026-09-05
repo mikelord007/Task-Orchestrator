@@ -39,4 +39,4 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 
 | session id | workstream | branch | PR | outcome | started | finished |
 |---|---|---|---|---|---|---|
-| `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | _(pending)_ | in progress | 2026-09-06 | — |
+| `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | [#3](https://github.com/mikelord007/Task-Orchestrator/pull/3) | open | 2026-09-06 | — |
