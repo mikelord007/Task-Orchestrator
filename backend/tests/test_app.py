@@ -66,8 +66,17 @@ def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pyte
 
 
 def test_discover_routers_skips_subpackages_with_no_api_module():
+    from fastapi import APIRouter
+
     import backend
     from backend.app import discover_routers
 
-    # backend.tests, backend.testing etc. have no api.py; must not raise.
-    assert discover_routers(backend) == []
+    # backend.tests, backend.testing etc. have no api.py and must be skipped
+    # without raising. This no longer asserts the overall result is empty:
+    # once a workstream lands a real backend/<pkg>/api.py (e.g. backend.ledger),
+    # discover_routers(backend) is *supposed* to find it -- that is the whole
+    # point of auto-discovery. Only every found item being a real APIRouter is
+    # asserted here.
+    routers = discover_routers(backend)
+    assert isinstance(routers, list)
+    assert all(isinstance(r, APIRouter) for r in routers)
