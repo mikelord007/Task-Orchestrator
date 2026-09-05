@@ -239,6 +239,33 @@ def apply_temporal_split(cases: list[dict]) -> list[dict]:
 # --------------------------------------------------------------------------- main
 
 
+def load_snapshots(snapshot_dir: Path = SNAPSHOT_DIR) -> list[dict]:
+    """Every committed raw snapshot, oldest issue first."""
+    snapshots = [
+        json.loads(path.read_text(encoding="utf-8")) for path in sorted(snapshot_dir.glob("*.json"))
+    ]
+    return sorted(snapshots, key=lambda s: s["issue"]["created_at"])
+
+
+def cases_from_snapshots(snapshot_dir: Path = SNAPSHOT_DIR) -> list[dict]:
+    """Rebuild the full case list from the committed snapshots alone.
+
+    This is the offline reproducibility path: given `fixtures/github_triage/issues/`
+    the corpus is derivable with no token and no network, so a later edit or
+    re-close on GitHub can never move the ground truth underneath us.
+    """
+    snapshots = load_snapshots(snapshot_dir)
+    cases = [build_case(s["repo"], s["issue"], s["comments"]) for s in snapshots]
+    return apply_temporal_split(cases)
+
+
+def write_cases(cases: list[dict], cases_path: Path = CASES_PATH) -> None:
+    cases_path.parent.mkdir(parents=True, exist_ok=True)
+    with cases_path.open("w", encoding="utf-8", newline="\n") as fh:
+        for case in cases:
+            fh.write(json.dumps(case, sort_keys=True) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the github_triage evaluator.")
     parser.add_argument("--repo", default="Untrivial-ai/agent-orchestrator")
@@ -249,9 +276,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    token = _token()
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Offline path: the snapshots are committed but the (gitignored, large) issue
+    # index is not, which is what a fresh clone looks like. Rebuild from them.
+    if not args.refresh_list and not LIST_CACHE.exists() and any(SNAPSHOT_DIR.glob("*.json")):
+        cases = cases_from_snapshots()
+        write_cases(cases)
+        train = sum(1 for c in cases if c["split"] == "train")
+        print(
+            f"Rebuilt {CASES_PATH} from {len(cases)} committed snapshots"
+            f" ({train} train / {len(cases) - train} holdout), no network used"
+        )
+        return 0
+
+    token = _token()
     if LIST_CACHE.exists() and not args.refresh_list:
         print(f"Using cached issue index {LIST_CACHE}")
         issues = json.loads(LIST_CACHE.read_text(encoding="utf-8"))
@@ -285,10 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         cases.append(build_case(args.repo, snapshot["issue"], snapshot["comments"]))
 
     cases = apply_temporal_split(cases)
-    CASES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with CASES_PATH.open("w", encoding="utf-8", newline="\n") as fh:
-        for case in cases:
-            fh.write(json.dumps(case, sort_keys=True) + "\n")
+    write_cases(cases)
 
     train = sum(1 for c in cases if c["split"] == "train")
     comps: dict[str, int] = {}
