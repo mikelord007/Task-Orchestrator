@@ -1,0 +1,1 @@
+{"id": "tn_lookup", "tool": "lookup_ticket", "note": "lookup_ticket needs the bare ticket id, not the case id.", "evidence": "t1", "created_version": 0}

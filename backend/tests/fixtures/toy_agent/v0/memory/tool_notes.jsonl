@@ -1,1 +1,1 @@
-{"id": "tn_lookup", "tool": "lookup_ticket", "note": "lookup_ticket needs the bare ticket id, not the case id.", "evidence": "t1", "created_version": 0}
+{"id": "note_toy0001", "tool": "shout", "note": "shout uppercases and appends an exclamation mark; do not add your own.", "evidence": "run r_toy case c1", "created_version": 0}

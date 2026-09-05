@@ -1,0 +1,36 @@
+[project]
+name = "task-orchestrator-backend"
+version = "0.1.0"
+description = "Task Orchestrator backend: ledger, runtime, architect, improver."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "openai>=1.55",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+# Not an installable package: the repo root is on sys.path (see the pytest
+# pythonpath below and scripts/dev.ps1), so `backend.*` and `contracts.*` import
+# as plain top-level packages from the checkout.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# rootdir is backend/ (invoke pytest with cwd=backend/, e.g. scripts/test.ps1
+# or `cd backend && uv run python -m pytest`), so "../evaluators" and
+# "../scripts" reach W4's evaluator tests and any script tests.
+pythonpath = [".."]
+testpaths = ["tests", "../evaluators", "../scripts"]
+addopts = "-q"
+
+# ruff is configured repo-wide in ../ruff.toml

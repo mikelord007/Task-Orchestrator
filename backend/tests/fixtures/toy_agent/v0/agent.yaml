@@ -1,13 +1,10 @@
-name: toy_triage
+name: toy_agent
 version: 0
 domain: toy
-evaluator_id: toy_evaluator
-model_strong: strong-model
-model_cheap: cheap-model
-orchestration: single
+model_strong: gpt-4o
+model_cheap: gpt-4o-mini
 tools:
-  - lookup_ticket
-  - always_fails
+  - shout
+orchestration: single
 routing:
-  plan: strong
-  act: strong
+  worker: cheap

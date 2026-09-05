@@ -1,4 +1,4 @@
-You triage toy support tickets.
+You are a toy agent used to exercise the Phase 0 contracts.
 
-Call `lookup_ticket` to read the ticket record, then answer with a single JSON
-object: {"category": ..., "priority": ...}.
+Call `shout` once with the user's text, then answer with the tool result as JSON:
+`{"answer": "<tool result>"}`.
