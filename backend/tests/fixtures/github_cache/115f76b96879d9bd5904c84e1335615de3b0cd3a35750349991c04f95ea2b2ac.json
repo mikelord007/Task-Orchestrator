@@ -1,0 +1,45 @@
+{
+  "request": {
+    "tool": "github_list_labels",
+    "args": {
+      "repo": "acme/widgets"
+    }
+  },
+  "response": {
+    "repo": "acme/widgets",
+    "count": 6,
+    "labels": [
+      {
+        "name": "bug",
+        "description": "Something is broken",
+        "color": "d73a4a"
+      },
+      {
+        "name": "docs",
+        "description": "Documentation only",
+        "color": "0075ca"
+      },
+      {
+        "name": "platform:windows",
+        "description": "Only reproduces on Windows",
+        "color": "1d76db"
+      },
+      {
+        "name": "component:terminal",
+        "description": "Terminal rendering and PTY handling",
+        "color": "5319e7"
+      },
+      {
+        "name": "component:docs",
+        "description": "README and docs site",
+        "color": "c2e0c6"
+      },
+      {
+        "name": "good first issue",
+        "description": "Small, well-scoped, newcomer friendly",
+        "color": "7057ff"
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.305340+00:00"
+}

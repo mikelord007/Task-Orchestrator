@@ -1,0 +1,27 @@
+{
+  "request": {
+    "tool": "github_list_issue_comments",
+    "args": {
+      "repo": "acme/widgets",
+      "number": 101,
+      "per_page": 30
+    }
+  },
+  "response": {
+    "issue_number": 101,
+    "count": 2,
+    "comments": [
+      {
+        "author": "dana",
+        "created_at": "2024-01-13T10:00:00Z",
+        "body": "This is a ConPTY problem, tagging component:terminal."
+      },
+      {
+        "author": "sam",
+        "created_at": "2024-01-20T17:29:00Z",
+        "body": "Fixed in 1.4.2."
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.306975+00:00"
+}

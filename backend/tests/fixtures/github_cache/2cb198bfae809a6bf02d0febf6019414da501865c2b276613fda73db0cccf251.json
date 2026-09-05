@@ -1,0 +1,22 @@
+{
+  "request": {
+    "tool": "github_list_issue_comments",
+    "args": {
+      "repo": "acme/widgets",
+      "number": 202,
+      "per_page": 30
+    }
+  },
+  "response": {
+    "issue_number": 202,
+    "count": 1,
+    "comments": [
+      {
+        "author": "dana",
+        "created_at": "2024-03-04T09:00:00Z",
+        "body": "Windows-only again, same component as #101."
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.307329+00:00"
+}

@@ -1,0 +1,89 @@
+{
+  "request": {
+    "tool": "github_search_issues",
+    "args": {
+      "repo": "acme/widgets",
+      "q": "resize",
+      "page": 1,
+      "per_page": 30
+    }
+  },
+  "response": {
+    "repo": "acme/widgets",
+    "query": "resize",
+    "total_count": 3,
+    "count": 3,
+    "issues": [
+      {
+        "number": 101,
+        "title": "Terminal output garbled on Windows when resizing",
+        "body": "Running the CLI in Windows Terminal, resizing the window corrupts the output buffer. Repro: start `widget watch`, drag the window edge.",
+        "labels": [
+          "bug",
+          "platform:windows",
+          "component:terminal"
+        ],
+        "state": "closed",
+        "state_reason": "completed",
+        "assignee": "dana",
+        "assignees": [
+          "dana"
+        ],
+        "milestone": null,
+        "author": "reporter",
+        "comments": 2,
+        "created_at": "2024-01-12T09:00:00Z",
+        "updated_at": "2024-01-20T17:30:00Z",
+        "closed_at": "2024-01-20T17:30:00Z",
+        "html_url": "https://github.com/acme/widgets/issues/101"
+      },
+      {
+        "number": 140,
+        "title": "ConPTY resize corrupts scrollback",
+        "body": "Same class of problem as #101 but in the scrollback buffer.",
+        "labels": [
+          "bug",
+          "platform:windows",
+          "component:terminal"
+        ],
+        "state": "closed",
+        "state_reason": "completed",
+        "assignee": "dana",
+        "assignees": [
+          "dana"
+        ],
+        "milestone": null,
+        "author": "reporter",
+        "comments": 1,
+        "created_at": "2024-02-02T11:15:00Z",
+        "updated_at": "2024-02-09T08:00:00Z",
+        "closed_at": "2024-02-09T08:00:00Z",
+        "html_url": "https://github.com/acme/widgets/issues/140"
+      },
+      {
+        "number": 202,
+        "title": "Window resize breaks the progress bar on Windows Terminal",
+        "body": "The progress bar repaints over itself after a resize. Windows 11, Windows Terminal 1.19.",
+        "labels": [
+          "bug",
+          "platform:windows",
+          "component:terminal"
+        ],
+        "state": "closed",
+        "state_reason": "completed",
+        "assignee": "dana",
+        "assignees": [
+          "dana"
+        ],
+        "milestone": "1.5",
+        "author": "reporter",
+        "comments": 3,
+        "created_at": "2024-03-03T08:20:00Z",
+        "updated_at": "2024-03-11T12:00:00Z",
+        "closed_at": "2024-03-11T12:00:00Z",
+        "html_url": "https://github.com/acme/widgets/issues/202"
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.307653+00:00"
+}

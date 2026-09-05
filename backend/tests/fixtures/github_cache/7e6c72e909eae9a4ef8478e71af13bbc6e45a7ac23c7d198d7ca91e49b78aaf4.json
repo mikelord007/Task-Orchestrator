@@ -1,0 +1,25 @@
+{
+  "request": {
+    "tool": "github_get_issue_timeline",
+    "args": {
+      "repo": "acme/widgets",
+      "number": 101,
+      "per_page": 30
+    }
+  },
+  "response": {
+    "issue_number": 101,
+    "commit_shas": [
+      "aa11bb22cc33"
+    ],
+    "references": [
+      {
+        "number": 140,
+        "title": "ConPTY resize corrupts scrollback",
+        "is_pull_request": false,
+        "state": "closed"
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.309105+00:00"
+}

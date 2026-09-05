@@ -63,6 +63,8 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 
 Stall (22:23Z update): the shared account usage limit paused the orchestrator and all six worker sessions from roughly 19:20Z to 22:20Z. Remaining at 22:23Z: 23 h 36 m. Still above the 10 h threshold; scope unchanged.
 
+**W3 note (PR #9 review):** `applied_lessons` cannot live in `agent.yaml` -- `AgentConfig` is `extra="forbid"` and does not define the field. It is recorded on the `agent_created` ledger event only (which does define it); `GET /agents/{id}` and `/versions/{n}` should read it from there rather than expecting it on the package.
+
 ## Sessions
 
 | session id | workstream | branch | PR | outcome | started | finished |
@@ -71,7 +73,8 @@ Stall (22:23Z update): the shared account usage limit paused the orchestrator an
 | `task-orchestrator-10` | W0b — addendum doc (`PLAN_ADDENDUM.md`) | `ws/w0b-addendum` | #2 | merged (eba2a1c) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | [#7](https://github.com/mikelord007/Task-Orchestrator/pull/7) | ready for review (CI green) | 2026-09-05 | 2026-09-05 22:52Z |
 | `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | — | in progress | 2026-09-05 | — |
-| `task-orchestrator-9` | W3 — architect + toolbox | `ws/w3-architect` | — | in progress | 2026-09-05 | — |
+| `task-orchestrator-9` | W3 — architect + toolbox | `ws/w3-architect` | [#9](https://github.com/mikelord007/Task-Orchestrator/pull/9) | ready for review (CI green) | 2026-09-05 | 2026-09-06 |
+| `task-orchestrator-9` | W3b — contract-change: `orchestration_reason` | `ws/w3b-contract-orchestration-reason` | [#8](https://github.com/mikelord007/Task-Orchestrator/pull/8) | merged (1c5285f) | 2026-09-06 | 2026-09-06 |
 | `task-orchestrator-5` | W4 — domains, fixtures, evaluators | `ws/w4-domains` | [#1](https://github.com/mikelord007/Task-Orchestrator/pull/1) | merged (45676a9) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-5` | W4b — github_triage negatives follow-up | `ws/w4b-negatives` | [#6](https://github.com/mikelord007/Task-Orchestrator/pull/6) | ready for review (CI green) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-6` | W5 — frontend shell | `ws/w5-frontend` | [#4](https://github.com/mikelord007/Task-Orchestrator/pull/4) | ready for review (CI green) | 2026-09-05 | 2026-09-06 |

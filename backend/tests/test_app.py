@@ -80,3 +80,14 @@ def test_discover_routers_skips_subpackages_with_no_api_module():
     routers = discover_routers(backend)
     assert isinstance(routers, list)
     assert all(isinstance(r, APIRouter) for r in routers)
+
+
+def test_discover_routers_does_not_raise_for_subpackages_with_no_api_module():
+    import importlib
+
+    # The actual mechanism discover_routers relies on to skip a subpackage:
+    # importing "<subpackage>.api" must fail with ModuleNotFoundError, which
+    # is what the try/except in discover_routers catches.
+    for name in ("backend.tests", "backend.testing"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(f"{name}.api")
