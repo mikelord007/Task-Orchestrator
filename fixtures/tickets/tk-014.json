@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-014",
+  "input": {
+    "body": "Our SSO connection drops people back to the login screen roughly every twenty minutes and they have to re-authenticate; nobody can hold a session long enough to finish a report, and there is no workaround we can find. Separately, the docs link in the footer 404s. Separately again, we would like an export to Parquet eventually.",
+    "customer_tier": "pro",
+    "subject": "Several problems since Tuesday",
+    "ticket_id": "tk-014"
+  },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:account",
+    "multi-issue",
+    "needs-human",
+    "prio:p1",
+    "tier:pro"
+  ]
+}

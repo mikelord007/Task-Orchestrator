@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-005",
+  "input": {
+    "body": "The API reference says the webhook retries 'a few times'. A few. I have built a reconciliation job around that sentence. Could someone who knows the actual number write it down? I'm not blocked, I just enjoy guessing.",
+    "customer_tier": "free",
+    "subject": "Superb documentation, no notes",
+    "ticket_id": "tk-005"
+  },
+  "reference_output": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:other",
+    "prio:p3",
+    "sarcasm",
+    "tier:free"
+  ]
+}

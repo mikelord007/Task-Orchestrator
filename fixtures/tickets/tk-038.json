@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-038",
+  "input": {
+    "body": "We were charged twice on 11 June for the same subscription, both for $480.00. The bank shows two identical transactions. Please refund one of them. Reference INV-40121 if that helps.",
+    "customer_tier": "pro",
+    "subject": "Refund request for duplicate charge",
+    "ticket_id": "tk-038"
+  },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "needs-human",
+    "prio:p2",
+    "routine",
+    "tier:pro"
+  ]
+}

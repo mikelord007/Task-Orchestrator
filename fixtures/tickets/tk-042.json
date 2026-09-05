@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-042",
+  "input": {
+    "body": "We are winding down this workspace. Please delete the account and all stored data permanently and confirm in writing once it is done, as we need the record for our own compliance file. Final invoice was INV-40107.",
+    "customer_tier": "pro",
+    "subject": "Delete our account and all associated data",
+    "ticket_id": "tk-042"
+  },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "split": "train",
+  "tags": [
+    "cat:account",
+    "needs-human",
+    "prio:p2",
+    "routine",
+    "tier:pro"
+  ]
+}
