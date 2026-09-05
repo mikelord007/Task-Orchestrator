@@ -15,7 +15,12 @@ mine, just judgement over prose.
 
 ## The task
 
-**Input** (`cases.jsonl` → `input`):
+Each task in `cases.jsonl` has a `ticket_id`/`id`, a `split`, an `input`, an
+`expected` answer, a `reference_output`, and `tags`. (The file name and the
+`id`/`case_id` field names are part of the contract and stay as-is; everywhere
+else this README says "task," not "case.")
+
+**Input** (`input`):
 
 ```json
 {
@@ -40,6 +45,11 @@ ticket. It is not decoration — it carries signal.
 | `category` | `billing` · `bug` · `feature` · `account` · `other` |
 | `priority` | `p0` · `p1` · `p2` · `p3` |
 | `needs_human` | `true` / `false` |
+
+`reference_output` is a copy of `expected`, shaped exactly like the agent's
+required output — a concrete answer known to pass the grader. It exists so
+`scripts/validate_evaluators.py` can prove every task is winnable before a run,
+rather than discovering a broken task only after an agent stalls at 0% on it.
 
 ## What "good" means
 
@@ -75,7 +85,7 @@ what the improvement loop is for. The full policy lives in the generator,
 
 ### Scoring
 
-`score.py` is deterministic, offline, stdlib-only:
+The grader (`score.py`) is deterministic, offline, stdlib-only:
 
 - **`passed`** iff all three fields match.
 - **`score`** = fraction of the three that matched — `0.0`, `0.333`, `0.667`, `1.0`.
@@ -90,9 +100,9 @@ grouping stay stable across runs: `category_mismatch:<expected>-><actual>`,
 `missing` on the actual side, which is a different failure from guessing wrong and
 groups separately.
 
-**Headroom.** An empty output scores 0.0 on every case and never passes. The best
+**Headroom.** An empty output scores 0.0 on every task and never passes. The best
 possible *constant* answer (`bug` / `p0` / `true`) passes 16% and means 0.373 — and
-even an agent that got `category` right on all 50 cases still only passes 16%
+even an agent that got `category` right on all 50 tasks still only passes 16%
 without the priority and `needs_human` rules. Requiring all three fields, over a
 corpus that is nearly half hard cases, leaves a long climb.
 
