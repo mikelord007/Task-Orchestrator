@@ -52,21 +52,45 @@ SHORT_BODY = 300
 LONG_BODY = 3000
 
 # `negative:*` cases (PLAN_ADDENDUM §F / addendum-deltas W4): issues where the
-# correct answer is "nothing here", to catch an agent that invents a priority
-# because the schema has a slot for one. The addendum's illustrative examples
-# (comp-only-labelled issues; issues discussed as similar-but-not-duplicate) do
-# not occur anywhere in this repo's 1304 closed issues -- every comp/*-labelled
-# issue here also carries a type label, and no comment thread discusses another
-# issue as similar without either confirming or ignoring the resemblance. The
-# real analogue that *is* present and still graded: issues whose language reads
-# as urgent while the maintainers set no priority at all. `NEGATIVE_TARGET`
-# caps a genuinely larger pool (~24 candidates) down to the addendum's "~8".
+# correct answer is "nothing here", to catch an agent that invents an answer
+# because the schema has a slot for one.
+#
+# `negative:no_priority` -- issues whose language reads as urgent while the
+# maintainers set no priority at all. `NEGATIVE_TARGET` caps a genuinely larger
+# pool (~24 candidates) down to the addendum's "~8".
 URGENCY_RE = re.compile(
     r"\b(urgent|crash(?:es|ed|ing)?|broken|fails?|failing|failure|blocker|"
     r"blocking|critical|severe|regression|outage|hang(?:s|ing)?|freeze)\b",
     re.IGNORECASE,
 )
 NEGATIVE_TARGET = 8
+
+# `negative:no_extra_labels` (issues whose only labels are `comp/*`, so the
+# graded `labels` field is empty) does not occur anywhere in this repo's 1304
+# closed issues, checked exhaustively (with and without a body-length floor):
+# every `comp/*`-labelled issue here also carries a type label (`bug` on 47/60,
+# `enhancement` on 13, `cloud` on 4, `needs-triage` on 1). There is nothing to
+# tag and nothing to swap in from the wider corpus -- this is a real property
+# of how this repo's maintainers triage, not a gap in the selection script, so
+# no task is tagged `negative:no_extra_labels`.
+#
+# `negative:not_duplicate` -- issues whose body itself raises and resolves the
+# duplicate/related-issue question (an explicit "duplicate search" section, or
+# language distinguishing the issue from a similar-sounding prior one) while
+# `duplicate_of` stays null. Unlike `no_priority`, this shows up as free text in
+# the *body*, not as a label or a fixed phrase in a comment, so it cannot be
+# swept up by a regex the way `no_priority`/`negative:no_priority` was; these five
+# were located by reading the corpus and are pinned by id. If a future
+# regeneration drops one of these issues from the selected 60, `apply_negative_tags`
+# skips it rather than failing (see there).
+NOT_DUPLICATE_IDS = {
+    "gh-4420": "explicitly concludes 'not a duplicate' of a related issue (#3745)",
+    "gh-4452": "body has a 'Duplicate search' section: searched issues/PRs, found none",
+    "gh-4520": "body has a 'Duplicate Search / Related' section: no exact issue found",
+    "gh-4639": "explicitly distinguishes itself from two related, similar-sounding issues",
+    "gh-4908": "a 'sticky' failure that recurs on every task-creation attempt until restart",
+}
+NOT_DUPLICATE_TARGET_RANGE = (3, 5)
 
 
 # --------------------------------------------------------------------------- auth
@@ -233,12 +257,20 @@ def is_negative_candidate(case: dict) -> bool:
 
 
 def apply_negative_tags(cases: list[dict]) -> list[dict]:
-    """Tag the `NEGATIVE_TARGET` oldest qualifying cases `negative:no_priority`.
+    """Tag `negative:no_priority` and `negative:not_duplicate` cases.
 
-    Capped and taken oldest-first (rather than every qualifying case) so the tag
-    marks a deliberate, reproducible highlight set per the addendum's "~8" target
-    instead of the ~24 cases that would otherwise qualify -- tagging all of them
-    would just be relabelling the `no-priority` tag under a new name.
+    `negative:no_priority`: the `NEGATIVE_TARGET` oldest qualifying cases, capped
+    and taken oldest-first (rather than every qualifying case) so the tag marks a
+    deliberate, reproducible highlight set per the addendum's "~8" target instead
+    of the ~24 cases that would otherwise qualify -- tagging all of them would
+    just be relabelling the `no-priority` tag under a new name.
+
+    `negative:not_duplicate`: the hand-picked `NOT_DUPLICATE_IDS` (see the comment
+    there for why these can't be found by a keyword rule the way `no_priority`
+    can). Skips an id if it is not among `cases` -- e.g. a future regeneration
+    that no longer selects that issue -- rather than failing; `validate_evaluators.py`
+    and the test suite check the resulting count still lands in
+    `NOT_DUPLICATE_TARGET_RANGE`.
     """
     candidates = sorted(
         (c for c in cases if is_negative_candidate(c)),
@@ -246,6 +278,16 @@ def apply_negative_tags(cases: list[dict]) -> list[dict]:
     )
     for case in candidates[:NEGATIVE_TARGET]:
         case["tags"] = sorted(set(case["tags"]) | {"negative:no_priority"})
+
+    by_id = {c["id"]: c for c in cases}
+    for case_id in NOT_DUPLICATE_IDS:
+        case = by_id.get(case_id)
+        if case is None:
+            continue
+        assert case["expected"]["duplicate_of"] is None, (
+            f"{case_id} is tagged negative:not_duplicate but has a duplicate_of"
+        )
+        case["tags"] = sorted(set(case["tags"]) | {"negative:not_duplicate"})
     return cases
 
 
