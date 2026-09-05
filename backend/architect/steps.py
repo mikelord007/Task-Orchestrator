@@ -10,9 +10,7 @@ from .llm_client import CompleteFn
 
 ORCHESTRATION_MODES = {"single", "planner_worker"}
 
-_JSON_RETRY_HINT = (
-    "Reply with ONLY the JSON object described above. No other text, no code fences."
-)
+_JSON_RETRY_HINT = "Reply with ONLY the JSON object described above. No other text, no code fences."
 
 
 class ArchitectStepError(Exception):
@@ -32,9 +30,7 @@ def filter_known_tools(tools: list[str]) -> list[str]:
     return known
 
 
-def _complete_json(
-    complete: CompleteFn, messages: list[dict], model: str
-) -> tuple[dict, dict]:
+def _complete_json(complete: CompleteFn, messages: list[dict], model: str) -> tuple[dict, dict]:
     response = complete(messages=messages, model=model)
     try:
         return extract_json_object(response.get("text", "")), response
@@ -46,9 +42,7 @@ def _complete_json(
     try:
         return extract_json_object(response.get("text", "")), response
     except JSONExtractionError as exc:
-        raise ArchitectStepError(
-            f"the model did not return usable JSON: {exc}"
-        ) from exc
+        raise ArchitectStepError(f"the model did not return usable JSON: {exc}") from exc
 
 
 def choose_orchestration(
@@ -59,14 +53,8 @@ def choose_orchestration(
 
     mode = parsed.get("mode")
     reason = parsed.get("reason")
-    if (
-        mode not in ORCHESTRATION_MODES
-        or not isinstance(reason, str)
-        or not reason.strip()
-    ):
-        raise ArchitectStepError(
-            f"orchestration step returned an unusable result: {parsed!r}"
-        )
+    if mode not in ORCHESTRATION_MODES or not isinstance(reason, str) or not reason.strip():
+        raise ArchitectStepError(f"orchestration step returned an unusable result: {parsed!r}")
     return {"mode": mode, "reason": reason.strip()}, response
 
 

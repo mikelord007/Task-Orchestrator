@@ -47,9 +47,7 @@ def orchestration_prompt(goal: str, domain: str, evaluator: dict) -> list[dict]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def prompt_draft_prompt(
-    goal: str, domain: str, evaluator: dict, orchestration: dict
-) -> list[dict]:
+def prompt_draft_prompt(goal: str, domain: str, evaluator: dict, orchestration: dict) -> list[dict]:
     system = (
         "You write the system prompt for a new AI agent. Reply with ONLY the "
         "system prompt text itself, in Markdown -- no surrounding commentary, "
@@ -102,9 +100,7 @@ def tool_selection_prompt(
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def playbook_prompt(
-    goal: str, domain: str, prompt_text: str, lessons: list[dict]
-) -> list[dict]:
+def playbook_prompt(goal: str, domain: str, prompt_text: str, lessons: list[dict]) -> list[dict]:
     system = (
         "You revise an agent's system prompt to incorporate relevant lessons "
         "learned from improving other agents, possibly in other domains. "
@@ -117,9 +113,7 @@ def playbook_prompt(
         "unchanged in that case."
     )
     rendered_lessons = (
-        json.dumps(lessons, indent=2, default=str)
-        if lessons
-        else "(no lessons recorded yet)"
+        json.dumps(lessons, indent=2, default=str) if lessons else "(no lessons recorded yet)"
     )
     user = (
         f"Goal: {goal}\nDomain: {domain}\n\nCurrent system prompt:\n{prompt_text}\n\n"

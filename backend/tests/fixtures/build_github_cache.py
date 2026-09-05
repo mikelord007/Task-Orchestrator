@@ -94,8 +94,7 @@ ISSUE_155 = _issue(
 ISSUE_202 = _issue(
     EVALUATED_ISSUE,
     "Window resize breaks the progress bar on Windows Terminal",
-    "The progress bar repaints over itself after a resize. Windows 11, "
-    "Windows Terminal 1.19.",
+    "The progress bar repaints over itself after a resize. Windows 11, Windows Terminal 1.19.",
     ["bug", "platform:windows", "component:terminal"],
     "dana",
     "2024-03-03T08:20:00Z",

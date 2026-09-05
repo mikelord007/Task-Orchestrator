@@ -39,7 +39,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,9 +69,7 @@ REDACTED_ISSUE_FIELDS = (
 )
 
 HIDDEN_COMMENTS_NOTE = "comments hidden for the issue under evaluation"
-HIDDEN_LINKED_NOTE = (
-    "linked pull requests and commits hidden for the issue under evaluation"
-)
+HIDDEN_LINKED_NOTE = "linked pull requests and commits hidden for the issue under evaluation"
 
 # Used only until contracts.context exists (this module is built before Phase 0
 # lands). _case_var() prefers the real contract once it is importable.
@@ -152,9 +150,7 @@ def evaluated_issue_number() -> int | None:
 def _redact_issue(issue: dict, target: int) -> dict:
     if issue.get("number") != target:
         return issue
-    redacted = {
-        key: value for key, value in issue.items() if key not in REDACTED_ISSUE_FIELDS
-    }
+    redacted = {key: value for key, value in issue.items() if key not in REDACTED_ISSUE_FIELDS}
     redacted["redacted"] = True
     redacted["redaction_note"] = (
         "This is the issue under evaluation. The maintainer-applied fields "
@@ -182,10 +178,7 @@ def _redact(tool_name: str, args: dict, payload: Any) -> Any:
             ]
         return payload
 
-    if (
-        tool_name == "github_list_issue_comments"
-        and payload.get("issue_number") == target
-    ):
+    if tool_name == "github_list_issue_comments" and payload.get("issue_number") == target:
         return {
             "issue_number": target,
             "count": 0,
@@ -193,10 +186,7 @@ def _redact(tool_name: str, args: dict, payload: Any) -> Any:
             "note": HIDDEN_COMMENTS_NOTE,
         }
 
-    if (
-        tool_name == "github_get_issue_timeline"
-        and payload.get("issue_number") == target
-    ):
+    if tool_name == "github_get_issue_timeline" and payload.get("issue_number") == target:
         return {
             "issue_number": target,
             "commit_shas": [],
@@ -223,9 +213,7 @@ def canonical_args(args: dict) -> dict:
 
 def cache_key(tool_name: str, args: dict) -> str:
     request = {"tool": tool_name, "args": canonical_args(args)}
-    blob = json.dumps(
-        request, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
+    blob = json.dumps(request, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -251,7 +239,7 @@ def write_cache(tool_name: str, args: dict, response: Any) -> None:
     entry = {
         "request": {"tool": tool_name, "args": canonical_args(args)},
         "response": response,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": datetime.now(UTC).isoformat(),
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -304,13 +292,9 @@ def _request(url: str) -> Any:
                 continue
             raise last_error from exc
         except urllib.error.URLError as exc:
-            raise GitHubHTTPError(
-                0, f"could not reach api.github.com ({exc.reason})"
-            ) from exc
+            raise GitHubHTTPError(0, f"could not reach api.github.com ({exc.reason})") from exc
         except json.JSONDecodeError as exc:
-            raise GitHubHTTPError(
-                0, f"GitHub returned a non-JSON body ({exc})"
-            ) from exc
+            raise GitHubHTTPError(0, f"GitHub returned a non-JSON body ({exc})") from exc
     raise last_error or GitHubHTTPError(0, "request failed")  # pragma: no cover
 
 
@@ -330,9 +314,7 @@ def _url(path: str, params: dict | None = None) -> str:
 
 def _cache_miss_error(tool_name: str, args: dict, reason: str) -> str:
     key = cache_key(tool_name, args)
-    request = json.dumps(
-        {"tool": tool_name, "args": canonical_args(args)}, sort_keys=True
-    )
+    request = json.dumps({"tool": tool_name, "args": canonical_args(args)}, sort_keys=True)
     return err(
         f"{tool_name}: cache miss for {request} (key {key[:12]}...) and {reason}. "
         f"No data was returned -- do not guess it. To populate the cache, run once "
@@ -411,9 +393,7 @@ def trim_issue(issue: dict) -> dict:
         "state_reason": issue.get("state_reason"),
         "assignee": _login(issue.get("assignee")),
         "assignees": [
-            login
-            for login in (_login(a) for a in (issue.get("assignees") or []))
-            if login
+            login for login in (_login(a) for a in (issue.get("assignees") or [])) if login
         ],
         "milestone": milestone.get("title") if isinstance(milestone, dict) else None,
         "author": _login(issue.get("user")),
@@ -545,9 +525,7 @@ def list_labels() -> str:
     args = {"repo": repo()}
 
     def fetch() -> dict:
-        raw = _request(
-            _url(f"/repos/{args['repo']}/labels", {"per_page": MAX_PER_PAGE})
-        )
+        raw = _request(_url(f"/repos/{args['repo']}/labels", {"per_page": MAX_PER_PAGE}))
         labels = [trim_label(item) for item in (raw or [])]
         return {"repo": args["repo"], "count": len(labels), "labels": labels}
 
@@ -598,8 +576,7 @@ def get_file(path: str, ref: str | None = None) -> str:
                 "path": args["path"],
                 "type": "dir",
                 "entries": [
-                    {"name": entry.get("name"), "type": entry.get("type")}
-                    for entry in raw
+                    {"name": entry.get("name"), "type": entry.get("type")} for entry in raw
                 ],
             }
         content = raw.get("content") or ""
@@ -696,9 +673,7 @@ def get_commit(sha: str) -> str:
         raw = _request(_url(f"/repos/{args['repo']}/commits/{args['sha']}"))
         trimmed = trim_commit(raw)
         trimmed["files"] = [
-            file.get("filename")
-            for file in (raw.get("files") or [])
-            if file.get("filename")
+            file.get("filename") for file in (raw.get("files") or []) if file.get("filename")
         ]
         return trimmed
 
@@ -718,9 +693,7 @@ def get_pull_files(number: int, per_page: int | None = None) -> str:
         )
         return {
             "pull_number": args["number"],
-            "files": [
-                file.get("filename") for file in (raw or []) if file.get("filename")
-            ],
+            "files": [file.get("filename") for file in (raw or []) if file.get("filename")],
         }
 
     return call("github_get_pull_files", args, fetch)

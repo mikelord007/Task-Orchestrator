@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from architect.json_extract import JSONExtractionError, extract_json_object
+
+from backend.architect.json_extract import JSONExtractionError, extract_json_object
 
 
 def test_extracts_plain_json():

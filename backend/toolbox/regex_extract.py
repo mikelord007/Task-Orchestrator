@@ -77,9 +77,7 @@ def run(input: dict) -> str:
         pattern = get_str(input, "pattern")
         text = get_str(input, "text")
         flag_letters = get_str(input, "flags", required=False).lower()
-        max_matches = get_int(
-            input, "max_matches", required=False, default=100, minimum=1
-        )
+        max_matches = get_int(input, "max_matches", required=False, default=100, minimum=1)
         compiled = _compile(pattern, flag_letters)
     except (TypeError, ValueError) as exc:
         return err(f"regex_extract: {exc}")

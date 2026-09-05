@@ -64,8 +64,8 @@ def generate(
     complete: CompleteFn | None = None,
     model: str | None = None,
     agents_root: str | Path = package_module.DEFAULT_AGENTS_ROOT,
-    evaluators_root: str = "evaluators",
-    playbook_path: str = "playbook/lessons.jsonl",
+    evaluators_root: str | Path = "evaluators",
+    playbook_path: str | Path = "playbook/lessons.jsonl",
     conn: sqlite3.Connection | None = None,
 ) -> GenerateResult:
     complete = complete or resolve_complete()
@@ -76,9 +76,7 @@ def generate(
 
     llm_calls: list[dict] = []
 
-    orchestration, response = steps.choose_orchestration(
-        goal, domain, evaluator, complete, model
-    )
+    orchestration, response = steps.choose_orchestration(goal, domain, evaluator, complete, model)
     llm_calls.append({"step": "orchestration", **_usage(response)})
 
     prompt_text, response = steps.draft_prompt(
@@ -105,16 +103,13 @@ def generate(
     package_dir = package_module.write_package(
         agent_id,
         0,
-        goal=goal,
         domain=domain,
-        evaluator_id=evaluator_id,
         model_strong=model,
         model_cheap=os.environ.get(CHEAP_MODEL_ENV) or model,
         tools=tool_selection["tools"],
         orchestration=orchestration["mode"],
         orchestration_reason=orchestration["reason"],
         prompt_text=prompt_text,
-        applied_lessons=applied_lessons,
         glue_tool=tool_selection["glue_tool"],
         root=agents_root,
     )
@@ -161,7 +156,8 @@ def _finalize(
     try:
         with connection:
             connection.execute(
-                "INSERT INTO agents (agent_id, goal, domain, evaluator_id, current_version, created_ts) "
+                "INSERT INTO agents "
+                "(agent_id, goal, domain, evaluator_id, current_version, created_ts) "
                 "VALUES (?, ?, ?, ?, 0, ?)",
                 (result.agent_id, goal, domain, evaluator_id, utcnow()),
             )

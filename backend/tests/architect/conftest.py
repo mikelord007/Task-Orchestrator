@@ -1,19 +1,38 @@
-"""Shared fixtures for the architect tests. No real LLM or network involved."""
+"""Shared fixtures for the architect tests. No real LLM or network involved.
+
+``make_complete`` scripts ``backend.testing.fake_llm.FakeLLM`` behind
+``backend.llm.complete`` -- the real completion function, with the real client
+swapped out -- so every architect test exercises exactly the code path
+``backend.architect.generate.generate()`` uses in production.
+"""
 
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
-TEST_DIR = Path(__file__).resolve().parent
-BACKEND_DIR = TEST_DIR.parents[1]
-REPO_ROOT = BACKEND_DIR.parent
-for _path in (str(TEST_DIR), str(BACKEND_DIR), str(REPO_ROOT)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+from backend import llm as backend_llm
+from backend.testing.fake_llm import FakeLLM
+from backend.testing.fake_llm import text as llm_text
+
+
+@pytest.fixture
+def make_complete():
+    """``make_complete(["response text", ...]) -> (complete_fn, fake)``.
+
+    ``complete_fn`` is ``backend.llm.complete`` itself; ``fake`` is the
+    injected ``FakeLLM`` for inspecting ``fake.requests`` / ``fake.call_count``.
+    The client is reset after the test regardless of outcome.
+    """
+
+    def _factory(responses: list[str]) -> tuple[object, FakeLLM]:
+        fake = FakeLLM([llm_text(r) for r in responses])
+        backend_llm.set_client(fake)
+        return backend_llm.complete, fake
+
+    yield _factory
+    backend_llm.reset_client()
 
 
 @pytest.fixture

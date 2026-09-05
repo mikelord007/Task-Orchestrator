@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from backend.toolbox import github
 from backend.toolbox.github_tools import (
     component_owners,
@@ -43,9 +44,7 @@ def test_issue_context_integrates_against_the_real_cache(github_env):
     assert result["response_format"] == "concise"
 
 
-def test_issue_context_defaults_to_concise_and_shortens_comments(
-    monkeypatch, github_env
-):
+def test_issue_context_defaults_to_concise_and_shortens_comments(monkeypatch, github_env):
     monkeypatch.setattr(
         github, "get_issue", lambda number: github.ok({"number": number, "title": "t"})
     )
@@ -63,9 +62,7 @@ def test_issue_context_defaults_to_concise_and_shortens_comments(
     monkeypatch.setattr(
         github,
         "get_issue_timeline",
-        lambda number: github.ok(
-            {"issue_number": number, "commit_shas": [], "references": []}
-        ),
+        lambda number: github.ok({"issue_number": number, "commit_shas": [], "references": []}),
     )
     result = load(issue_context.run({"issue_number": 7}))
     assert result["response_format"] == "concise"
@@ -73,12 +70,8 @@ def test_issue_context_defaults_to_concise_and_shortens_comments(
     assert "truncated" in result["comments"][0]["body"]
 
 
-def test_issue_context_detailed_mode_keeps_full_comments_and_exposes_ids(
-    monkeypatch, github_env
-):
-    monkeypatch.setattr(
-        github, "get_issue", lambda number: github.ok({"number": number})
-    )
+def test_issue_context_detailed_mode_keeps_full_comments_and_exposes_ids(monkeypatch, github_env):
+    monkeypatch.setattr(github, "get_issue", lambda number: github.ok({"number": number}))
     monkeypatch.setattr(
         github,
         "list_issue_comments",
@@ -125,9 +118,7 @@ def test_issue_context_detailed_mode_keeps_full_comments_and_exposes_ids(
 
 
 def test_issue_context_notes_truncation_and_how_to_narrow(monkeypatch, github_env):
-    monkeypatch.setattr(
-        github, "get_issue", lambda number: github.ok({"number": number})
-    )
+    monkeypatch.setattr(github, "get_issue", lambda number: github.ok({"number": number}))
     many_comments = [{"author": f"u{i}", "body": "x"} for i in range(10)]
     monkeypatch.setattr(
         github,
@@ -143,9 +134,7 @@ def test_issue_context_notes_truncation_and_how_to_narrow(monkeypatch, github_en
     monkeypatch.setattr(
         github,
         "get_issue_timeline",
-        lambda number: github.ok(
-            {"issue_number": number, "commit_shas": [], "references": []}
-        ),
+        lambda number: github.ok({"issue_number": number, "commit_shas": [], "references": []}),
     )
     result = load(issue_context.run({"issue_number": 7}))
     assert result["comments_truncated_count"] == 10 - issue_context.MAX_COMMENTS_CONCISE
@@ -281,9 +270,7 @@ def test_label_taxonomy_reports_usage_and_examples(monkeypatch, github_env):
     assert entry["example_titles"] == ["first bug", "second bug"]
 
 
-def test_label_taxonomy_never_uses_the_evaluated_issue_as_an_example(
-    monkeypatch, under_evaluation
-):
+def test_label_taxonomy_never_uses_the_evaluated_issue_as_an_example(monkeypatch, under_evaluation):
     monkeypatch.setattr(
         github,
         "list_labels",
@@ -330,9 +317,7 @@ def test_label_taxonomy_survives_labels_it_cannot_load(github_env):
 # ---------------------------------------------------- github_find_component_owners
 
 
-def test_component_owners_aggregates_commits_and_issues_per_term(
-    monkeypatch, github_env
-):
+def test_component_owners_aggregates_commits_and_issues_per_term(monkeypatch, github_env):
     monkeypatch.setattr(
         github,
         "list_recent_commits",
@@ -341,9 +326,7 @@ def test_component_owners_aggregates_commits_and_issues_per_term(
                 "repo": FIXTURE_REPO,
                 "path": path,
                 "count": 2,
-                "commits": [{"author": "dana"}, {"author": "dana"}, {"author": "sam"}][
-                    :2
-                ],
+                "commits": [{"author": "dana"}, {"author": "dana"}, {"author": "sam"}][:2],
             }
         ),
     )
@@ -418,9 +401,7 @@ def test_component_owners_deduplicates_and_caps_at_five_terms(monkeypatch, githu
     monkeypatch.setattr(
         github,
         "search_issues",
-        lambda q, page=1, per_page=None: github.ok(
-            {"total_count": 0, "count": 0, "issues": []}
-        ),
+        lambda q, page=1, per_page=None: github.ok({"total_count": 0, "count": 0, "issues": []}),
     )
     terms = [f"term{i}" for i in range(8)]
     result = load(component_owners.run({"paths_or_keywords": terms}))
@@ -432,9 +413,7 @@ def test_component_owners_validates_its_argument_shape():
     assert component_owners.run({}).startswith("ERROR:")
     assert component_owners.run({"paths_or_keywords": []}).startswith("ERROR:")
     assert component_owners.run({"paths_or_keywords": ["", "  "]}).startswith("ERROR:")
-    assert component_owners.run({"paths_or_keywords": "not-a-list"}).startswith(
-        "ERROR:"
-    )
+    assert component_owners.run({"paths_or_keywords": "not-a-list"}).startswith("ERROR:")
 
 
 # --------------------------------------------------------------------- contracts

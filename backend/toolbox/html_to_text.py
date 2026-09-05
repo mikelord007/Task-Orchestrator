@@ -127,9 +127,7 @@ TOOL = {
 def run(input: dict) -> str:
     try:
         html = get_str(input, "html")
-        max_chars = get_int(
-            input, "max_chars", required=False, default=20000, minimum=1
-        )
+        max_chars = get_int(input, "max_chars", required=False, default=20000, minimum=1)
     except (TypeError, ValueError) as exc:
         return err(f"html_to_text: {exc}")
 

@@ -31,7 +31,5 @@ def extract_json_object(text: str) -> dict:
             f"could not parse a JSON object from the response ({exc})"
         ) from exc
     if not isinstance(parsed, dict):
-        raise JSONExtractionError(
-            f"expected a JSON object, got {type(parsed).__name__}"
-        )
+        raise JSONExtractionError(f"expected a JSON object, got {type(parsed).__name__}")
     return parsed

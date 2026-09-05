@@ -93,8 +93,7 @@ def run(input: dict) -> str:
         recent_authors: list[str] = []
         if commits_payload is not None:
             recent_authors = _dedupe_keep_order(
-                commit.get("author")
-                for commit in (commits_payload.get("commits") or [])
+                commit.get("author") for commit in (commits_payload.get("commits") or [])
             )
 
         search_payload, search_error = github.decode(

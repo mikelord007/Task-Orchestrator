@@ -30,9 +30,7 @@ _CURRENCY_SYMBOLS = {
 }
 
 _MULT_ALT = "|".join(sorted(_MULTIPLIERS, key=len, reverse=True))
-_SYMBOL_ALT = "|".join(
-    re.escape(sym) for sym in sorted(_CURRENCY_SYMBOLS, key=len, reverse=True)
-)
+_SYMBOL_ALT = "|".join(re.escape(sym) for sym in sorted(_CURRENCY_SYMBOLS, key=len, reverse=True))
 _CODE_ALT = "USD|EUR|GBP|JPY|INR|CAD|AUD|CHF"
 
 _NUMBER_RE = re.compile(
@@ -116,9 +114,7 @@ def run(input: dict) -> str:
         code = match.group("code")
         currency = None
         if symbol:
-            currency = _CURRENCY_SYMBOLS.get(symbol) or _CURRENCY_SYMBOLS.get(
-                symbol.upper()
-            )
+            currency = _CURRENCY_SYMBOLS.get(symbol) or _CURRENCY_SYMBOLS.get(symbol.upper())
         if code:
             currency = code.upper()
         entry = {

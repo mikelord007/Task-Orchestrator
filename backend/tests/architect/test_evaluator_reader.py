@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from architect.evaluator_reader import EvaluatorNotFoundError, read_evaluator
+
+from backend.architect.evaluator_reader import EvaluatorNotFoundError, read_evaluator
 
 
 def test_reads_readme_and_up_to_five_train_cases(evaluator_dir):

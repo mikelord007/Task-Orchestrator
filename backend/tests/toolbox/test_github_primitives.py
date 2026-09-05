@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from backend.toolbox import github
 
 # Mirrors conftest.py; kept local so the module imports without a test package.
@@ -46,12 +47,12 @@ def test_cache_key_is_stable_across_runs_and_key_order():
 
 def test_cache_key_ignores_empty_arguments_but_not_real_ones():
     base = {"repo": "acme/widgets", "state": "closed"}
-    assert github.cache_key(
-        "github_list_issues", {**base, "labels": None}
-    ) == github.cache_key("github_list_issues", base)
-    assert github.cache_key(
-        "github_list_issues", {**base, "labels": "bug"}
-    ) != github.cache_key("github_list_issues", base)
+    assert github.cache_key("github_list_issues", {**base, "labels": None}) == github.cache_key(
+        "github_list_issues", base
+    )
+    assert github.cache_key("github_list_issues", {**base, "labels": "bug"}) != github.cache_key(
+        "github_list_issues", base
+    )
 
 
 def test_cache_key_separates_tools_with_identical_arguments():
@@ -63,9 +64,9 @@ def test_cache_key_separates_tools_with_identical_arguments():
 
 def test_cache_entry_records_the_request_and_when_it_was_fetched(github_env, tmp_path):
     entry = json.loads(
-        github.cache_path(
-            "github_get_issue", {"repo": FIXTURE_REPO, "number": 101}
-        ).read_text(encoding="utf-8")
+        github.cache_path("github_get_issue", {"repo": FIXTURE_REPO, "number": 101}).read_text(
+            encoding="utf-8"
+        )
     )
     assert entry["request"] == {
         "tool": "github_get_issue",
@@ -97,9 +98,7 @@ def test_defaults_resolve_to_the_same_cache_entry_as_explicit_arguments(github_e
     assert implicit == explicit
 
 
-def test_live_mode_still_prefers_the_cache_when_there_is_no_token(
-    github_env, monkeypatch
-):
+def test_live_mode_still_prefers_the_cache_when_there_is_no_token(github_env, monkeypatch):
     monkeypatch.setenv("GITHUB_LIVE", "1")
     assert load(github.get_issue(101))["number"] == 101
 
@@ -110,9 +109,7 @@ def test_a_populated_cache_is_reused_after_a_live_fetch_fails(github_env, monkey
     monkeypatch.setattr(
         github,
         "_request",
-        lambda url: (_ for _ in ()).throw(
-            github.GitHubHTTPError(503, "upstream is down")
-        ),
+        lambda url: (_ for _ in ()).throw(github.GitHubHTTPError(503, "upstream is down")),
     )
     assert load(github.get_issue(101))["number"] == 101
 
@@ -127,8 +124,7 @@ def test_a_cache_miss_without_a_token_returns_an_explanatory_error(github_env):
     assert "GITHUB_TOKEN is not set" in result
     assert "do not guess it" in result
     assert (
-        github.cache_key("github_get_issue", {"repo": FIXTURE_REPO, "number": 999})[:12]
-        in result
+        github.cache_key("github_get_issue", {"repo": FIXTURE_REPO, "number": 999})[:12] in result
     )
 
 
@@ -147,9 +143,7 @@ def test_a_cache_miss_never_raises_for_any_primitive(github_env):
     assert all(result.startswith("ERROR:") for result in misses)
 
 
-def test_a_failed_live_fetch_with_no_cache_reports_the_http_status(
-    github_env, monkeypatch
-):
+def test_a_failed_live_fetch_with_no_cache_reports_the_http_status(github_env, monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "pretend-token")
     monkeypatch.setattr(
         github,
@@ -170,13 +164,9 @@ def test_a_live_fetch_writes_the_cache(github_env, monkeypatch, tmp_path):
         lambda url: {"number": 501, "title": "fresh", "labels": [{"name": "bug"}]},
     )
     assert load(github.get_issue(501))["title"] == "fresh"
-    written = github.cache_path(
-        "github_get_issue", {"repo": FIXTURE_REPO, "number": 501}
-    )
+    written = github.cache_path("github_get_issue", {"repo": FIXTURE_REPO, "number": 501})
     assert written.is_file()
-    assert json.loads(written.read_text(encoding="utf-8"))["response"]["labels"] == [
-        "bug"
-    ]
+    assert json.loads(written.read_text(encoding="utf-8"))["response"]["labels"] == ["bug"]
 
 
 # ---------------------------------------------------------------- redaction
@@ -244,9 +234,7 @@ def test_comments_on_other_issues_are_untouched(under_evaluation):
     assert "note" not in result
 
 
-def test_timeline_on_the_evaluated_issue_is_hidden_with_a_note(
-    under_evaluation, monkeypatch
-):
+def test_timeline_on_the_evaluated_issue_is_hidden_with_a_note(under_evaluation, monkeypatch):
     monkeypatch.setattr(
         github,
         "read_cache",
@@ -270,16 +258,12 @@ def test_timeline_on_other_issues_is_untouched(under_evaluation, monkeypatch):
     real_payload = {
         "issue_number": 101,
         "commit_shas": ["abc123"],
-        "references": [
-            {"number": 5, "title": "x", "is_pull_request": False, "state": "closed"}
-        ],
+        "references": [{"number": 5, "title": "x", "is_pull_request": False, "state": "closed"}],
     }
     monkeypatch.setattr(
         github,
         "read_cache",
-        lambda tool, args: (
-            real_payload if tool == "github_get_issue_timeline" else None
-        ),
+        lambda tool, args: real_payload if tool == "github_get_issue_timeline" else None,
     )
     result = load(github.get_issue_timeline(101))
     assert result == real_payload
@@ -368,9 +352,7 @@ def test_trim_issue_keeps_only_the_fields_an_agent_needs():
     assert len(trimmed["body"]) < len(raw["body"])
 
 
-def test_pull_requests_are_excluded_from_issue_listings(
-    github_env, monkeypatch, tmp_path
-):
+def test_pull_requests_are_excluded_from_issue_listings(github_env, monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("GITHUB_TOKEN", "pretend-token")
     monkeypatch.setattr(
@@ -405,9 +387,7 @@ def test_rate_limited_requests_are_retried_then_reported(github_env, monkeypatch
 
     def always_rate_limited(request, timeout=None):
         attempts["n"] += 1
-        raise urllib.error.HTTPError(
-            request.full_url, 429, "Too Many Requests", {}, None
-        )
+        raise urllib.error.HTTPError(request.full_url, 429, "Too Many Requests", {}, None)
 
     monkeypatch.setattr(github.urllib.request, "urlopen", always_rate_limited)
     with pytest.raises(github.GitHubHTTPError) as caught:
@@ -433,9 +413,7 @@ def test_a_rate_limit_that_clears_on_retry_succeeds(github_env, monkeypatch):
     def flaky(request, timeout=None):
         attempts["n"] += 1
         if attempts["n"] == 1:
-            raise urllib.error.HTTPError(
-                request.full_url, 403, "rate limited", {}, None
-            )
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limited", {}, None)
         return _Response(b'{"ok": true}')
 
     monkeypatch.setattr(github.urllib.request, "urlopen", flaky)

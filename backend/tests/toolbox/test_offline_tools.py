@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from backend.toolbox import date_parse, html_to_text, json_validate, number_parse, regex_extract
 
 
@@ -72,13 +73,11 @@ def test_regex_extract_returns_groups_and_can_select_one():
 
 
 def test_regex_extract_honours_flags_and_max_matches():
-    assert load(regex_extract.run({"pattern": "abc", "text": "ABC", "flags": "i"}))[
-        "matches"
-    ] == ["ABC"]
+    assert load(regex_extract.run({"pattern": "abc", "text": "ABC", "flags": "i"}))["matches"] == [
+        "ABC"
+    ]
     assert load(regex_extract.run({"pattern": "abc", "text": "ABC"}))["matches"] == []
-    capped = load(
-        regex_extract.run({"pattern": r"\d", "text": "12345", "max_matches": 2})
-    )
+    capped = load(regex_extract.run({"pattern": r"\d", "text": "12345", "max_matches": 2}))
     assert capped["matches"] == ["1", "2"]
 
 
@@ -106,10 +105,7 @@ def test_date_parse_normalises_common_shapes(text, expected):
 
 
 def test_date_parse_dayfirst_switches_numeric_order():
-    assert (
-        load(date_parse.run({"text": "03/07/2024", "dayfirst": True}))["date"]
-        == "2024-07-03"
-    )
+    assert load(date_parse.run({"text": "03/07/2024", "dayfirst": True}))["date"] == "2024-07-03"
 
 
 def test_date_parse_extracts_a_trailing_time_and_timezone_without_converting():
@@ -152,9 +148,7 @@ def test_json_validate_names_the_syntax_error_with_a_position():
 
 
 def test_json_validate_flags_missing_keys_and_the_wrong_top_level_type():
-    result = load(
-        json_validate.run({"text": '{"a": 1}', "required_keys": ["a", "b", "c"]})
-    )
+    result = load(json_validate.run({"text": '{"a": 1}', "required_keys": ["a", "b", "c"]}))
     assert result["valid"] is False
     assert "b, c" in result["errors"][0]
 

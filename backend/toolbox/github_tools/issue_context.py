@@ -101,17 +101,14 @@ def run(input: dict) -> str:
     try:
         number = get_int(input, "issue_number", minimum=1)
         response_format = (
-            get_str(input, "response_format", required=False, default="concise")
-            or "concise"
+            get_str(input, "response_format", required=False, default="concise") or "concise"
         )
         if response_format not in {"concise", "detailed"}:
             raise ValueError(
                 f"'response_format' must be 'concise' or 'detailed', got {response_format!r}"
             )
     except (TypeError, ValueError) as exc:
-        return err(
-            f"{TOOL['name']}: {exc}. {_example_call(input.get('issue_number') or 101)}"
-        )
+        return err(f"{TOOL['name']}: {exc}. {_example_call(input.get('issue_number') or 101)}")
 
     detailed = response_format == "detailed"
 
@@ -153,9 +150,7 @@ def run(input: dict) -> str:
             linked_note = timeline_payload["note"]
         else:
             references = (timeline_payload.get("references") or [])[:MAX_LINKED_ITEMS]
-            linked = [
-                _summarize_reference(reference, detailed) for reference in references
-            ]
+            linked = [_summarize_reference(reference, detailed) for reference in references]
             for sha in (timeline_payload.get("commit_shas") or [])[:MAX_LINKED_ITEMS]:
                 commit_payload, _ = github.decode(github.get_commit(sha))
                 if commit_payload is not None:

@@ -46,9 +46,7 @@ GITHUB_TOOLS: tuple[str, ...] = tuple(
 )
 
 #: Tools with no network access at all.
-OFFLINE_TOOLS: tuple[str, ...] = tuple(
-    name for name in TOOLBOX if name not in GITHUB_TOOLS
-)
+OFFLINE_TOOLS: tuple[str, ...] = tuple(name for name in TOOLBOX if name not in GITHUB_TOOLS)
 
 
 class UnknownToolError(KeyError):
@@ -109,14 +107,10 @@ def write_agent_tool(name: str, dest_dir: str | Path) -> Path:
     destination = Path(dest_dir)
     destination.mkdir(parents=True, exist_ok=True)
     path = destination / f"{name}.py"
-    path.write_text(
-        _TEMPLATE.format(name=name, module=module.__name__), encoding="utf-8"
-    )
+    path.write_text(_TEMPLATE.format(name=name, module=module.__name__), encoding="utf-8")
     return path
 
 
-def write_agent_tools(
-    names: list[str] | tuple[str, ...], dest_dir: str | Path
-) -> list[Path]:
+def write_agent_tools(names: list[str] | tuple[str, ...], dest_dir: str | Path) -> list[Path]:
     """Materialise several tools into an agent package's ``tools/`` directory."""
     return [write_agent_tool(name, dest_dir) for name in names]

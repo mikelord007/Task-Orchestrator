@@ -7,6 +7,7 @@ import json
 import sys
 
 import pytest
+
 from backend.toolbox import registry
 
 EXPECTED_TOOLS = {
@@ -57,9 +58,7 @@ def test_every_description_says_what_it_returns_when_to_use_it_and_what_it_does_
     assert len(description) > 300, "descriptions are the agent's only documentation"
     lowered = description.lower()
     assert "returns" in lowered, "say what comes back"
-    assert "does not" in lowered, (
-        "say what the tool will not do, so the agent stops asking"
-    )
+    assert "does not" in lowered, "say what the tool will not do, so the agent stops asking"
     # A one-line summary, then at least: what it returns, when to reach for it,
     # what it will not do, and argument semantics.
     assert description.count("\n\n") >= 3, "description is missing a section"
@@ -136,9 +135,7 @@ def test_write_agent_tool_works_for_a_github_tool_and_creates_the_directory(tmp_
 def test_write_agent_tools_materialises_a_whole_package_and_is_idempotent(tmp_path):
     names = ["github_get_label_taxonomy", "github_get_issue_context", "json_validate"]
     first = registry.write_agent_tools(names, tmp_path)
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
-        f"{n}.py" for n in names
-    )
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(f"{n}.py" for n in names)
     before = {p: p.read_text(encoding="utf-8") for p in first}
     registry.write_agent_tools(names, tmp_path)
     assert {p: p.read_text(encoding="utf-8") for p in first} == before

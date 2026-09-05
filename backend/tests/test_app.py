@@ -69,5 +69,16 @@ def test_discover_routers_skips_subpackages_with_no_api_module():
     import backend
     from backend.app import discover_routers
 
-    # backend.tests, backend.testing etc. have no api.py; must not raise.
-    assert discover_routers(backend) == []
+    # backend.tests, backend.testing etc. have no api.py -- discover_routers
+    # must not raise scanning them (it catches ModuleNotFoundError). This does
+    # NOT assert the whole backend package has zero routers: a real
+    # workstream router (backend.architect.api, as of W3) legitimately exists
+    # now, so scanning backend as a whole is not a "no api.py anywhere" case
+    # any more. Confirm the actual mechanism directly instead.
+    discover_routers(backend)  # must not raise
+
+    import importlib
+
+    for name in ("backend.tests", "backend.testing"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(f"{name}.api")

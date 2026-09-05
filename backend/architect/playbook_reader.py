@@ -26,7 +26,10 @@ def read_lessons(path: str | Path = DEFAULT_PATH) -> list[dict]:
 def select_relevant_lessons(
     lessons: list[dict], domain: str, goal: str, limit: int = DEFAULT_LIMIT
 ) -> list[dict]:
-    """Keyword-overlap ranking against ``domain_tags`` -- no embeddings, matching §0.2's memory injection."""
+    """Keyword-overlap ranking against ``domain_tags``.
+
+    No embeddings, matching §0.2's memory injection.
+    """
     keywords = {word.lower() for word in f"{domain} {goal}".split() if len(word) > 2}
 
     def overlap(lesson: dict) -> int:

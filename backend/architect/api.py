@@ -13,15 +13,28 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.db import REPO_ROOT, init_db
+from backend.settings import env
 
 from .evaluators import list_evaluators
 from .generate import generate
 
 router = APIRouter(tags=["architect"])
 
-EVALUATORS_ROOT = REPO_ROOT / "evaluators"
-AGENTS_ROOT = REPO_ROOT / "agents"
-PLAYBOOK_PATH = REPO_ROOT / "playbook" / "lessons.jsonl"
+
+def agents_root() -> Path:
+    """`TO_AGENTS_ROOT`, defaulting to `<repo>/agents`. Read fresh every call
+    (see `backend.settings`) so tests can `monkeypatch.setenv` a tmp_path."""
+    return Path(env("TO_AGENTS_ROOT") or REPO_ROOT / "agents")
+
+
+def evaluators_root() -> Path:
+    """`TO_EVALUATORS_ROOT`, defaulting to `<repo>/evaluators`."""
+    return Path(env("TO_EVALUATORS_ROOT") or REPO_ROOT / "evaluators")
+
+
+def playbook_path() -> Path:
+    """`TO_PLAYBOOK_PATH`, defaulting to `<repo>/playbook/lessons.jsonl`."""
+    return Path(env("TO_PLAYBOOK_PATH") or REPO_ROOT / "playbook" / "lessons.jsonl")
 
 
 class CreateAgentRequest(BaseModel):
@@ -50,7 +63,7 @@ def _package_view(package_dir: Path) -> dict:
             status_code=500, detail=f"stored package at {package_dir} is invalid: {exc.errors}"
         ) from exc
 
-    view = {
+    return {
         "agent_yaml": pkg.config.model_dump(),
         "prompt": pkg.prompt,
         "tools": sorted(pkg.tools),
@@ -60,10 +73,6 @@ def _package_view(package_dir: Path) -> dict:
             "episodes": [episode.model_dump() for episode in pkg.memory.episodes],
         },
     }
-    orchestration_doc = package_dir / "ORCHESTRATION.md"
-    if orchestration_doc.is_file():
-        view["orchestration_notes"] = orchestration_doc.read_text(encoding="utf-8")
-    return view
 
 
 @router.post("/agents")
@@ -74,9 +83,9 @@ def create_agent(body: CreateAgentRequest) -> dict:
         tools=body.tools,
         evaluator_id=body.evaluator_id,
         use_playbook=body.use_playbook,
-        agents_root=AGENTS_ROOT,
-        evaluators_root=EVALUATORS_ROOT,
-        playbook_path=PLAYBOOK_PATH,
+        agents_root=agents_root(),
+        evaluators_root=evaluators_root(),
+        playbook_path=playbook_path(),
     )
     return {"agent_id": result.agent_id, "version": result.version}
 
@@ -85,7 +94,9 @@ def create_agent(body: CreateAgentRequest) -> dict:
 def list_agents() -> list[dict]:
     conn = init_db()
     try:
-        rows = conn.execute("SELECT * FROM agents ORDER BY created_ts DESC").fetchall()
+        # created_ts has second resolution, so two agents created within the
+        # same second tie -- rowid (insertion order) breaks the tie.
+        rows = conn.execute("SELECT * FROM agents ORDER BY created_ts DESC, rowid DESC").fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
@@ -98,7 +109,7 @@ def get_agent(agent_id: str) -> dict:
         row = _agent_row(conn, agent_id)
     finally:
         conn.close()
-    package_dir = AGENTS_ROOT / agent_id / f"v{row['current_version']}"
+    package_dir = agents_root() / agent_id / f"v{row['current_version']}"
     return {**row, **_package_view(package_dir)}
 
 
@@ -109,20 +120,20 @@ def get_agent_version(agent_id: str, version: int) -> dict:
         row = _agent_row(conn, agent_id)
     finally:
         conn.close()
-    package_dir = AGENTS_ROOT / agent_id / f"v{version}"
+    package_dir = agents_root() / agent_id / f"v{version}"
     if not package_dir.is_dir():
-        raise HTTPException(
-            status_code=404, detail=f"agent {agent_id!r} has no version {version}"
-        )
+        raise HTTPException(status_code=404, detail=f"agent {agent_id!r} has no version {version}")
     changes_path = package_dir / "CHANGES.diff"
     return {
         **row,
         "version": version,
         **_package_view(package_dir),
-        "changes_diff": changes_path.read_text(encoding="utf-8") if changes_path.is_file() else None,
+        "changes_diff": changes_path.read_text(encoding="utf-8")
+        if changes_path.is_file()
+        else None,
     }
 
 
 @router.get("/evaluators")
 def get_evaluators() -> list[dict]:
-    return list_evaluators(EVALUATORS_ROOT)
+    return list_evaluators(evaluators_root())

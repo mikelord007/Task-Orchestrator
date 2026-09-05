@@ -82,9 +82,7 @@ def run(input: dict) -> str:
         state = get_str(input, "state", required=False, default="all") or "all"
         if state not in {"open", "closed", "all"}:
             raise ValueError(f"'state' must be open, closed or all, got {state!r}")
-        limit = get_int(
-            input, "limit", required=False, default=DEFAULT_LIMIT, minimum=1
-        )
+        limit = get_int(input, "limit", required=False, default=DEFAULT_LIMIT, minimum=1)
         limit = min(limit, MAX_LIMIT)
     except (TypeError, ValueError) as exc:
         return err(

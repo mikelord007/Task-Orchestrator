@@ -1,4 +1,7 @@
-"""Assemble and write an agent package directory (``agents/<id>/v<n>/``, contracts/agent_package.md)."""
+"""Assemble and write an agent package directory (``agents/<id>/v<n>/``).
+
+See ``contracts/agent_package.md``.
+"""
 
 from __future__ import annotations
 
@@ -35,16 +38,13 @@ def write_package(
     agent_id: str,
     version: int,
     *,
-    goal: str,
     domain: str,
-    evaluator_id: str,
     model_strong: str,
     model_cheap: str,
     tools: list[str],
     orchestration: str,
     orchestration_reason: str,
     prompt_text: str,
-    applied_lessons: list[str],
     glue_tool: dict | None = None,
     root: str | Path = DEFAULT_AGENTS_ROOT,
 ) -> Path:
@@ -52,19 +52,17 @@ def write_package(
 
     Layout matches ``contracts/agent_package.md`` exactly: ``agent.yaml``
     (``name, version, domain, model_strong, model_cheap, tools, orchestration,
-    routing`` -- ``AgentConfig`` is ``extra="forbid"``, so nothing else goes
-    in it), ``prompt.md``, ``tools/*.py`` (re-exported from the toolbox via
-    ``toolbox.registry.write_agent_tools``, plus the glue tool's own files
-    written verbatim if one was proposed), and three empty ``memory/*.jsonl``
-    files. Package *validation* against ``contracts.agent`` happens one layer
-    up, in ``generate._finalize``.
+    orchestration_reason, routing`` -- ``AgentConfig`` is ``extra="forbid"``,
+    so nothing else goes in it), ``prompt.md``, ``tools/*.py`` (re-exported
+    from the toolbox via ``toolbox.registry.write_agent_tools``, plus the glue
+    tool's own files written verbatim if one was proposed), and three empty
+    ``memory/*.jsonl`` files. Package *validation* against ``contracts.agent``
+    happens one layer up, in ``generate._finalize``.
 
     ``goal`` and ``evaluator_id`` belong to the ``agents`` DB row, not this
-    file. ``applied_lessons`` belongs to the ``agent_created`` ledger event.
-    ``orchestration_reason`` has no home in any frozen contract (see the
-    ``contract-change`` issue opened from this branch) -- it is written to a
-    plain, unvalidated ``ORCHESTRATION.md`` alongside the package for the
-    demo/UI to read opportunistically.
+    file; ``applied_lessons`` belongs to the ``agent_created`` ledger event --
+    none of the three are part of ``agent.yaml``, so this function does not
+    take them.
     """
     package_dir = Path(root) / agent_id / f"v{version}"
     tools_dir = package_dir / "tools"
@@ -93,21 +91,10 @@ def write_package(
         "model_cheap": model_cheap,
         "tools": all_tool_names,
         "orchestration": orchestration,
+        "orchestration_reason": orchestration_reason,
         "routing": {"plan": "strong", "act": "strong"},
     }
     (package_dir / "agent.yaml").write_text(
         yaml.safe_dump(agent_yaml, sort_keys=False), encoding="utf-8"
-    )
-
-    lessons_line = (
-        "\n".join(f"- {lesson_id}" for lesson_id in applied_lessons)
-        if applied_lessons
-        else "(none)"
-    )
-    (package_dir / "ORCHESTRATION.md").write_text(
-        f"# Why {orchestration}\n\n{orchestration_reason}\n\n"
-        f"## Playbook lessons applied\n\n{lessons_line}\n\n"
-        f"## Goal\n\n{goal}\n\n## Evaluator\n\n{evaluator_id}\n",
-        encoding="utf-8",
     )
     return package_dir

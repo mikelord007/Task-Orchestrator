@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from architect.playbook_reader import read_lessons, select_relevant_lessons
+from backend.architect.playbook_reader import read_lessons, select_relevant_lessons
 
 
 def test_read_lessons_returns_empty_list_when_the_file_does_not_exist(tmp_path):
@@ -26,9 +26,7 @@ def test_select_relevant_lessons_ranks_by_tag_overlap_then_fills_with_the_rest()
         {"id": "l2", "domain_tags": ["github", "triage"]},
         {"id": "l3", "domain_tags": []},
     ]
-    selected = select_relevant_lessons(
-        lessons, domain="github_triage", goal="triage github issues"
-    )
+    selected = select_relevant_lessons(lessons, domain="github_triage", goal="triage github issues")
     ids = [lesson["id"] for lesson in selected]
     assert ids[0] == "l2"  # matches both "github" and "triage"
     assert set(ids) == {"l1", "l2", "l3"}  # nothing is dropped, just reordered
