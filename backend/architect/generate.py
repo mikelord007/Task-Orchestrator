@@ -3,21 +3,20 @@
 generate() runs, in order: (1) read the evaluator, (2) choose orchestration
 mode, (3) draft prompt.md, (4) select tools / write a glue tool, (5) write the
 package to disk, (6) apply playbook lessons when asked. Steps 2, 3, 4 and 6
-are one STRONG-model call each.
+are one STRONG-model call each -- against any object satisfying
+``llm_client.CompleteFn`` (a real ``backend.llm.complete``, or
+``backend.testing.fake_llm.FakeLLM`` injected via ``backend.llm.set_client``
+in tests).
 
-Everything above works today against any object satisfying
-``llm_client.CompleteFn``. What is deliberately deferred until Phase 0 lands
-on ``main`` (``contracts.agent``, ``backend.db``, ``backend.ledger.emit``) is
-guarded behind lazy imports in ``_finalize``: validating the written package,
-inserting the ``agents`` row, and emitting ``agent_created``. Until then,
-``generate()`` still returns a full ``GenerateResult`` with the package
-written to disk; ``result.finalized`` is ``False`` and the caller can inspect
-the package directly.
+``_finalize`` then validates the written package against ``contracts.agent``
+(raising ``PackageError`` on any violation), inserts the ``agents`` row, and
+emits ``agent_created``. ``result.finalized`` is ``True`` once that succeeds.
 """
 
 from __future__ import annotations
 
 import os
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,6 +66,7 @@ def generate(
     agents_root: str | Path = package_module.DEFAULT_AGENTS_ROOT,
     evaluators_root: str = "evaluators",
     playbook_path: str = "playbook/lessons.jsonl",
+    conn: sqlite3.Connection | None = None,
 ) -> GenerateResult:
     complete = complete or resolve_complete()
     model = model or os.environ.get(STRONG_MODEL_ENV) or FALLBACK_MODEL
@@ -130,56 +130,58 @@ def generate(
         prompt_text=prompt_text,
         llm_calls=llm_calls,
     )
-    _finalize(result, evaluator_id=evaluator_id, domain=domain, goal=goal)
+    _finalize(result, evaluator_id=evaluator_id, domain=domain, goal=goal, conn=conn)
     return result
 
 
 def _finalize(
-    result: GenerateResult, *, evaluator_id: str, domain: str, goal: str
+    result: GenerateResult,
+    *,
+    evaluator_id: str,
+    domain: str,
+    goal: str,
+    conn: sqlite3.Connection | None,
 ) -> None:
     """Validate the package, insert the ``agents`` row, emit ``agent_created``.
 
-    TODO(Phase 0 merge): both imports below currently fail because
-    ``contracts.agent``, ``backend.db`` and ``backend.ledger.emit`` are not on
-    this branch yet, so this function is a deliberate no-op today. Once Phase
-    0 merges: drop the try/except ImportError guards (a missing contract
-    should be a hard failure, not a silent skip), replace the placeholder SQL
-    with whatever `backend.db` actually exposes, and emit every key
-    `contracts/events.py` requires for `agent_created` (goal, domain, tools,
-    evaluator_id, orchestration, applied_lessons).
+    ``load_package`` raises ``contracts.agent.PackageError`` (listing every
+    violation) if the just-written package does not satisfy the contract --
+    this is the acceptance criterion in the brief, so a bad package must fail
+    loudly here, not be silently accepted.
     """
+    from contracts.agent import load_package
+
+    load_package(result.package_dir)
+
+    from backend.db import init_db, utcnow
+    from backend.ledger.emit import emit
+
+    owns_conn = conn is None
+    connection = conn or init_db()
     try:
-        from contracts.agent import validate_package  # type: ignore[import-not-found]
-    except ImportError:
-        return
+        with connection:
+            connection.execute(
+                "INSERT INTO agents (agent_id, goal, domain, evaluator_id, current_version, created_ts) "
+                "VALUES (?, ?, ?, ?, 0, ?)",
+                (result.agent_id, goal, domain, evaluator_id, utcnow()),
+            )
 
-    validate_package(result.package_dir)
-
-    try:
-        from backend.db import get_connection  # type: ignore[import-not-found]
-        from backend.ledger.emit import emit  # type: ignore[import-not-found]
-    except ImportError:
-        return
-
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO agents (agent_id, goal, domain, evaluator_id, current_version, created_ts) "
-            "VALUES (?, ?, ?, ?, 0, datetime('now'))",
-            (result.agent_id, goal, domain, evaluator_id),
+        emit(
+            "agent_created",
+            agent_id=result.agent_id,
+            agent_version=0,
+            conn=connection,
+            payload={
+                "goal": goal,
+                "domain": domain,
+                "tools": result.tools,
+                "evaluator_id": evaluator_id,
+                "orchestration": result.orchestration["mode"],
+                "applied_lessons": result.applied_lessons,
+            },
         )
-        conn.commit()
+    finally:
+        if owns_conn:
+            connection.close()
 
-    emit(
-        kind="agent_created",
-        agent_id=result.agent_id,
-        agent_version=0,
-        payload={
-            "goal": goal,
-            "domain": domain,
-            "tools": result.tools,
-            "evaluator_id": evaluator_id,
-            "orchestration": result.orchestration["mode"],
-            "applied_lessons": result.applied_lessons,
-        },
-    )
     result.finalized = True

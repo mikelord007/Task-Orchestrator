@@ -1,9 +1,10 @@
 """Resolves the LLM completion function the architect's steps call.
 
-``backend.llm`` is Phase 0's responsibility and is not yet on ``main`` while
-this module is written. ``resolve_complete`` defers that import to call time
-so ``backend.architect`` imports cleanly today; every step function also
-accepts an explicit ``complete`` callable so tests never need the real thing.
+Every step function accepts an explicit ``complete`` callable, so tests inject
+``backend.testing.fake_llm.FakeLLM`` (via ``backend.llm.set_client`` +
+``backend.llm.complete``, or any other object matching ``CompleteFn``) instead
+of the real thing. ``resolve_complete`` is only the default used when no
+``complete`` is passed in, e.g. from ``api.py``.
 """
 
 from __future__ import annotations

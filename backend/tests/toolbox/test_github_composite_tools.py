@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from toolbox import github
-from toolbox.github_tools import (
+from backend.toolbox import github
+from backend.toolbox.github_tools import (
     component_owners,
     issue_context,
     label_taxonomy,

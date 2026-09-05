@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from toolbox import github
+from backend.toolbox import github
 
 # Mirrors conftest.py; kept local so the module imports without a test package.
 FIXTURE_REPO = "acme/widgets"

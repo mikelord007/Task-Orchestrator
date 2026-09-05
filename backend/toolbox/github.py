@@ -137,7 +137,10 @@ def evaluated_issue_number() -> int | None:
     case_input = case.get("input")
     if not isinstance(case_input, dict):
         return None
-    number = case_input.get("issue_number")
+    # "issue_number" is what evaluators/github_triage/ actually emits
+    # (contracts/evaluator.md's own example uses the generic "number" --
+    # accepted too, defensively, since `input` is untyped in the contract).
+    number = case_input.get("issue_number", case_input.get("number"))
     if isinstance(number, bool) or not isinstance(number, (int, str)):
         return None
     try:

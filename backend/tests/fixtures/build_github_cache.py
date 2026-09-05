@@ -16,9 +16,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BACKEND = HERE.parents[1]
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
+REPO_ROOT = HERE.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 CACHE_DIR = HERE / "github_cache"
 REPO = "acme/widgets"
@@ -304,7 +304,7 @@ ENTRIES: list[tuple[str, dict, object]] = [
 
 def main() -> None:
     os.environ["GITHUB_CACHE_DIR"] = str(CACHE_DIR)
-    from toolbox import github
+    from backend.toolbox import github
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for tool_name, args, response in ENTRIES:

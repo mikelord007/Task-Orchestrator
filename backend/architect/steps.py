@@ -21,7 +21,7 @@ class ArchitectStepError(Exception):
 
 def filter_known_tools(tools: list[str]) -> list[str]:
     """The subset of ``tools`` that exist in the toolbox, in the given order."""
-    from toolbox import registry as toolbox_registry
+    from backend.toolbox import registry as toolbox_registry
 
     known = [name for name in tools if name in toolbox_registry.TOOLBOX]
     if not known:
@@ -100,7 +100,7 @@ def draft_prompt(
 
 
 def _valid_glue_tool(glue_tool: object, allowed_tools: list[str]) -> bool:
-    from toolbox import registry as toolbox_registry
+    from backend.toolbox import registry as toolbox_registry
 
     if not isinstance(glue_tool, dict):
         return False

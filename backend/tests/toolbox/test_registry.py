@@ -7,7 +7,7 @@ import json
 import sys
 
 import pytest
-from toolbox import registry
+from backend.toolbox import registry
 
 EXPECTED_TOOLS = {
     "html_to_text",
