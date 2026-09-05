@@ -71,7 +71,12 @@ def test_discover_routers_skips_subpackages_with_no_api_module():
     import backend
     from backend.app import discover_routers
 
-    # backend.tests, backend.testing etc. have no api.py and must not raise or
-    # contribute a router - unlike backend.runtime, which by now does (W2).
+    # backend.tests, backend.testing etc. have no api.py and must be skipped
+    # without raising. This no longer asserts the overall result is empty:
+    # once a workstream lands a real backend/<pkg>/api.py (e.g. backend.ledger),
+    # discover_routers(backend) is *supposed* to find it -- that is the whole
+    # point of auto-discovery. Only every found item being a real APIRouter is
+    # asserted here.
     routers = discover_routers(backend)
+    assert isinstance(routers, list)
     assert all(isinstance(r, APIRouter) for r in routers)
