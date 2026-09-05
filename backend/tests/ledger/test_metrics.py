@@ -16,6 +16,7 @@ import pytest
 from backend.ledger import metrics
 from backend.ledger.emit import emit as ledger_emit
 from backend.tests.ledger.seed import AGENT_ID, SeededLedger, create_schema
+from contracts.transcript import StepKind, Transcript
 
 # Population std of the v0 and v1 train per-trial rates.
 # v0: [0.75, 0.50, 0.75] -> sqrt(1/72);  v1: [1.00, 0.75, 0.75] -> sqrt(1/72)
@@ -473,6 +474,7 @@ def test_tool_call_stats_reads_transcript_detail(seeded: SeededLedger) -> None:
         "redundant": pytest.approx(2.0),
         "tool_tokens": pytest.approx(450.0),
         "latency_ms": pytest.approx(1550.0),
+        "tool_tokens_estimated": False,
     }
     # c4 runs at trial-indices 3, 7, 11 -> latencies 1300, 1700, 2100.
     assert stats["tasks"]["c4"]["calls"] == pytest.approx(9.0)
@@ -512,6 +514,131 @@ def test_tool_call_stats_falls_back_to_case_result_without_a_transcript() -> Non
         assert stats["aggregate"]["errors"] == pytest.approx(1.0)
         assert stats["aggregate"]["redundant"] is None
         assert stats["aggregate"]["tool_tokens"] is None
+        assert stats["aggregate"]["tool_tokens_estimated"] is None
+    finally:
+        conn.close()
+
+
+def test_tool_call_stats_uses_normalized_args_and_estimated_flag(tmp_path) -> None:
+    """W2's transcripts carry ``normalized_args`` on tool_call steps (sorted
+    keys, stripped/lowercased strings -- what the loop-drift detector groups
+    on) and ``tokens_estimated`` on tool_return steps. Both are extensions
+    beyond ``contracts/transcript.py`` (read via ``getattr``, since
+    ``TranscriptStep`` allows extra fields); redundancy detection must group
+    on ``normalized_args`` when present so it agrees with the drift watchdog."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        run_id = "run1"
+        Transcript(
+            run_id=run_id,
+            case_id="c1",
+            trial=0,
+            agent_id="a",
+            version=0,
+            started_ts="2026-09-06T10:00:00Z",
+            finished_ts="2026-09-06T10:00:01Z",
+            steps=[
+                {
+                    "i": 0,
+                    "ts": "2026-09-06T10:00:00Z",
+                    "kind": StepKind.tool_call,
+                    "tool": "list_issues",
+                    "args": {"State": "Open", "Label": " Bug "},
+                    "normalized_args": '{"label": "bug", "state": "open"}',
+                },
+                {
+                    "i": 1,
+                    "ts": "2026-09-06T10:00:00Z",
+                    "kind": StepKind.tool_return,
+                    "tool": "list_issues",
+                    "result": "ok",
+                    "tokens_in": 40,
+                    "tokens_estimated": True,
+                },
+                {
+                    "i": 2,
+                    "ts": "2026-09-06T10:00:00Z",
+                    "kind": StepKind.tool_call,
+                    "tool": "list_issues",
+                    "args": {"state": "open", "label": "bug"},
+                    "normalized_args": '{"label": "bug", "state": "open"}',
+                },
+                {
+                    "i": 3,
+                    "ts": "2026-09-06T10:00:00Z",
+                    "kind": StepKind.tool_return,
+                    "tool": "list_issues",
+                    "result": "ok",
+                    "tokens_in": 40,
+                },
+            ],
+            final_output={"labels": []},
+            tokens_in=80,
+            tokens_out=10,
+            tool_calls=2,
+            tool_errors=0,
+        ).write(root=tmp_path / "runs")
+
+        ledger_emit(
+            "run_started",
+            agent_id="a",
+            agent_version=0,
+            run_id=run_id,
+            conn=conn,
+            payload={"split": "train", "case_count": 1, "trials": 1},
+        )
+        ledger_emit(
+            "case_result",
+            agent_id="a",
+            agent_version=0,
+            run_id=run_id,
+            conn=conn,
+            payload={
+                "case_id": "c1",
+                "trial": 0,
+                "passed": True,
+                "score": 1.0,
+                "tokens_in": 80,
+                "tokens_out": 10,
+                "cost_usd": 0.0,
+                "latency_ms": 10,
+                "steps": 4,
+                "transcript_path": f"runs/{run_id}/c1.t0.json",
+                "tool_calls": 2,
+                "tool_errors": 0,
+            },
+        )
+        ledger_emit(
+            "run_finished",
+            agent_id="a",
+            agent_version=0,
+            run_id=run_id,
+            conn=conn,
+            payload={
+                "split": "train",
+                "trials": 1,
+                "pass_at_1": 1.0,
+                "pass_pow_k": 1.0,
+                "pass_rate_std": 0.0,
+                "pass_rate_min": 1.0,
+                "pass_rate_max": 1.0,
+                "total_cost_usd": 0.0,
+                "p50_latency_ms": 10,
+                "p95_latency_ms": 10,
+                "drift_count": 0,
+                "tokens_saved_by_drift": 0,
+            },
+        )
+
+        stats = metrics.tool_call_stats(conn, "a", 0, "train", tmp_path)
+        assert stats["aggregate"]["calls"] == pytest.approx(2.0)
+        # Different raw args, same normalized_args -> grouped as one redundant call.
+        assert stats["aggregate"]["redundant"] == pytest.approx(1.0)
+        assert stats["aggregate"]["tool_tokens_estimated"] is True
+
+        rows = metrics.tool_stats_by_version(conn, "a", tmp_path)
+        assert rows[0]["tool_tokens_estimated"] is True
     finally:
         conn.close()
 
@@ -553,7 +680,11 @@ def test_fix_cards_are_newest_first_and_complete(seeded: SeededLedger) -> None:
     }
     assert accepted["hypothesis"]
     assert accepted["diagnosis"]
-    assert accepted["metric_signal"].startswith("tool_calls_per_task fell")
+    # metric_signal is contract-restricted to lever=tools fixes (api.md);
+    # this fix is lever=memory, so the card must null it out even though the
+    # raw fix_proposed event carries one (see markers(), which is not so
+    # restricted and does surface it -- test_markers_cover_every_annotation_kind).
+    assert accepted["metric_signal"] is None
     assert accepted["files_touched"] == [
         "memory/rules.jsonl",
         "memory/tool_notes.jsonl",
@@ -586,6 +717,51 @@ def test_memory_fix_cards_carry_their_entries(seeded: SeededLedger) -> None:
     assert [e["entry_id"] for e in entries] == ["r1", "r2", "r3", "t1"]
     assert [e["kind"] for e in entries] == ["rule", "rule", "rule", "tool_note"]
     assert entries[0]["evidence_case_ids"] == ["c4"]
+
+
+def test_metric_signal_passes_through_for_a_tools_lever_fix() -> None:
+    """The only lever the contract actually shows metric_signal for."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        ledger_emit(
+            "fix_proposed",
+            agent_id="a",
+            agent_version=0,
+            lever="tools",
+            conn=conn,
+            payload={
+                **_tiny_fix_proposed_payload("h"),
+                "metric_signal": "12 redundant list_issues calls/task",
+            },
+        )
+        ledger_emit(
+            "fix_accepted",
+            agent_id="a",
+            agent_version=1,
+            lever="tools",
+            conn=conn,
+            payload={
+                "to_version": 1,
+                "pass_at_1_before": 0.5,
+                "pass_at_1_after": 0.6,
+                "pass_pow_k_before": 0.5,
+                "pass_pow_k_after": 0.6,
+                "group_pass_before": 0.5,
+                "group_pass_after": 0.6,
+                "holdout_pass_at_1_after": 0.6,
+                "holdout_pass_pow_k_after": 0.6,
+                "cost_per_run_before": 1.0,
+                "cost_per_run_after": 0.9,
+                "tool_calls_per_task_before": 12.0,
+                "tool_calls_per_task_after": 4.0,
+            },
+        )
+        card = metrics.fix_cards(conn, "a")[0]
+        assert card["lever"] == "tools"
+        assert card["metric_signal"] == "12 redundant list_issues calls/task"
+    finally:
+        conn.close()
 
 
 def test_rejected_fix_card_lists_regressed_tasks_and_derives_before(
