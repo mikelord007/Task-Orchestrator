@@ -12,9 +12,7 @@ EVALUATOR_DIR = Path(__file__).resolve().parents[1]
 
 
 def _load_score():
-    spec = importlib.util.spec_from_file_location(
-        "ticket_triage_score", EVALUATOR_DIR / "score.py"
-    )
+    spec = importlib.util.spec_from_file_location("ticket_triage_score", EVALUATOR_DIR / "score.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -50,9 +48,7 @@ def test_all_three_wrong_scores_zero():
     assert result["passed"] is False
     assert result["score"] == pytest.approx(0.0)
     assert result["notes"] == (
-        "category_mismatch:bug->other;"
-        "needs_human_mismatch:true->false;"
-        "priority_mismatch:p1->p3"
+        "category_mismatch:bug->other;needs_human_mismatch:true->false;priority_mismatch:p1->p3"
     )
 
 
@@ -65,22 +61,24 @@ def test_needs_human_mismatch_alone():
 def test_absent_fields_are_reported_as_missing():
     result = score(EXPECTED, {"category": "bug"})
     assert result["passed"] is False
-    assert result["notes"] == (
-        "needs_human_mismatch:true->missing;priority_mismatch:p1->missing"
-    )
+    assert result["notes"] == ("needs_human_mismatch:true->missing;priority_mismatch:p1->missing")
     assert result["score"] == pytest.approx(THIRD)
 
 
 def test_stringly_typed_needs_human_is_accepted():
     for truthy in ("true", "True", " YES ", "1", 1):
-        assert score(EXPECTED, {"category": "bug", "priority": "p1", "needs_human": truthy})[
-            "passed"
-        ] is True
+        assert (
+            score(EXPECTED, {"category": "bug", "priority": "p1", "needs_human": truthy})["passed"]
+            is True
+        )
     falsy_expected = {"category": "bug", "priority": "p1", "needs_human": False}
     for falsy in ("false", "No", "0", 0):
-        assert score(
-            falsy_expected, {"category": "bug", "priority": "p1", "needs_human": falsy}
-        )["passed"] is True
+        assert (
+            score(falsy_expected, {"category": "bug", "priority": "p1", "needs_human": falsy})[
+                "passed"
+            ]
+            is True
+        )
 
 
 def test_unparseable_needs_human_is_missing_not_false():
