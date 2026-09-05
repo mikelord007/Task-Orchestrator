@@ -1,0 +1,4 @@
+{"id": "t1", "split": "train", "input": {"ticket_id": "t1", "text": "invoice charged twice"}, "expected": {"category": "billing", "priority": "p1"}, "tags": ["billing"]}
+{"id": "t2", "split": "train", "input": {"ticket_id": "t2", "text": "app crashes on windows"}, "expected": {"category": "bug", "priority": "p0"}, "tags": ["crash", "windows"]}
+{"id": "t3", "split": "train", "input": {"ticket_id": "t3", "text": "please add dark mode"}, "expected": {"category": "feature", "priority": "p3"}, "tags": ["feature"]}
+{"id": "t4", "split": "holdout", "input": {"ticket_id": "t4", "text": "cannot log in"}, "expected": {"category": "account", "priority": "p1"}, "tags": ["account"]}

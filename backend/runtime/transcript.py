@@ -37,6 +37,7 @@ class AssistantMessage:
 
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    phase: str = "act"
 
     @property
     def has_tool_call(self) -> bool:
@@ -125,7 +126,10 @@ class Transcript:
     def elapsed_s(self) -> float:
         return time.monotonic() - self._t0
 
-    def _append(self, kind: str, **payload: Any) -> dict[str, Any]:
+    def _append(self, kind: str, /, **payload: Any) -> dict[str, Any]:
+        # kind is positional-only: several payloads (e.g. a drift entry) carry
+        # their own "kind" field, which would otherwise collide with this one's
+        # keyword name.
         step = {
             "index": len(self.steps),
             "type": kind,
@@ -180,7 +184,7 @@ class Transcript:
             usage={"tokens_in": t_in, "tokens_out": t_out},
             cost_usd=float(cost_usd or 0.0),
         )
-        message = AssistantMessage(text=text or "", tool_calls=list(tool_calls or []))
+        message = AssistantMessage(text=text or "", tool_calls=list(tool_calls or []), phase=phase)
         self.assistant_messages.append(message)
         return message
 

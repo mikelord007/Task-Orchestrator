@@ -185,7 +185,9 @@ class DriftWatchdog:
     def _check_off_task(self, transcript: "Transcript") -> DriftDecision | None:
         if not self.expected_keys:
             return None
-        messages = transcript.assistant_messages
+        # Only the acting phase can be "off task"; a planner's prose is prose by
+        # construction and must not be mistaken for a wandering answer.
+        messages = [m for m in transcript.assistant_messages if m.phase == "act"]
         if len(messages) < 2:
             return None
         last_index = len(messages) - 1
