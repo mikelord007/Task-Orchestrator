@@ -528,6 +528,8 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
       model_strong: "claude-opus-5",
       model_cheap: "claude-haiku-4-5-20251001",
       orchestration: "single",
+      orchestration_reason:
+        "One call with tools is enough for this task; there is no separate planning phase worth the extra call.",
       routing: { extract: "cheap", classify: "cheap" },
       prompt:
         "# Role\n\nYou route one support ticket. Return {category, priority, needs_human}.\n\n# Method\n\nRead the whole ticket before deciding. The strongest signal is often in the\nlast sentence. Sarcasm is not priority; a stated deadline is.",
@@ -592,6 +594,10 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
     model_strong: "claude-opus-5",
     model_cheap: "claude-haiku-4-5-20251001",
     orchestration: v === 0 ? "single" : "planner_worker",
+    orchestration_reason:
+      v === 0
+        ? "One call with tools is enough for this task; there is no separate planning phase worth the extra call."
+        : "Splitting gathering from deciding lets a cheap model collect issue context while the strong model only reasons over it, cutting tool calls without changing pass@1 on labels or component.",
     routing: v === 0 ? { answer: "strong" } : { plan: "strong", gather: "cheap", answer: "strong" },
     prompt: v === 0 ? PROMPT_V0 : PROMPT_V3,
     tools: TOOLS_A,

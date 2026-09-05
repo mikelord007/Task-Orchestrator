@@ -148,6 +148,8 @@ export interface AgentDetail extends AgentSummary {
   model_strong: string;
   model_cheap: string;
   orchestration: Orchestration;
+  /** The architect's one-paragraph justification for the orchestration choice. Optional; null on older packages. */
+  orchestration_reason?: string | null;
   routing: Record<string, "strong" | "cheap">;
   prompt: string;
   tools: ToolRef[];

@@ -100,10 +100,19 @@ function AgentDetail() {
           <span className="flex flex-wrap items-baseline gap-3">
             {a.name}
             <span className="text-[12px] text-fg-mute">{a.domain}</span>
-            <Pill tone="quiet">{a.orchestration}</Pill>
+            <Pill tone="quiet" title={a.orchestration_reason ?? undefined}>
+              {a.orchestration}
+            </Pill>
           </span>
         }
-        subtitle={<span className="prose-h block">{a.goal}</span>}
+        subtitle={
+          <>
+            <span className="prose-h block">{a.goal}</span>
+            {a.orchestration_reason ? (
+              <span className="prose-h mt-1 block text-fg-mute">{a.orchestration_reason}</span>
+            ) : null}
+          </>
+        }
         right={
           <div className="flex flex-wrap items-start gap-6">
             <Stat label={`train pass@1 (v${a.current_version})`} rate={latestTrain} tone="train" />
