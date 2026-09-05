@@ -1,7 +1,7 @@
 """An empty ledger reports empty -- never a zero standing in for data.
 
-PLAN.md 2.4: no fabricated numbers anywhere; an empty ledger yields an honest
-empty state.
+PLAN.md 2.4 / PLAN_ADDENDUM.md sec 0: no fabricated numbers anywhere; an empty
+ledger yields an honest empty state.
 """
 
 from __future__ import annotations
@@ -11,15 +11,22 @@ from pathlib import Path
 
 from backend.ledger import metrics
 
+_EMPTY_PASS_STAT = {
+    "mean": None,
+    "std": None,
+    "min": None,
+    "max": None,
+    "trials": None,
+    "task_count": 0,
+}
 
-def test_pass_rate_is_null_not_zero(empty_ledger: sqlite3.Connection) -> None:
-    result = metrics.pass_rate(empty_ledger, "nobody", 0, "train")
-    assert result["mean"] is None
-    assert result["std"] is None
-    assert result["min"] is None
-    assert result["max"] is None
-    assert result["repeats"] is None
-    assert result["case_count"] == 0
+
+def test_pass_at_1_is_null_not_zero(empty_ledger: sqlite3.Connection) -> None:
+    assert metrics.pass_at_1(empty_ledger, "nobody", 0, "train") == _EMPTY_PASS_STAT
+
+
+def test_pass_pow_k_is_null_not_zero(empty_ledger: sqlite3.Connection) -> None:
+    assert metrics.pass_pow_k(empty_ledger, "nobody", 0, "train") == _EMPTY_PASS_STAT
 
 
 def test_scalar_metrics_are_null_or_empty(empty_ledger: sqlite3.Connection) -> None:
@@ -36,6 +43,9 @@ def test_scalar_metrics_are_null_or_empty(empty_ledger: sqlite3.Connection) -> N
     assert metrics.fix_cards(empty_ledger, "nobody") == []
     assert metrics.markers(empty_ledger, "nobody") == []
     assert metrics.rule_stats(empty_ledger, "nobody") == {}
+    assert metrics.graduated_count(empty_ledger, "nobody") == 0
+    assert metrics.saturated(empty_ledger, "nobody") is False
+    assert metrics.zero_pass_tasks(empty_ledger, "nobody") == []
 
 
 def test_drift_stats_are_empty(empty_ledger: sqlite3.Connection) -> None:
@@ -49,10 +59,33 @@ def test_drift_stats_are_empty(empty_ledger: sqlite3.Connection) -> None:
 
 def test_series_are_empty_lists(empty_ledger: sqlite3.Connection) -> None:
     assert metrics.series_by_version(empty_ledger, "nobody") == {
-        "pass_rate_by_version": [],
+        "pass_at_1_by_version": [],
+        "pass_pow_k_by_version": [],
         "cost_by_version": [],
         "latency_by_version": [],
     }
+
+
+def test_tool_call_stats_is_empty(
+    empty_ledger: sqlite3.Connection, tmp_path: Path
+) -> None:
+    assert metrics.tool_call_stats(empty_ledger, "nobody", 0, "train", tmp_path) == {
+        "tasks": {},
+        "aggregate": {
+            "calls": None,
+            "errors": None,
+            "redundant": None,
+            "tool_tokens": None,
+            "latency_ms": None,
+        },
+    }
+    assert metrics.tool_stats_by_version(empty_ledger, "nobody", tmp_path) == []
+
+
+def test_memory_by_version_is_empty(
+    empty_ledger: sqlite3.Connection, tmp_path: Path
+) -> None:
+    assert metrics.memory_by_version(empty_ledger, "nobody", tmp_path) == []
 
 
 def test_insights_is_a_complete_but_empty_payload(
@@ -60,12 +93,16 @@ def test_insights_is_a_complete_but_empty_payload(
 ) -> None:
     payload = metrics.insights(empty_ledger, "nobody", tmp_path)
     assert payload["current_version"] is None
-    assert payload["repeats"] is None
-    assert payload["pass_rate_by_version"] == []
-    assert payload["memory_growth_by_version"] == []
-    assert payload["tool_efficiency_by_version"] == []
+    assert payload["trials"] is None
+    assert payload["pass_at_1_by_version"] == []
+    assert payload["pass_pow_k_by_version"] == []
+    assert payload["memory_by_version"] == []
+    assert payload["tool_stats_by_version"] == []
     assert payload["drift"]["tokens_saved"] == 0
     assert payload["issues"] == {"open": 0, "closed": 0}
+    assert payload["graduated_count"] == 0
+    assert payload["saturated"] is False
+    assert payload["flagged_tasks"] == []
 
 
 def test_compare_is_null_on_both_sides(

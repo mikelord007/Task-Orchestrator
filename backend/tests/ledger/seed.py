@@ -4,25 +4,37 @@ The scenario is deliberately small enough that every number in
 ``backend/tests/ledger/test_metrics.py`` is hand-computed in the test, not
 recomputed by the code under test.
 
+Terminology follows PLAN_ADDENDUM.md sec J: a **task** is one evaluator case, a
+**trial** is one repeated execution of a task, the **grader** is ``score.py``.
+The ``case_result``/``drift_detected`` payload field is canonically ``trial``;
+``query.Event.trial()`` also accepts ``repeat`` as an alias for events written
+before the rename, but everything this fixture writes uses ``trial``.
+
 What it contains
-----------------
-* agent ``agent_demo`` (``github_triage``), versions 0 and 1, ``repeats = 3``
-* 4 train cases -- 2 stable passes, 1 flaky (2/3 at v0), 1 that only starts
-  passing at v1 -- and 2 holdout cases
+-----------------
+* agent ``agent_demo`` (``github_triage``), versions 0 and 1, ``trials = 3``
+* 4 train tasks -- 2 stable passes, 1 flaky (2/3 at v0), 1 that only starts
+  passing at v1 -- and 2 holdout tasks
 * drift: a budget abort, two loop nudges (one of which recovers), a step-limit
   abort at v1
-* one accepted fix (lever ``memory``, 0 -> 1) and one rejected fix (lever
-  ``prompt``, 1 -> 2, rejected for regression), each with a diff file on disk
+* one accepted fix (lever ``memory``, 0 -> 1, carrying a ``metric_signal``) and
+  one rejected fix (lever ``prompt``, 1 -> 2, rejected for regression), each
+  with a diff file on disk
 * ``memory_written`` / ``memory_demoted`` events plus the matching
-  ``agents/<id>/v<N>/memory/rules.jsonl`` snapshots
+  ``agents/<id>/v<N>/memory/rules.jsonl`` snapshots (rules carry ``demoted``)
 * ``rules_injected`` on the v1 case results
+* ``task_graduated`` for c1/c2 at v0 and c3 at v1 (the version each first
+  became stably passing)
+* per-execution tool-call detail on every transcript (redundant calls + tool-
+  response tokens at v0, none at v1) so ``tool_call_stats`` has something to
+  compute
 * one auto issue (open) and one human issue (fixed), two lessons
 * a second agent ``agent_b`` (``ticket_triage``) so ``/insights/compare`` has
   more than one domain to group
 
 The demotion of ``r3`` carries the hits/misses this fixture's own case results
 produce (1 hit, 2 misses); the "at least 4 uses" threshold is the runtime's
-policy (PLAN.md 0.2), not something the ledger enforces.
+policy (PLAN_ADDENDUM.md sec E), not something the ledger enforces.
 """
 
 from __future__ import annotations
@@ -33,8 +45,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# PLAN.md 4.1 / 4.2 verbatim. Phase 0's ``backend/db.py`` owns the real
-# migrations; this mirrors them so the metrics tests can run standalone.
+# PLAN_ADDENDUM.md sec A / sec E verbatim. Phase 0's ``backend/db.py`` owns the
+# real migrations; this mirrors them so the metrics tests can run standalone.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id            INTEGER PRIMARY KEY,
@@ -71,12 +83,12 @@ CREATE TABLE IF NOT EXISTS issues (
 AGENT_ID = "agent_demo"
 AGENT_B_ID = "agent_b"
 EVALUATOR_ID = "github_triage"
-REPEATS = 3
+TRIALS = 3
 
-TRAIN_CASES = ["c1", "c2", "c3", "c4"]
-HOLDOUT_CASES = ["h1", "h2"]
+TRAIN_TASKS = ["c1", "c2", "c3", "c4"]
+HOLDOUT_TASKS = ["h1", "h2"]
 
-# case_id -> passed per repeat index.
+# task_id -> passed per trial index.
 V0_TRAIN = {
     "c1": [True, True, True],
     "c2": [True, True, True],
@@ -92,7 +104,7 @@ V1_TRAIN = {
 V0_HOLDOUT = {"h1": [True, True, True], "h2": [False, False, False]}
 V1_HOLDOUT = {"h1": [True, True, True], "h2": [True, False, True]}
 
-# Rules the runtime injected, per version and case.
+# Rules the runtime injected, per version and task.
 V1_RULES = {"c1": ["r1", "r2"], "c2": ["r1", "r2"], "c3": ["r1", "r2"], "c4": ["r3"]}
 V1_HOLDOUT_RULES = {"h1": ["r1"], "h2": ["r1"]}
 
@@ -124,7 +136,7 @@ class SeededLedger:
     agent_id: str = AGENT_ID
     agent_b_id: str = AGENT_B_ID
     evaluator_id: str = EVALUATOR_ID
-    repeats: int = REPEATS
+    trials: int = TRIALS
     run_ids: dict[str, str] = field(default_factory=dict)
 
 
@@ -166,14 +178,16 @@ def _write_json(path: Path, data: Any) -> None:
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(r) + "\n" for r in records),
-        encoding="utf-8",
-    )
+    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
 
 
-def _final_output(case_id: str, version: int, passed: bool) -> dict[str, Any]:
-    """What the harness recorded the agent answering. c4 is the demo case."""
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _final_output(case_id: str, passed: bool) -> dict[str, Any]:
+    """What the harness recorded the agent answering. c4 is the demo task."""
     if case_id == "c4":
         if passed:
             return {"labels": ["bug", "windows"], "component": "pty"}
@@ -181,6 +195,38 @@ def _final_output(case_id: str, version: int, passed: bool) -> dict[str, Any]:
     if passed:
         return {"labels": ["bug"], "component": "core"}
     return {"labels": [], "component": None}
+
+
+def _tool_call_records(
+    count: int, errors: int, redundant: int, tokens_in: int
+) -> list[dict[str, Any]]:
+    """Synthetic per-call detail: ``redundant`` calls repeat the first call's args.
+
+    Matches the shape :func:`backend.ledger.metrics._transcript_tool_calls`
+    expects: ``{tool, args, error, tokens_in}`` per call.
+    """
+    unique = max(count - redundant, 0)
+    calls = [
+        {
+            "tool": "list_issues",
+            "args": {"page": i},
+            "error": False,
+            "tokens_in": tokens_in,
+        }
+        for i in range(unique)
+    ]
+    calls += [
+        {
+            "tool": "list_issues",
+            "args": {"page": 0},
+            "error": False,
+            "tokens_in": tokens_in,
+        }
+        for _ in range(count - unique)
+    ]
+    for i in range(errors):
+        calls[-(i + 1)]["error"] = True
+    return calls
 
 
 def _emit_run(
@@ -200,12 +246,14 @@ def _emit_run(
     tokens_out: int,
     tool_calls: int,
     tool_errors: int,
+    redundant_tool_calls: int = 0,
+    tool_tokens_per_call: int = 0,
     rules: dict[str, list[str]] | None = None,
     drift: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> None:
-    """Emit run_started, one case_result per (case, repeat), and run_finished."""
-    case_ids = list(patterns)
-    repeats = len(next(iter(patterns.values())))
+    """Emit run_started, one case_result per (task, trial), and run_finished."""
+    task_ids = list(patterns)
+    trials = len(next(iter(patterns.values())))
     drift = drift or {}
     rules = rules or {}
 
@@ -217,20 +265,20 @@ def _emit_run(
         agent_version=version,
         run_id=run_id,
         split=split,
-        case_count=len(case_ids),
-        repeats=repeats,
+        case_count=len(task_ids),
+        trials=trials,
     )
 
     index = 0
     drift_ids: dict[tuple[str, int], int] = {}
     total_cost = 0.0
     latencies: list[float] = []
-    for repeat in range(repeats):
-        for case_id in case_ids:
+    for trial in range(trials):
+        for case_id in task_ids:
             latency = latency_base + latency_step * index
             index += 1
-            passed = patterns[case_id][repeat]
-            spec = drift.get((case_id, repeat))
+            passed = patterns[case_id][trial]
+            spec = drift.get((case_id, trial))
 
             if spec is not None:
                 _insert(
@@ -241,37 +289,40 @@ def _emit_run(
                     agent_version=version,
                     run_id=run_id,
                     case_id=case_id,
-                    repeat=repeat,
+                    trial=trial,
                     step=spec.get("step", 7),
                     kind=spec["kind"],
                     evidence=spec.get("evidence", "observed by the harness"),
                     action=spec["action"],
                     tokens_at_detection=spec["tokens_at_detection"],
                 )
-                drift_ids[(case_id, repeat)] = int(
+                drift_ids[(case_id, trial)] = int(
                     conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 )
 
-            transcript_rel = f"runs/{run_id}/{case_id}.r{repeat}.json"
+            transcript_rel = f"runs/{run_id}/{case_id}.t{trial}.json"
             _write_json(
                 root / transcript_rel,
                 {
                     "run_id": run_id,
                     "case_id": case_id,
-                    "repeat": repeat,
+                    "trial": trial,
                     "agent_id": agent_id,
                     "version": version,
-                    "steps": [
-                        {"role": "assistant", "tool_calls": tool_calls},
-                    ],
-                    "final_output": _final_output(case_id, version, passed),
+                    "tool_calls": _tool_call_records(
+                        tool_calls,
+                        tool_errors,
+                        redundant_tool_calls,
+                        tool_tokens_per_call,
+                    ),
+                    "final_output": _final_output(case_id, passed),
                     "usage": {"tokens_in": tokens_in, "tokens_out": tokens_out},
                 },
             )
 
             payload: dict[str, Any] = {
                 "case_id": case_id,
-                "repeat": repeat,
+                "trial": trial,
                 "passed": passed,
                 "score": 1.0 if passed else 0.0,
                 "tokens_in": tokens_in,
@@ -286,7 +337,7 @@ def _emit_run(
             }
             if spec is not None and spec["action"] == "abort":
                 payload["failure_signature"] = f"drift:{spec['kind']}"
-                payload["drift_event_id"] = drift_ids[(case_id, repeat)]
+                payload["drift_event_id"] = drift_ids[(case_id, trial)]
             elif not passed:
                 payload["failure_signature"] = "wrong_component"
 
@@ -302,14 +353,16 @@ def _emit_run(
             total_cost += cost_usd
             latencies.append(latency)
 
-    per_case = [sum(flags) / len(flags) for flags in patterns.values()]
-    per_repeat = [
-        sum(patterns[c][r] for c in case_ids) / len(case_ids) for r in range(repeats)
+    per_task = [sum(flags) / len(flags) for flags in patterns.values()]
+    per_trial = [
+        sum(patterns[c][t] for c in task_ids) / len(task_ids) for t in range(trials)
     ]
-    mean = sum(per_case) / len(per_case)
-    variance = sum(
-        (v - sum(per_repeat) / len(per_repeat)) ** 2 for v in per_repeat
-    ) / len(per_repeat)
+    stable = sum(1 for flags in patterns.values() if all(flags))
+    pass_at_1_mean = sum(per_task) / len(per_task)
+    pass_pow_k_mean = stable / len(task_ids)
+    variance = sum((v - sum(per_trial) / len(per_trial)) ** 2 for v in per_trial) / len(
+        per_trial
+    )
     aborts = [s for s in drift.values() if s["action"] == "abort"]
 
     _insert(
@@ -320,11 +373,12 @@ def _emit_run(
         agent_version=version,
         run_id=run_id,
         split=split,
-        repeats=repeats,
-        pass_rate_mean=mean,
+        trials=trials,
+        pass_at_1=pass_at_1_mean,
+        pass_pow_k=pass_pow_k_mean,
         pass_rate_std=variance**0.5,
-        pass_rate_min=min(per_repeat),
-        pass_rate_max=max(per_repeat),
+        pass_rate_min=min(per_trial),
+        pass_rate_max=max(per_trial),
         total_cost_usd=total_cost,
         p50_latency_ms=sorted(latencies)[len(latencies) // 2],
         p95_latency_ms=max(latencies),
@@ -333,6 +387,19 @@ def _emit_run(
             max(0, DRIFT_TOKEN_BUDGET - s["tokens_at_detection"]) for s in aborts
         ),
     )
+
+    if split == "train":
+        for case_id, flags in patterns.items():
+            if all(flags):
+                _insert(
+                    conn,
+                    "task_graduated",
+                    clock.next(),
+                    agent_id=agent_id,
+                    agent_version=version,
+                    case_id=case_id,
+                    version=version,
+                )
 
 
 def build(
@@ -376,6 +443,7 @@ def build(
                 "split": "train",
                 "input": {"issue": 101},
                 "expected": {"labels": ["bug"], "component": "core"},
+                "reference_output": {"labels": ["bug"], "component": "core"},
                 "tags": ["easy"],
             },
             {
@@ -383,6 +451,7 @@ def build(
                 "split": "train",
                 "input": {"issue": 102},
                 "expected": {"labels": ["bug"], "component": "core"},
+                "reference_output": {"labels": ["bug"], "component": "core"},
                 "tags": ["easy"],
             },
             {
@@ -390,6 +459,7 @@ def build(
                 "split": "train",
                 "input": {"issue": 103},
                 "expected": {"labels": ["bug"], "component": "core"},
+                "reference_output": {"labels": ["bug"], "component": "core"},
                 "tags": ["duplicate"],
             },
             {
@@ -397,6 +467,7 @@ def build(
                 "split": "train",
                 "input": {"issue": 104},
                 "expected": {"labels": ["bug", "windows"], "component": "pty"},
+                "reference_output": {"labels": ["bug", "windows"], "component": "pty"},
                 "tags": ["windows"],
             },
             {
@@ -404,6 +475,7 @@ def build(
                 "split": "holdout",
                 "input": {"issue": 201},
                 "expected": {"labels": ["bug"], "component": "core"},
+                "reference_output": {"labels": ["bug"], "component": "core"},
                 "tags": ["easy"],
             },
             {
@@ -411,6 +483,7 @@ def build(
                 "split": "holdout",
                 "input": {"issue": 202},
                 "expected": {"labels": ["bug"], "component": "core"},
+                "reference_output": {"labels": ["bug"], "component": "core"},
                 "tags": ["windows"],
             },
         ],
@@ -424,13 +497,18 @@ def build(
         agent_version=0,
         goal="Triage open issues on Untrivial-ai/agent-orchestrator",
         domain="github_triage",
-        tools=["list_issues", "get_issue", "list_labels"],
+        tools=[
+            "github_get_issue_context",
+            "github_search_similar_issues",
+            "github_get_label_taxonomy",
+            "github_find_component_owners",
+        ],
         evaluator_id=EVALUATOR_ID,
         orchestration="single",
         applied_lessons=[],
     )
 
-    # v0: empty memory, 9 tool calls per case, no rules injected.
+    # v0: empty memory, 9 tool calls per task-execution (2 redundant, 1 error).
     _emit_run(
         conn,
         clock,
@@ -447,6 +525,8 @@ def build(
         tokens_out=200,
         tool_calls=9,
         tool_errors=1,
+        redundant_tool_calls=2,
+        tool_tokens_per_call=50,
         drift={
             ("c3", 1): {
                 "kind": "loop",
@@ -484,6 +564,8 @@ def build(
         tokens_out=200,
         tool_calls=9,
         tool_errors=1,
+        redundant_tool_calls=2,
+        tool_tokens_per_call=50,
     )
 
     # An auto issue for the group the memory fix targets, and a human one.
@@ -568,6 +650,7 @@ def build(
         diff_path="agents/agent_demo/v1/CHANGES.diff",
         diff_summary="+3 rules, +1 tool note",
         files_touched=["memory/rules.jsonl", "memory/tool_notes.jsonl"],
+        metric_signal="tool_calls_per_task fell from 9 to 4 once path-to-component rules were injected",
     )
     for entry_id, note, confidence in (
         ("r1", "Windows/ConPTY reports get label windows", 0.9),
@@ -599,12 +682,9 @@ def build(
         source="reflection",
         evidence_case_ids=["c3"],
         version=1,
-        note="list_issues paginates at 100; pass state=all when hunting duplicates",
+        note="github_search_similar_issues: pass state=all when hunting duplicates",
     )
-    _write_jsonl(
-        root / "agents" / AGENT_ID / "v0" / "memory" / "rules.jsonl",
-        [],
-    )
+    _write_jsonl(root / "agents" / AGENT_ID / "v0" / "memory" / "rules.jsonl", [])
     _write_jsonl(
         root / "agents" / AGENT_ID / "v1" / "memory" / "rules.jsonl",
         [
@@ -618,6 +698,7 @@ def build(
                 "misses": 1,
                 "created_version": 1,
                 "source": "reflection",
+                "demoted": False,
             },
             {
                 "id": "r2",
@@ -629,6 +710,7 @@ def build(
                 "misses": 0,
                 "created_version": 1,
                 "source": "reflection",
+                "demoted": False,
             },
             {
                 "id": "r3",
@@ -640,7 +722,18 @@ def build(
                 "misses": 2,
                 "created_version": 1,
                 "source": "reflection",
+                "demoted": True,
             },
+        ],
+    )
+    _write_jsonl(
+        root / "agents" / AGENT_ID / "v1" / "memory" / "episodes.jsonl",
+        [
+            {
+                "version": 1,
+                "run_id": "run_v0_train",
+                "one_line_reflection": "c4 keeps landing on component=core; nothing maps pty paths.",
+            }
         ],
     )
 
@@ -652,16 +745,21 @@ def build(
         agent_version=1,
         lever="memory",
         to_version=1,
-        train_pass_rate_before={"mean": 2 / 3, "std": 0.11785113019775793},
-        train_pass_rate_after={"mean": 5 / 6, "std": 0.11785113019775793},
+        pass_at_1_before=2 / 3,
+        pass_at_1_after=5 / 6,
+        pass_pow_k_before=0.5,
+        pass_pow_k_after=0.75,
         group_pass_before=0.0,
         group_pass_after=1 / 3,
-        holdout_pass_rate_after={"mean": 5 / 6, "std": 0.23570226039551587},
+        holdout_pass_at_1_after=5 / 6,
+        holdout_pass_pow_k_after=0.5,
         cost_per_run_before=0.12,
         cost_per_run_after=0.06,
+        tool_calls_per_task_before=9,
+        tool_calls_per_task_after=4,
     )
 
-    # v1: memory in play, 4 tool calls per case, rules injected.
+    # v1: memory in play, 4 tool calls per task-execution, rules injected, no redundancy.
     _emit_run(
         conn,
         clock,
@@ -678,6 +776,8 @@ def build(
         tokens_out=100,
         tool_calls=4,
         tool_errors=0,
+        redundant_tool_calls=0,
+        tool_tokens_per_call=60,
         rules=V1_RULES,
         drift={
             ("c4", 1): {
@@ -704,6 +804,8 @@ def build(
         tokens_out=100,
         tool_calls=4,
         tool_errors=0,
+        redundant_tool_calls=0,
+        tool_tokens_per_call=60,
         rules=V1_HOLDOUT_RULES,
     )
 
@@ -757,7 +859,7 @@ def build(
         to_version=2,
         reason="regression",
         regressed_case_ids=["c2"],
-        train_pass_rate_candidate={"mean": 0.75, "std": 0.0},
+        candidate_pass_at_1=0.75,
     )
 
     for lesson_id, lever, lesson in (
@@ -808,6 +910,8 @@ def build(
         tokens_out=300,
         tool_calls=6,
         tool_errors=0,
+        redundant_tool_calls=0,
+        tool_tokens_per_call=70,
     )
 
     if ablation:
@@ -833,8 +937,3 @@ def build(
             "b_v0_train": "run_b_v0_train",
         },
     )
-
-
-def _write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")

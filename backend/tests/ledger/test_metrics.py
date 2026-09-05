@@ -1,87 +1,125 @@
 """Metrics over the seeded ledger.
 
 Every expected value here is hand-computed from the fixture in ``seed.py`` --
-none of it is produced by calling the code under test.
+none of it is produced by calling the code under test. Terminology follows
+PLAN_ADDENDUM.md sec J: task/trial/grader.
 """
 
 from __future__ import annotations
 
 import math
+import sqlite3
 
 import pytest
 
 from backend.ledger import metrics
-from backend.tests.ledger.seed import AGENT_ID, SeededLedger
+from backend.tests.ledger.seed import AGENT_ID, SeededLedger, create_schema
 
-# Population std of the v0 and v1 train per-repeat rates.
+# Population std of the v0 and v1 train per-trial rates.
 # v0: [0.75, 0.50, 0.75] -> sqrt(1/72);  v1: [1.00, 0.75, 0.75] -> sqrt(1/72)
 STD_1_72 = math.sqrt(1 / 72)  # 0.11785113019775793
-# v1 holdout per-repeat rates [1.0, 0.5, 1.0] -> sqrt(1/18)
+# v1 holdout per-trial rates [1.0, 0.5, 1.0] -> sqrt(1/18)
 STD_1_18 = math.sqrt(1 / 18)  # 0.23570226039551584
 
 
-# ---------------------------------------------------------------- pass rate
+# ---------------------------------------------------------------- pass@1
 
 
-def test_pass_rate_v0_train_matches_hand_computation(seeded: SeededLedger) -> None:
-    # c1 1, c2 1, c3 2/3, c4 0 -> mean 2/3; per-repeat [0.75, 0.50, 0.75]
-    result = metrics.pass_rate(seeded.conn, AGENT_ID, 0, "train")
+def test_pass_at_1_v0_train_matches_hand_computation(seeded: SeededLedger) -> None:
+    # c1 1, c2 1, c3 2/3, c4 0 -> mean 2/3; per-trial [0.75, 0.50, 0.75]
+    result = metrics.pass_at_1(seeded.conn, AGENT_ID, 0, "train")
     assert result["mean"] == pytest.approx(2 / 3)
     assert result["std"] == pytest.approx(STD_1_72)
     assert result["min"] == pytest.approx(0.5)
     assert result["max"] == pytest.approx(0.75)
-    assert result["repeats"] == 3
-    assert result["case_count"] == 4
+    assert result["trials"] == 3
+    assert result["task_count"] == 4
 
 
-def test_pass_rate_v1_train_improves_on_v0(seeded: SeededLedger) -> None:
-    # c1 1, c2 1, c3 1, c4 1/3 -> mean 5/6; per-repeat [1.0, 0.75, 0.75]
-    result = metrics.pass_rate(seeded.conn, AGENT_ID, 1, "train")
+def test_pass_at_1_v1_train_improves_on_v0(seeded: SeededLedger) -> None:
+    # c1 1, c2 1, c3 1, c4 1/3 -> mean 5/6; per-trial [1.0, 0.75, 0.75]
+    result = metrics.pass_at_1(seeded.conn, AGENT_ID, 1, "train")
     assert result["mean"] == pytest.approx(5 / 6)
     assert result["std"] == pytest.approx(STD_1_72)
     assert result["min"] == pytest.approx(0.75)
     assert result["max"] == pytest.approx(1.0)
 
 
-def test_pass_rate_holdout_has_zero_spread_at_v0(seeded: SeededLedger) -> None:
-    # h1 always passes, h2 never does: every repeat scores exactly 0.5.
-    result = metrics.pass_rate(seeded.conn, AGENT_ID, 0, "holdout")
+def test_pass_at_1_holdout_has_zero_spread_at_v0(seeded: SeededLedger) -> None:
+    # h1 always passes, h2 never does: every trial scores exactly 0.5.
+    result = metrics.pass_at_1(seeded.conn, AGENT_ID, 0, "holdout")
     assert result["mean"] == pytest.approx(0.5)
     assert result["std"] == pytest.approx(0.0)
     assert result["min"] == pytest.approx(0.5)
     assert result["max"] == pytest.approx(0.5)
-    assert result["case_count"] == 2
+    assert result["task_count"] == 2
 
 
-def test_pass_rate_holdout_v1(seeded: SeededLedger) -> None:
-    result = metrics.pass_rate(seeded.conn, AGENT_ID, 1, "holdout")
+def test_pass_at_1_holdout_v1(seeded: SeededLedger) -> None:
+    result = metrics.pass_at_1(seeded.conn, AGENT_ID, 1, "holdout")
     assert result["mean"] == pytest.approx(5 / 6)
     assert result["std"] == pytest.approx(STD_1_18)
     assert result["min"] == pytest.approx(0.5)
     assert result["max"] == pytest.approx(1.0)
 
 
-def test_pass_rate_for_a_version_that_never_ran_is_null(seeded: SeededLedger) -> None:
-    result = metrics.pass_rate(seeded.conn, AGENT_ID, 2, "train")
+def test_pass_at_1_for_a_version_that_never_ran_is_null(seeded: SeededLedger) -> None:
+    result = metrics.pass_at_1(seeded.conn, AGENT_ID, 5, "train")
     assert result == {
         "mean": None,
         "std": None,
         "min": None,
         "max": None,
-        "repeats": None,
-        "case_count": 0,
+        "trials": None,
+        "task_count": 0,
     }
+
+
+# ---------------------------------------------------------------- pass^k
+
+
+def test_pass_pow_k_shares_the_std_min_max_of_pass_at_1(seeded: SeededLedger) -> None:
+    """pass^k differs from pass@1 only in what `mean` measures."""
+    at_1 = metrics.pass_at_1(seeded.conn, AGENT_ID, 0, "train")
+    pow_k = metrics.pass_pow_k(seeded.conn, AGENT_ID, 0, "train")
+    assert pow_k["std"] == pytest.approx(at_1["std"])
+    assert pow_k["min"] == pytest.approx(at_1["min"])
+    assert pow_k["max"] == pytest.approx(at_1["max"])
+    assert pow_k["trials"] == at_1["trials"]
+    assert pow_k["task_count"] == at_1["task_count"]
+
+
+def test_pass_pow_k_v0_train_is_the_stable_fraction(seeded: SeededLedger) -> None:
+    # c1, c2 stable (2 of 4 tasks) -> 0.5
+    result = metrics.pass_pow_k(seeded.conn, AGENT_ID, 0, "train")
+    assert result["mean"] == pytest.approx(0.5)
+
+
+def test_pass_pow_k_v1_train_grows_as_c3_stabilizes(seeded: SeededLedger) -> None:
+    # c1, c2, c3 stable (3 of 4 tasks) -> 0.75
+    result = metrics.pass_pow_k(seeded.conn, AGENT_ID, 1, "train")
+    assert result["mean"] == pytest.approx(0.75)
+
+
+def test_pass_pow_k_holdout(seeded: SeededLedger) -> None:
+    # v0: only h1 stable -> 0.5.  v1: only h1 stable (h2 flakes) -> 0.5.
+    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 0, "holdout")[
+        "mean"
+    ] == pytest.approx(0.5)
+    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 1, "holdout")[
+        "mean"
+    ] == pytest.approx(0.5)
 
 
 # ------------------------------------------------------------- stable set
 
 
-def test_stable_pass_set_excludes_the_flaky_case(seeded: SeededLedger) -> None:
-    # c3 passes 2 of 3 repeats at v0, so the gate must not protect it.
+def test_stable_pass_set_excludes_the_flaky_task(seeded: SeededLedger) -> None:
+    # c3 passes 2 of 3 trials at v0, so the gate must not protect it.
     assert metrics.stable_pass_set(seeded.conn, AGENT_ID, 0) == {"c1", "c2"}
 
 
-def test_stable_pass_set_grows_once_the_flaky_case_settles(
+def test_stable_pass_set_grows_once_the_flaky_task_settles(
     seeded: SeededLedger,
 ) -> None:
     assert metrics.stable_pass_set(seeded.conn, AGENT_ID, 1) == {"c1", "c2", "c3"}
@@ -91,7 +129,7 @@ def test_stable_pass_set_grows_once_the_flaky_case_settles(
 
 
 def test_cost_per_run_is_the_whole_run(seeded: SeededLedger) -> None:
-    # 4 cases x 3 repeats x $0.01 at v0, x $0.005 at v1.
+    # 4 tasks x 3 trials x $0.01 at v0, x $0.005 at v1.
     assert metrics.cost_per_run(seeded.conn, AGENT_ID, 0, "train") == pytest.approx(
         0.12
     )
@@ -123,7 +161,7 @@ def test_drift_stats(seeded: SeededLedger) -> None:
     assert stats["count_by_kind"] == {"loop": 2, "budget": 1, "step_limit": 1}
     # aborts only: (20000 - 15000) + (20000 - 18000)
     assert stats["tokens_saved"] == 7000
-    # c3 was nudged twice; it passed on repeat 2 and failed on repeat 1.
+    # c3 was nudged twice; it passed on trial 2 and failed on trial 1.
     assert stats["cases_recovered_by_nudge"] == 1
     assert stats["count_by_version"] == {"0": 3, "1": 1}
 
@@ -162,16 +200,25 @@ def test_series_by_version_has_one_row_per_version_and_split(
     seeded: SeededLedger,
 ) -> None:
     series = metrics.series_by_version(seeded.conn, AGENT_ID)
-    keys = [(r["version"], r["split"]) for r in series["pass_rate_by_version"]]
-    assert keys == [(0, "train"), (0, "holdout"), (1, "train"), (1, "holdout")]
+    expected_keys = [(0, "train"), (0, "holdout"), (1, "train"), (1, "holdout")]
+    assert [
+        (r["version"], r["split"]) for r in series["pass_at_1_by_version"]
+    ] == expected_keys
+    assert [
+        (r["version"], r["split"]) for r in series["pass_pow_k_by_version"]
+    ] == expected_keys
 
-    by_key = {(r["version"], r["split"]): r for r in series["pass_rate_by_version"]}
-    assert by_key[(0, "train")]["mean"] == pytest.approx(2 / 3)
-    assert by_key[(1, "holdout")]["mean"] == pytest.approx(5 / 6)
+    at_1 = {(r["version"], r["split"]): r for r in series["pass_at_1_by_version"]}
+    assert at_1[(0, "train")]["mean"] == pytest.approx(2 / 3)
+    assert at_1[(1, "holdout")]["mean"] == pytest.approx(5 / 6)
+
+    pow_k = {(r["version"], r["split"]): r for r in series["pass_pow_k_by_version"]}
+    assert pow_k[(0, "train")]["mean"] == pytest.approx(0.5)
+    assert pow_k[(1, "train")]["mean"] == pytest.approx(0.75)
 
     costs = {(r["version"], r["split"]): r for r in series["cost_by_version"]}
     assert costs[(0, "train")]["cost_per_run"] == pytest.approx(0.12)
-    assert costs[(0, "train")]["cost_per_case"] == pytest.approx(0.03)
+    assert costs[(0, "train")]["cost_per_task"] == pytest.approx(0.03)
     assert costs[(1, "train")]["cost_per_run"] == pytest.approx(0.06)
 
     latencies = {(r["version"], r["split"]): r for r in series["latency_by_version"]}
@@ -181,7 +228,7 @@ def test_series_by_version_has_one_row_per_version_and_split(
 def test_series_skips_versions_with_no_finished_run(seeded: SeededLedger) -> None:
     # v2 was proposed and rejected; it never produced a finished run.
     series = metrics.series_by_version(seeded.conn, AGENT_ID)
-    assert all(r["version"] != 2 for r in series["pass_rate_by_version"])
+    assert all(r["version"] != 2 for r in series["pass_at_1_by_version"])
 
 
 # ----------------------------------------------------------------- markers
@@ -201,10 +248,12 @@ def test_markers_cover_every_annotation_kind(seeded: SeededLedger) -> None:
     assert accepted["lever"] == "memory"
     assert accepted["hypothesis"].startswith("The agent never learned")
     assert accepted["diagnosis"]
+    assert accepted["metric_signal"].startswith("tool_calls_per_task fell")
 
     rejected = next(m for m in found if m["kind"] == "fix_rejected")
     assert rejected["reason"] == "regression"
     assert rejected["lever"] == "prompt"
+    assert rejected["metric_signal"] is None
 
     clusters = {m["version"]: m for m in found if m["kind"] == "drift_cluster"}
     assert clusters[0]["count"] == 3
@@ -218,23 +267,131 @@ def test_markers_are_ordered_by_timestamp(seeded: SeededLedger) -> None:
     assert timestamps == sorted(timestamps)
 
 
-# ----------------------------------------------- rules, memory, efficiency
+# --------------------------------------------------- graduation, saturation
 
 
-def test_rule_stats_credits_hits_and_misses_from_scored_results(
+def test_graduated_count_is_distinct_tasks_ever_stabilized(
+    seeded: SeededLedger,
+) -> None:
+    # c1, c2 stable from v0; c3 joins at v1; c4 never stabilizes.
+    assert metrics.graduated_count(seeded.conn, AGENT_ID) == 3
+
+
+def test_saturated_is_false_below_threshold(seeded: SeededLedger) -> None:
+    # train pass@1 is 2/3 then 5/6 -- neither run clears 0.95.
+    assert metrics.saturated(seeded.conn, AGENT_ID) is False
+
+
+def test_saturated_needs_two_finished_train_runs() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        assert metrics.saturated(conn, "nobody") is False
+    finally:
+        conn.close()
+
+
+def test_saturated_is_true_after_two_high_scoring_train_runs() -> None:
+    """A dedicated tiny ledger: two consecutive train runs at >= 0.95 pass@1."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        for version in (0, 1):
+            _insert_high_scoring_train_run(conn, version)
+        assert metrics.saturated(conn, "sat_agent") is True
+    finally:
+        conn.close()
+
+
+def test_zero_pass_tasks_needs_three_finished_train_runs(seeded: SeededLedger) -> None:
+    # Only v0 and v1 have finished train runs in the main fixture.
+    assert metrics.zero_pass_tasks(seeded.conn, AGENT_ID) == []
+
+
+def test_zero_pass_tasks_flags_a_task_stuck_at_zero_for_three_versions() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        for version in range(3):
+            _insert_train_run_with_a_dead_task(conn, version)
+        assert metrics.zero_pass_tasks(conn, "flag_agent") == ["dead"]
+    finally:
+        conn.close()
+
+
+def _insert_high_scoring_train_run(conn: sqlite3.Connection, version: int) -> None:
+    """Two tasks, both passing every trial -- pass@1 = 1.0 >= 0.95."""
+    run_id = f"run_v{version}"
+    ts = f"2026-09-06T1{version}:00:00Z"
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        "(?, 'run_started', 'sat_agent', ?, ?, ?)",
+        (ts, version, run_id, '{"split": "train", "trials": 2, "case_count": 2}'),
+    )
+    for task_id in ("t1", "t2"):
+        for trial in (0, 1):
+            conn.execute(
+                "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) "
+                "VALUES (?, 'case_result', 'sat_agent', ?, ?, ?)",
+                (
+                    ts,
+                    version,
+                    run_id,
+                    f'{{"case_id": "{task_id}", "trial": {trial}, "passed": true}}',
+                ),
+            )
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        "(?, 'run_finished', 'sat_agent', ?, ?, '{\"split\": \"train\"}')",
+        (ts, version, run_id),
+    )
+    conn.commit()
+
+
+def _insert_train_run_with_a_dead_task(conn: sqlite3.Connection, version: int) -> None:
+    """A live task that always passes, and 'dead' which never does."""
+    run_id = f"run_v{version}"
+    ts = f"2026-09-06T1{version}:00:00Z"
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        "(?, 'run_started', 'flag_agent', ?, ?, '{\"split\": \"train\", \"trials\": 1}')",
+        (ts, version, run_id),
+    )
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        '(?, \'case_result\', \'flag_agent\', ?, ?, \'{"case_id": "live", "trial": 0, "passed": true}\')',
+        (ts, version, run_id),
+    )
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        '(?, \'case_result\', \'flag_agent\', ?, ?, \'{"case_id": "dead", "trial": 0, "passed": false}\')',
+        (ts, version, run_id),
+    )
+    conn.execute(
+        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+        "(?, 'run_finished', 'flag_agent', ?, ?, '{\"split\": \"train\"}')",
+        (ts, version, run_id),
+    )
+    conn.commit()
+
+
+# ----------------------------------------------------- memory and tool use
+
+
+def test_rule_stats_credits_hits_and_misses_from_graded_results(
     seeded: SeededLedger,
 ) -> None:
     stats = metrics.rule_stats(seeded.conn, AGENT_ID)
     # r1: 9 v1-train passes + h1's 3 passes + h2's 2 passes / 1 fail
     assert stats["r1"] == {"hits": 14, "misses": 1, "uses": 15}
-    # r2: injected on the three cases that always pass at v1
+    # r2: injected on the three tasks that always pass at v1
     assert stats["r2"] == {"hits": 9, "misses": 0, "uses": 9}
     # r3: injected only on c4, which passes 1 of 3 at v1 -- this is why it is demoted
     assert stats["r3"] == {"hits": 1, "misses": 2, "uses": 3}
 
 
-def test_memory_growth_by_version(seeded: SeededLedger) -> None:
-    growth = metrics.memory_growth_by_version(seeded.conn, AGENT_ID, seeded.root)
+def test_memory_by_version(seeded: SeededLedger) -> None:
+    growth = metrics.memory_by_version(seeded.conn, AGENT_ID, seeded.root)
     assert [row["version"] for row in growth] == [0, 1, 2]
 
     assert growth[0]["rules"] == 0
@@ -255,22 +412,73 @@ def test_memory_growth_by_version(seeded: SeededLedger) -> None:
     assert growth[2]["mean_confidence"] is None
 
 
-def test_tool_efficiency_falls_between_versions(seeded: SeededLedger) -> None:
-    rows = metrics.tool_efficiency_by_version(seeded.conn, AGENT_ID)
+def test_tool_call_stats_reads_transcript_detail(seeded: SeededLedger) -> None:
+    stats = metrics.tool_call_stats(seeded.conn, AGENT_ID, 0, "train", seeded.root)
+    assert stats["aggregate"] == {
+        "calls": pytest.approx(9.0),
+        "errors": pytest.approx(1.0),
+        "redundant": pytest.approx(2.0),
+        "tool_tokens": pytest.approx(450.0),
+        "latency_ms": pytest.approx(1550.0),
+    }
+    # c4 runs at trial-indices 3, 7, 11 -> latencies 1300, 1700, 2100.
+    assert stats["tasks"]["c4"]["calls"] == pytest.approx(9.0)
+    assert stats["tasks"]["c4"]["latency_ms"] == pytest.approx(1700.0)
+
+
+def test_tool_call_stats_v1_has_no_redundancy(seeded: SeededLedger) -> None:
+    stats = metrics.tool_call_stats(seeded.conn, AGENT_ID, 1, "train", seeded.root)
+    assert stats["aggregate"]["calls"] == pytest.approx(4.0)
+    assert stats["aggregate"]["errors"] == pytest.approx(0.0)
+    assert stats["aggregate"]["redundant"] == pytest.approx(0.0)
+    assert stats["aggregate"]["tool_tokens"] == pytest.approx(240.0)
+
+
+def test_tool_call_stats_falls_back_to_case_result_without_a_transcript() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        conn.execute(
+            "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+            "('2026-09-06T10:00:00Z', 'run_started', 'a', 0, 'r1', "
+            '\'{"split": "train", "trials": 1}\')'
+        )
+        conn.execute(
+            "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+            "('2026-09-06T10:00:01Z', 'case_result', 'a', 0, 'r1', "
+            '\'{"case_id": "c1", "trial": 0, "passed": true, "tool_calls": 5, '
+            '"tool_errors": 1, "latency_ms": 200}\')'
+        )
+        conn.execute(
+            "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+            "('2026-09-06T10:00:02Z', 'run_finished', 'a', 0, 'r1', '{\"split\": \"train\"}')"
+        )
+        conn.commit()
+        stats = metrics.tool_call_stats(conn, "a", 0, "train")
+        assert stats["aggregate"]["calls"] == pytest.approx(5.0)
+        assert stats["aggregate"]["errors"] == pytest.approx(1.0)
+        assert stats["aggregate"]["redundant"] is None
+        assert stats["aggregate"]["tool_tokens"] is None
+    finally:
+        conn.close()
+
+
+def test_tool_stats_by_version_falls_between_versions(seeded: SeededLedger) -> None:
+    rows = metrics.tool_stats_by_version(seeded.conn, AGENT_ID, seeded.root)
     by_key = {(r["version"], r["split"]): r for r in rows}
     assert set(by_key) == {(0, "train"), (0, "holdout"), (1, "train"), (1, "holdout")}
 
     v0 = by_key[(0, "train")]
-    assert v0["tool_calls_per_case"] == pytest.approx(9.0)
-    assert v0["tool_errors_per_case"] == pytest.approx(1.0)
-    assert v0["tokens_per_case"] == pytest.approx(1000.0)
-    assert v0["latency_ms_per_case"] == pytest.approx(1550.0)  # mean of 1000..2100
+    assert v0["calls"] == pytest.approx(9.0)
+    assert v0["errors"] == pytest.approx(1.0)
+    assert v0["redundant"] == pytest.approx(2.0)
+    assert v0["tool_tokens"] == pytest.approx(450.0)
+    assert v0["latency_ms"] == pytest.approx(1550.0)
 
     v1 = by_key[(1, "train")]
-    assert v1["tool_calls_per_case"] == pytest.approx(4.0)
-    assert v1["tool_errors_per_case"] == pytest.approx(0.0)
-    assert v1["tokens_per_case"] == pytest.approx(500.0)
-    assert v1["latency_ms_per_case"] == pytest.approx(775.0)  # mean of 500..1050
+    assert v1["calls"] == pytest.approx(4.0)
+    assert v1["redundant"] == pytest.approx(0.0)
+    assert v1["tool_tokens"] == pytest.approx(240.0)
 
 
 # --------------------------------------------------------------- fix cards
@@ -292,20 +500,28 @@ def test_fix_cards_are_newest_first_and_complete(seeded: SeededLedger) -> None:
     }
     assert accepted["hypothesis"]
     assert accepted["diagnosis"]
+    assert accepted["metric_signal"].startswith("tool_calls_per_task fell")
     assert accepted["files_touched"] == [
         "memory/rules.jsonl",
         "memory/tool_notes.jsonl",
     ]
     assert accepted["diff_url"] == f"/agents/{AGENT_ID}/fixes/1/diff"
-    assert accepted["before"]["train_mean"] == pytest.approx(2 / 3)
-    assert accepted["before"]["train_std"] == pytest.approx(STD_1_72)
-    assert accepted["before"]["group_pass"] == pytest.approx(0.0)
-    assert accepted["before"]["cost_per_run"] == pytest.approx(0.12)
-    assert accepted["after"]["train_mean"] == pytest.approx(5 / 6)
-    assert accepted["after"]["group_pass"] == pytest.approx(1 / 3)
-    assert accepted["after"]["holdout_mean"] == pytest.approx(5 / 6)
-    assert accepted["after"]["holdout_std"] == pytest.approx(STD_1_18)
-    assert accepted["after"]["cost_per_run"] == pytest.approx(0.06)
+    assert accepted["before"] == {
+        "pass_at_1": pytest.approx(2 / 3),
+        "pass_pow_k": pytest.approx(0.5),
+        "group_pass": pytest.approx(0.0),
+        "cost_per_run": pytest.approx(0.12),
+        "tool_calls_per_task": pytest.approx(9.0),
+    }
+    assert accepted["after"] == {
+        "pass_at_1": pytest.approx(5 / 6),
+        "pass_pow_k": pytest.approx(0.75),
+        "group_pass": pytest.approx(1 / 3),
+        "holdout_pass_at_1": pytest.approx(5 / 6),
+        "holdout_pass_pow_k": pytest.approx(0.5),
+        "cost_per_run": pytest.approx(0.06),
+        "tool_calls_per_task": pytest.approx(4.0),
+    }
     assert accepted["regressed_case_ids"] == []
 
 
@@ -319,22 +535,26 @@ def test_memory_fix_cards_carry_their_entries(seeded: SeededLedger) -> None:
     assert entries[0]["evidence_case_ids"] == ["c4"]
 
 
-def test_rejected_fix_card_lists_regressed_cases_and_derives_before(
+def test_rejected_fix_card_lists_regressed_tasks_and_derives_before(
     seeded: SeededLedger,
 ) -> None:
     rejected = cards_by_version(seeded)[2]
     assert rejected["status"] == "rejected"
     assert rejected["lever"] == "prompt"
     assert rejected["regressed_case_ids"] == ["c2"]
-    # fix_rejected carries only the candidate's rate, so `before` comes from v1.
-    assert rejected["before"]["train_mean"] == pytest.approx(5 / 6)
+    assert rejected["metric_signal"] is None
+    # fix_rejected carries only the candidate's pass@1, so `before` comes from v1.
+    assert rejected["before"]["pass_at_1"] == pytest.approx(5 / 6)
+    assert rejected["before"]["pass_pow_k"] == pytest.approx(0.75)
     assert rejected["before"]["cost_per_run"] == pytest.approx(0.06)
-    assert rejected["after"]["train_mean"] == pytest.approx(0.75)
+    assert rejected["before"]["tool_calls_per_task"] == pytest.approx(4.0)
+    assert rejected["after"]["pass_at_1"] == pytest.approx(0.75)
+    assert rejected["after"]["pass_pow_k"] is None
     assert "memory_entries" not in rejected
 
 
-def test_non_memory_fix_cards_have_no_memory_entries(seeded: SeededLedger) -> None:
-    assert "memory_entries" not in cards_by_version(seeded)[2]
+def cards_by_version(seeded: SeededLedger) -> dict[int, dict]:
+    return {c["to_version"]: c for c in metrics.fix_cards(seeded.conn, AGENT_ID)}
 
 
 def test_fix_diff_reads_the_file_on_disk(seeded: SeededLedger) -> None:
@@ -342,10 +562,6 @@ def test_fix_diff_reads_the_file_on_disk(seeded: SeededLedger) -> None:
     assert diff is not None
     assert diff.startswith("--- a/memory/rules.jsonl")
     assert metrics.fix_diff(seeded.conn, AGENT_ID, 99, seeded.root) is None
-
-
-def cards_by_version(seeded: SeededLedger) -> dict[int, dict]:
-    return {c["to_version"]: c for c in metrics.fix_cards(seeded.conn, AGENT_ID)}
 
 
 # ----------------------------------------------------------------- compare
@@ -361,6 +577,7 @@ def test_compare_shows_the_output_getting_better(seeded: SeededLedger) -> None:
     assert v0["rules_injected"] == []
     assert v0["tool_calls"] == 9
     assert v0["tokens"] == 1000
+    assert v0["trial"] == 0
 
     current = result["current"]
     assert result["current_version"] == 1
@@ -369,15 +586,10 @@ def test_compare_shows_the_output_getting_better(seeded: SeededLedger) -> None:
     assert current["rules_injected"] == ["r3"]
     assert current["tool_calls"] == 4
     assert current["tokens"] == 500
+    assert current["trial"] == 0
 
 
-def test_compare_uses_repeat_zero(seeded: SeededLedger) -> None:
-    result = metrics.compare(seeded.conn, AGENT_ID, "c3", seeded.root)
-    assert result["v0"]["repeat"] == 0
-    assert result["current"]["repeat"] == 0
-
-
-def test_compare_returns_null_for_a_case_with_no_result(seeded: SeededLedger) -> None:
+def test_compare_returns_null_for_a_task_with_no_result(seeded: SeededLedger) -> None:
     result = metrics.compare(seeded.conn, AGENT_ID, "nope", seeded.root)
     assert result["v0"] is None
     assert result["current"] is None
@@ -392,16 +604,20 @@ def test_insights_assembles_every_section(seeded: SeededLedger) -> None:
     assert payload["agent_id"] == AGENT_ID
     assert payload["domain"] == "github_triage"
     assert payload["current_version"] == 1
-    assert payload["repeats"] == 3
-    assert len(payload["pass_rate_by_version"]) == 4
+    assert payload["trials"] == 3
+    assert len(payload["pass_at_1_by_version"]) == 4
+    assert len(payload["pass_pow_k_by_version"]) == 4
     assert payload["fixes_by_lever"] == {"memory": 1}
     assert payload["regressions_caught"] == 1
     assert payload["issues"] == {"open": 1, "closed": 1}
     assert payload["lessons_count"] == 2
     assert payload["drift"]["tokens_saved"] == 7000
     assert payload["markers"]
-    assert len(payload["memory_growth_by_version"]) == 3
-    assert len(payload["tool_efficiency_by_version"]) == 4
+    assert len(payload["memory_by_version"]) == 3
+    assert len(payload["tool_stats_by_version"]) == 4
+    assert payload["graduated_count"] == 3
+    assert payload["saturated"] is False
+    assert payload["flagged_tasks"] == []
     assert payload["rule_stats"]["r3"]["misses"] == 2
 
 
@@ -409,7 +625,7 @@ def test_insights_compare_groups_by_domain(seeded: SeededLedger) -> None:
     payload = metrics.insights_compare(seeded.conn, seeded.root)
     assert set(payload["by_domain"]) == {"github_triage", "ticket_triage"}
     assert payload["by_domain"]["github_triage"][0]["agent_id"] == AGENT_ID
-    assert payload["by_domain"]["ticket_triage"][0]["pass_rate_by_version"][0][
+    assert payload["by_domain"]["ticket_triage"][0]["pass_at_1_by_version"][0][
         "mean"
     ] == pytest.approx(0.5)
     assert payload["ablation"] is None

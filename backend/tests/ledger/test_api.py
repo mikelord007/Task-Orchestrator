@@ -1,4 +1,4 @@
-"""The ledger read endpoints (``contracts/api.md``).
+"""The ledger read endpoints (``contracts/api.md`` / PLAN_ADDENDUM.md sec A).
 
 The router is mounted on a bare app here so these tests do not depend on
 ``backend/app.py``; the connection dependency is overridden with the seeded
@@ -55,6 +55,7 @@ def test_get_events_filters_by_agent_and_kind(client: TestClient) -> None:
         "run_v1_holdout",
     ]
     assert body[0]["payload"]["split"] == "train"
+    assert body[0]["payload"]["trials"] == 3
 
 
 def test_get_events_since_is_inclusive_and_ordered(client: TestClient) -> None:
@@ -75,14 +76,17 @@ def test_get_events_on_an_empty_ledger_is_an_empty_list(
 
 def test_get_insights(client: TestClient) -> None:
     body = client.get(f"/insights/{AGENT_ID}").json()
-    assert body["repeats"] == 3
-    assert len(body["pass_rate_by_version"]) == 4
-    assert body["pass_rate_by_version"][0]["mean"] == pytest.approx(2 / 3)
+    assert body["trials"] == 3
+    assert len(body["pass_at_1_by_version"]) == 4
+    assert len(body["pass_pow_k_by_version"]) == 4
+    assert body["pass_at_1_by_version"][0]["mean"] == pytest.approx(2 / 3)
+    assert body["pass_pow_k_by_version"][0]["mean"] == pytest.approx(0.5)
     assert body["drift"]["count_by_kind"] == {"loop": 2, "budget": 1, "step_limit": 1}
-    assert body["memory_growth_by_version"][1]["mean_confidence"] == pytest.approx(0.7)
-    assert body["tool_efficiency_by_version"][0][
-        "tool_calls_per_case"
-    ] == pytest.approx(9.0)
+    assert body["memory_by_version"][1]["mean_confidence"] == pytest.approx(0.7)
+    assert body["tool_stats_by_version"][0]["calls"] == pytest.approx(9.0)
+    assert body["graduated_count"] == 3
+    assert body["saturated"] is False
+    assert body["flagged_tasks"] == []
 
 
 def test_insights_compare_is_not_shadowed_by_the_agent_id_route(
@@ -107,6 +111,7 @@ def test_get_fixes(client: TestClient) -> None:
     assert body[0]["status"] == "rejected"
     assert body[1]["status"] == "accepted"
     assert body[1]["diff_url"] == f"/agents/{AGENT_ID}/fixes/1/diff"
+    assert body[1]["metric_signal"].startswith("tool_calls_per_task fell")
 
 
 def test_get_fix_diff_is_plain_text(client: TestClient) -> None:
@@ -126,6 +131,7 @@ def test_get_compare(client: TestClient) -> None:
     assert body["v0"]["output"]["component"] == "core"
     assert body["current"]["output"]["component"] == "pty"
     assert body["current"]["tool_calls"] == 4
+    assert body["current"]["trial"] == 0
 
 
 def test_get_compare_404s_for_an_unknown_agent(client: TestClient) -> None:
@@ -136,9 +142,12 @@ def test_get_compare_404s_for_an_unknown_agent(client: TestClient) -> None:
 
 def test_insights_on_an_empty_ledger_is_honest(empty_client: TestClient) -> None:
     body = empty_client.get("/insights/nobody").json()
-    assert body["pass_rate_by_version"] == []
-    assert body["repeats"] is None
+    assert body["pass_at_1_by_version"] == []
+    assert body["pass_pow_k_by_version"] == []
+    assert body["trials"] is None
     assert body["drift"]["tokens_saved"] == 0
+    assert body["graduated_count"] == 0
+    assert body["saturated"] is False
     assert empty_client.get("/agents/nobody/fixes").json() == []
 
 

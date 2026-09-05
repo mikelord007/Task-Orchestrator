@@ -1,7 +1,8 @@
 """The metrics layer must never write.
 
-PLAN.md 4.1: the ledger is append-only and display status is *derived*, never
-stored. If any metric ever caches a result into a table, these tests fail.
+PLAN_ADDENDUM.md sec 0 / sec A: the ledger is append-only and display status is
+*derived*, never stored. If any metric ever caches a result into a table,
+these tests fail.
 """
 
 from __future__ import annotations
@@ -30,8 +31,10 @@ def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 def _call_every_metric(seeded: SeededLedger) -> None:
     conn, root = seeded.conn, seeded.root
-    metrics.pass_rate(conn, AGENT_ID, 0, "train")
-    metrics.pass_rate(conn, AGENT_ID, 1, "holdout")
+    metrics.pass_at_1(conn, AGENT_ID, 0, "train")
+    metrics.pass_at_1(conn, AGENT_ID, 1, "holdout")
+    metrics.pass_pow_k(conn, AGENT_ID, 0, "train")
+    metrics.pass_pow_k(conn, AGENT_ID, 1, "holdout")
     metrics.stable_pass_set(conn, AGENT_ID, 0)
     metrics.cost_per_run(conn, AGENT_ID, 0, "train")
     metrics.latency_percentiles(conn, AGENT_ID, 0, "train")
@@ -42,9 +45,13 @@ def _call_every_metric(seeded: SeededLedger) -> None:
     metrics.drift_stats(conn, AGENT_ID)
     metrics.series_by_version(conn, AGENT_ID)
     metrics.markers(conn, AGENT_ID)
+    metrics.graduated_count(conn, AGENT_ID)
+    metrics.saturated(conn, AGENT_ID)
+    metrics.zero_pass_tasks(conn, AGENT_ID)
     metrics.rule_stats(conn, AGENT_ID)
-    metrics.memory_growth_by_version(conn, AGENT_ID, root)
-    metrics.tool_efficiency_by_version(conn, AGENT_ID)
+    metrics.memory_by_version(conn, AGENT_ID, root)
+    metrics.tool_call_stats(conn, AGENT_ID, 0, "train", root)
+    metrics.tool_stats_by_version(conn, AGENT_ID, root)
     metrics.fix_cards(conn, AGENT_ID)
     metrics.fix_diff(conn, AGENT_ID, 1, root)
     metrics.compare(conn, AGENT_ID, "c4", root)
