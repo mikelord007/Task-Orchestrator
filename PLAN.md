@@ -1,3 +1,5 @@
+See PLAN_ADDENDUM.md — it overrides this file where they conflict.
+
 # Task Orchestrator — Build Plan for the AO Orchestrator
 
 > **You are the AO orchestrator for this repo. Read this entire file before spawning anything.**
