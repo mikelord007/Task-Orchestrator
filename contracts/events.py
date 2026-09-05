@@ -180,6 +180,7 @@ class AgentCreated(EventPayload):
     tools: list[str]
     evaluator_id: str
     orchestration: str
+    orchestration_reason: str | None = None
     applied_lessons: list[str] = Field(default_factory=list)
 
 
