@@ -4,6 +4,11 @@ The scenario is deliberately small enough that every number in
 ``backend/tests/ledger/test_metrics.py`` is hand-computed in the test, not
 recomputed by the code under test.
 
+Every event is written through ``backend.ledger.emit.emit``, so this fixture's
+payloads are validated against ``contracts/events.py`` exactly like any other
+caller's -- if a field name here drifts from the frozen contract, building the
+fixture fails loudly instead of silently writing an invalid row.
+
 Terminology follows PLAN_ADDENDUM.md sec J: a **task** is one evaluator case, a
 **trial** is one repeated execution of a task, the **grader** is ``score.py``.
 The ``case_result``/``drift_detected`` payload field is canonically ``trial``;
@@ -20,15 +25,18 @@ What it contains
 * one accepted fix (lever ``memory``, 0 -> 1, carrying a ``metric_signal``) and
   one rejected fix (lever ``prompt``, 1 -> 2, rejected for regression), each
   with a diff file on disk
-* ``memory_written`` / ``memory_demoted`` events plus the matching
-  ``agents/<id>/v<N>/memory/rules.jsonl`` snapshots (rules carry ``demoted``)
+* ``memory_written`` / ``memory_demoted`` events (contract-minimal: no rule
+  text or confidence -- that detail lives only in the on-disk snapshot, per
+  ``contracts.events.MemoryWritten``) plus the matching
+  ``agents/<id>/v<N>/memory/{rules,tool_notes}.jsonl`` snapshots (rules carry
+  ``demoted``)
 * ``rules_injected`` on the v1 case results
 * ``task_graduated`` for c1/c2 at v0 and c3 at v1 (the version each first
   became stably passing)
 * per-execution tool-call detail on every transcript (redundant calls + tool-
   response tokens at v0, none at v1) so ``tool_call_stats`` has something to
   compute
-* one auto issue (open) and one human issue (fixed), two lessons
+* one auto issue (open) and one human issue (closed), two lessons
 * a second agent ``agent_b`` (``ticket_triage``) so ``/insights/compare`` has
   more than one domain to group
 
@@ -45,40 +53,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# PLAN_ADDENDUM.md sec A / sec E verbatim. Phase 0's ``backend/db.py`` owns the
-# real migrations; this mirrors them so the metrics tests can run standalone.
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS events (
-  id            INTEGER PRIMARY KEY,
-  ts            TEXT NOT NULL,
-  kind          TEXT NOT NULL,
-  agent_id      TEXT,
-  agent_version INTEGER,
-  run_id        TEXT,
-  lever         TEXT,
-  payload       TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS agents (
-  agent_id        TEXT PRIMARY KEY,
-  goal            TEXT,
-  domain          TEXT,
-  evaluator_id    TEXT,
-  current_version INTEGER,
-  created_ts      TEXT
-);
-CREATE TABLE IF NOT EXISTS issues (
-  id                TEXT PRIMARY KEY,
-  agent_id          TEXT,
-  title             TEXT,
-  body              TEXT,
-  screenshot_path   TEXT,
-  source            TEXT,
-  status            TEXT,
-  failure_signature TEXT,
-  created_ts        TEXT,
-  fixed_version     INTEGER
-);
-"""
+from backend.db import migrate
+from backend.ledger.emit import emit as ledger_emit
 
 AGENT_ID = "agent_demo"
 AGENT_B_ID = "agent_b"
@@ -141,9 +117,8 @@ class SeededLedger:
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
-    """Create the tables the ledger reads. Replaced by ``backend.db`` migrations."""
-    conn.executescript(SCHEMA)
-    conn.commit()
+    """Bring the connection's schema up to date via the real migrations."""
+    migrate(conn)
 
 
 def _insert(
@@ -157,17 +132,24 @@ def _insert(
     run_id: str | None = None,
     lever: str | None = None,
     **payload: Any,
-) -> None:
-    """Append one event.
+) -> int:
+    """Append one event through ``backend.ledger.emit.emit``.
 
-    NOTE: swap this body for ``backend.ledger.emit.emit`` once Phase 0 is on
-    ``main`` so the fixture's payloads are validated against
-    ``contracts/events.py`` like every other writer's.
+    Everything is routed through the explicit ``payload=`` dict rather than
+    ``emit``'s own ``**fields`` -- that sidesteps its "kind"/"lever" ambiguous
+    -bare-keyword guard, which exists for call sites that pass payload fields
+    directly as keywords, not for a wrapper like this one that always builds
+    an explicit payload dict.
     """
-    conn.execute(
-        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, lever, payload) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (ts, kind, agent_id, agent_version, run_id, lever, json.dumps(payload)),
+    return ledger_emit(
+        kind,
+        agent_id=agent_id,
+        agent_version=agent_version,
+        run_id=run_id,
+        lever=lever,
+        conn=conn,
+        ts=ts,
+        payload=payload,
     )
 
 
@@ -207,21 +189,11 @@ def _tool_call_records(
     """
     unique = max(count - redundant, 0)
     calls = [
-        {
-            "tool": "list_issues",
-            "args": {"page": i},
-            "error": False,
-            "tokens_in": tokens_in,
-        }
+        {"tool": "list_issues", "args": {"page": i}, "error": False, "tokens_in": tokens_in}
         for i in range(unique)
     ]
     calls += [
-        {
-            "tool": "list_issues",
-            "args": {"page": 0},
-            "error": False,
-            "tokens_in": tokens_in,
-        }
+        {"tool": "list_issues", "args": {"page": 0}, "error": False, "tokens_in": tokens_in}
         for _ in range(count - unique)
     ]
     for i in range(errors):
@@ -240,8 +212,8 @@ def _emit_run(
     run_id: str,
     patterns: dict[str, list[bool]],
     cost_usd: float,
-    latency_base: float,
-    latency_step: float,
+    latency_base: int,
+    latency_step: int,
     tokens_in: int,
     tokens_out: int,
     tool_calls: int,
@@ -272,16 +244,16 @@ def _emit_run(
     index = 0
     drift_ids: dict[tuple[str, int], int] = {}
     total_cost = 0.0
-    latencies: list[float] = []
+    latencies: list[int] = []
     for trial in range(trials):
         for case_id in task_ids:
-            latency = latency_base + latency_step * index
+            latency = int(latency_base + latency_step * index)
             index += 1
             passed = patterns[case_id][trial]
             spec = drift.get((case_id, trial))
 
             if spec is not None:
-                _insert(
+                drift_ids[(case_id, trial)] = _insert(
                     conn,
                     "drift_detected",
                     clock.next(),
@@ -296,9 +268,6 @@ def _emit_run(
                     action=spec["action"],
                     tokens_at_detection=spec["tokens_at_detection"],
                 )
-                drift_ids[(case_id, trial)] = int(
-                    conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-                )
 
             transcript_rel = f"runs/{run_id}/{case_id}.t{trial}.json"
             _write_json(
@@ -310,10 +279,7 @@ def _emit_run(
                     "agent_id": agent_id,
                     "version": version,
                     "tool_calls": _tool_call_records(
-                        tool_calls,
-                        tool_errors,
-                        redundant_tool_calls,
-                        tool_tokens_per_call,
+                        tool_calls, tool_errors, redundant_tool_calls, tool_tokens_per_call
                     ),
                     "final_output": _final_output(case_id, passed),
                     "usage": {"tokens_in": tokens_in, "tokens_out": tokens_out},
@@ -354,15 +320,11 @@ def _emit_run(
             latencies.append(latency)
 
     per_task = [sum(flags) / len(flags) for flags in patterns.values()]
-    per_trial = [
-        sum(patterns[c][t] for c in task_ids) / len(task_ids) for t in range(trials)
-    ]
+    per_trial = [sum(patterns[c][t] for c in task_ids) / len(task_ids) for t in range(trials)]
     stable = sum(1 for flags in patterns.values() if all(flags))
     pass_at_1_mean = sum(per_task) / len(per_task)
     pass_pow_k_mean = stable / len(task_ids)
-    variance = sum((v - sum(per_trial) / len(per_trial)) ** 2 for v in per_trial) / len(
-        per_trial
-    )
+    variance = sum((v - sum(per_trial) / len(per_trial)) ** 2 for v in per_trial) / len(per_trial)
     aborts = [s for s in drift.values() if s["action"] == "abort"]
 
     _insert(
@@ -402,9 +364,7 @@ def _emit_run(
                 )
 
 
-def build(
-    conn: sqlite3.Connection, root: Path, *, ablation: bool = False
-) -> SeededLedger:
+def build(conn: sqlite3.Connection, root: Path, *, ablation: bool = False) -> SeededLedger:
     """Seed the ledger and the files on disk. Returns the handles tests need."""
     create_schema(conn)
     clock = _Clock()
@@ -599,24 +559,27 @@ def build(
         source="human",
         title="Duplicate detection misses cross-referenced issues",
     )
+    # Real schema (backend/migrations/0001_init.sql): issues.status is open|closed.
     for issue_id, status, signature in (
         ("i1", "open", "wrong_component"),
-        ("i2", "fixed", None),
+        ("i2", "closed", None),
     ):
         conn.execute(
-            "INSERT INTO issues (id, agent_id, title, body, screenshot_path, source, status, "
-            "failure_signature, created_ts, fixed_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO issues (id, agent_id, title, body, screenshot_path, tags, source, "
+            "status, failure_signature, created_ts, fixed_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 issue_id,
                 AGENT_ID,
                 f"issue {issue_id}",
                 "body",
                 None,
+                "[]",
                 "auto" if issue_id == "i1" else "human",
                 status,
                 signature,
                 "2026-09-06T10:30:00Z",
-                1 if status == "fixed" else None,
+                1 if status == "closed" else None,
             ),
         )
 
@@ -646,17 +609,16 @@ def build(
             "count": 1,
         },
         hypothesis="The agent never learned that src/pty/ paths belong to the pty component.",
-        diagnosis="Windows/ConPTY issues are labelled core because no rule maps paths to components.",
+        diagnosis="Windows/ConPTY issues get component=core: no rule maps paths to components.",
         diff_path="agents/agent_demo/v1/CHANGES.diff",
         diff_summary="+3 rules, +1 tool note",
         files_touched=["memory/rules.jsonl", "memory/tool_notes.jsonl"],
-        metric_signal="tool_calls_per_task fell from 9 to 4 once path-to-component rules were injected",
+        metric_signal="tool_calls_per_task fell from 9 to 4 once rules were injected",
     )
-    for entry_id, note, confidence in (
-        ("r1", "Windows/ConPTY reports get label windows", 0.9),
-        ("r2", "Paths under src/pty/ map to component pty", 0.8),
-        ("r3", "Crash reports without a stack trace are priority p2", 0.4),
-    ):
+    # MemoryWritten (contracts/events.py) forbids extra fields: the ledger only
+    # records that an entry was written; the rule text / confidence / note
+    # live solely in the on-disk memory/*.jsonl snapshot below.
+    for entry_id in ("r1", "r2", "r3"):
         _insert(
             conn,
             "memory_written",
@@ -668,8 +630,6 @@ def build(
             source="reflection",
             evidence_case_ids=["c4"],
             version=1,
-            rule=note,
-            confidence=confidence,
         )
     _insert(
         conn,
@@ -682,9 +642,9 @@ def build(
         source="reflection",
         evidence_case_ids=["c3"],
         version=1,
-        note="github_search_similar_issues: pass state=all when hunting duplicates",
     )
     _write_jsonl(root / "agents" / AGENT_ID / "v0" / "memory" / "rules.jsonl", [])
+    _write_jsonl(root / "agents" / AGENT_ID / "v0" / "memory" / "tool_notes.jsonl", [])
     _write_jsonl(
         root / "agents" / AGENT_ID / "v1" / "memory" / "rules.jsonl",
         [
@@ -727,12 +687,24 @@ def build(
         ],
     )
     _write_jsonl(
+        root / "agents" / AGENT_ID / "v1" / "memory" / "tool_notes.jsonl",
+        [
+            {
+                "id": "t1",
+                "tool": "github_search_similar_issues",
+                "note": "pass state=all when hunting duplicates; default excludes closed issues",
+                "evidence": "c3 needed state=all to surface the closed duplicate",
+                "created_version": 1,
+            }
+        ],
+    )
+    _write_jsonl(
         root / "agents" / AGENT_ID / "v1" / "memory" / "episodes.jsonl",
         [
             {
                 "version": 1,
                 "run_id": "run_v0_train",
-                "one_line_reflection": "c4 keeps landing on component=core; nothing maps pty paths.",
+                "one_line_reflection": "c4 keeps landing on core; nothing maps pty paths.",
             }
         ],
     )

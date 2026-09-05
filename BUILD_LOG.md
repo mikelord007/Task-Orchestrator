@@ -61,11 +61,13 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 
 **Domain decision:** `hackathon_extract` was never started (W4 was briefed on `github_triage` + `ticket_triage` from the outset), so Domain B stays `ticket_triage`.
 
+Stall (22:23Z update): the shared account usage limit paused the orchestrator and all six worker sessions from roughly 19:20Z to 22:20Z. Remaining at 22:23Z: 23 h 36 m. Still above the 10 h threshold; scope unchanged.
+
 ## Sessions
 
 | session id | workstream | branch | PR | outcome | started | finished |
 |---|---|---|---|---|---|---|
-| `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | [#3](https://github.com/mikelord007/Task-Orchestrator/pull/3) | open | 2026-09-06 | — |
+| `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | [#3](https://github.com/mikelord007/Task-Orchestrator/pull/3) | merged (a14dbd5) | 2026-09-06 | 2026-09-05 22:40Z |
 | `task-orchestrator-10` | W0b — addendum doc (`PLAN_ADDENDUM.md`) | `ws/w0b-addendum` | #2 | merged (eba2a1c) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | — | in progress | 2026-09-05 | — |
 | `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | — | in progress | 2026-09-05 | — |

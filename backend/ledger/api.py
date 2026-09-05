@@ -35,8 +35,7 @@ def _open_connection() -> sqlite3.Connection:
         if callable(factory):
             return factory()
     raise RuntimeError(
-        "backend.db exposes no connection factory; expected one of "
-        + ", ".join(_CONNECT_NAMES)
+        "backend.db exposes no connection factory; expected one of " + ", ".join(_CONNECT_NAMES)
     )
 
 
@@ -93,9 +92,7 @@ def fixes(agent_id: str, conn: Conn) -> list[dict[str, Any]]:
     return metrics.fix_cards(conn, agent_id)
 
 
-@router.get(
-    "/agents/{agent_id}/fixes/{to_version}/diff", response_class=PlainTextResponse
-)
+@router.get("/agents/{agent_id}/fixes/{to_version}/diff", response_class=PlainTextResponse)
 def fix_diff(agent_id: str, to_version: int, conn: Conn) -> PlainTextResponse:
     """The unified diff for a fix, as ``text/plain``."""
     diff = metrics.fix_diff(conn, agent_id, to_version)

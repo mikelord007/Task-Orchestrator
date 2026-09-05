@@ -66,9 +66,7 @@ def test_series_are_empty_lists(empty_ledger: sqlite3.Connection) -> None:
     }
 
 
-def test_tool_call_stats_is_empty(
-    empty_ledger: sqlite3.Connection, tmp_path: Path
-) -> None:
+def test_tool_call_stats_is_empty(empty_ledger: sqlite3.Connection, tmp_path: Path) -> None:
     assert metrics.tool_call_stats(empty_ledger, "nobody", 0, "train", tmp_path) == {
         "tasks": {},
         "aggregate": {
@@ -82,9 +80,7 @@ def test_tool_call_stats_is_empty(
     assert metrics.tool_stats_by_version(empty_ledger, "nobody", tmp_path) == []
 
 
-def test_memory_by_version_is_empty(
-    empty_ledger: sqlite3.Connection, tmp_path: Path
-) -> None:
+def test_memory_by_version_is_empty(empty_ledger: sqlite3.Connection, tmp_path: Path) -> None:
     assert metrics.memory_by_version(empty_ledger, "nobody", tmp_path) == []
 
 
@@ -105,9 +101,7 @@ def test_insights_is_a_complete_but_empty_payload(
     assert payload["flagged_tasks"] == []
 
 
-def test_compare_is_null_on_both_sides(
-    empty_ledger: sqlite3.Connection, tmp_path: Path
-) -> None:
+def test_compare_is_null_on_both_sides(empty_ledger: sqlite3.Connection, tmp_path: Path) -> None:
     assert metrics.compare(empty_ledger, "nobody", "c1", tmp_path) == {
         "agent_id": "nobody",
         "case_id": "c1",

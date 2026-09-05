@@ -45,9 +45,7 @@ def empty_client(
 
 
 def test_get_events_filters_by_agent_and_kind(client: TestClient) -> None:
-    body = client.get(
-        "/events", params={"agent_id": AGENT_ID, "kind": "run_finished"}
-    ).json()
+    body = client.get("/events", params={"agent_id": AGENT_ID, "kind": "run_finished"}).json()
     assert [e["run_id"] for e in body] == [
         "run_v0_train",
         "run_v0_holdout",
@@ -135,9 +133,7 @@ def test_get_compare(client: TestClient) -> None:
 
 
 def test_get_compare_404s_for_an_unknown_agent(client: TestClient) -> None:
-    assert (
-        client.get("/agents/nope/compare", params={"case_id": "c4"}).status_code == 404
-    )
+    assert client.get("/agents/nope/compare", params={"case_id": "c4"}).status_code == 404
 
 
 def test_insights_on_an_empty_ledger_is_honest(empty_client: TestClient) -> None:
@@ -158,12 +154,8 @@ def test_the_seed_builder_is_reusable_for_mocks(tmp_path: Path) -> None:
     try:
         a = seed_module.build(first, tmp_path / "a")
         b = seed_module.build(second, tmp_path / "b")
-        rows_a = first.execute(
-            "SELECT kind, payload FROM events ORDER BY id"
-        ).fetchall()
-        rows_b = second.execute(
-            "SELECT kind, payload FROM events ORDER BY id"
-        ).fetchall()
+        rows_a = first.execute("SELECT kind, payload FROM events ORDER BY id").fetchall()
+        rows_b = second.execute("SELECT kind, payload FROM events ORDER BY id").fetchall()
         assert rows_a == rows_b
         assert a.run_ids == b.run_ids
     finally:

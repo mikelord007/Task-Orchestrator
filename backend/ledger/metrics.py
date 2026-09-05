@@ -248,8 +248,7 @@ def _trial_rates(results: Sequence[Event]) -> tuple[list[float], int]:
     if task_count == 0:
         return [], 0
     rates = [
-        sum(1 for e in rows if e.get("passed")) / task_count
-        for _, rows in sorted(by_trial.items())
+        sum(1 for e in rows if e.get("passed")) / task_count for _, rows in sorted(by_trial.items())
     ]
     return rates, task_count
 
@@ -271,9 +270,7 @@ def _pass_stat(
     }
 
 
-def pass_at_1(
-    conn: sqlite3.Connection, agent_id: str, version: int, split: str
-) -> dict[str, Any]:
+def pass_at_1(conn: sqlite3.Connection, agent_id: str, version: int, split: str) -> dict[str, Any]:
     """pass@1 of the latest finished run of ``(agent_id, version, split)``.
 
     Returns ``{mean, std, min, max, trials, task_count}``; ``mean`` is the mean
@@ -290,9 +287,7 @@ def pass_at_1(
     return _pass_stat(results, _int(run.trials), mean=_mean(rates))
 
 
-def pass_pow_k(
-    conn: sqlite3.Connection, agent_id: str, version: int, split: str
-) -> dict[str, Any]:
+def pass_pow_k(conn: sqlite3.Connection, agent_id: str, version: int, split: str) -> dict[str, Any]:
     """pass^k of the latest finished run of ``(agent_id, version, split)``.
 
     ``mean`` is the fraction of tasks that passed *every* trial (the stable
@@ -346,9 +341,7 @@ def _run_costs(results: Sequence[Event]) -> tuple[float | None, float | None]:
     return total, (total / task_count if task_count else None)
 
 
-def cost_per_run(
-    conn: sqlite3.Connection, agent_id: str, version: int, split: str
-) -> float | None:
+def cost_per_run(conn: sqlite3.Connection, agent_id: str, version: int, split: str) -> float | None:
     """Total USD spent by the latest finished run of ``(agent, version, split)``.
 
     "Per run" means the whole run: every task at every trial. ``None`` when the
@@ -414,9 +407,7 @@ def fixes_by_lever(conn: sqlite3.Connection, agent_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for event in events(conn, kind="fix_accepted", agent_id=agent_id):
         to_version = _int(event.get("to_version"))
-        lever = _lever_of(
-            proposals.get(to_version) if to_version is not None else None, event
-        )
+        lever = _lever_of(proposals.get(to_version) if to_version is not None else None, event)
         key = lever or "unknown"
         counts[key] = counts.get(key, 0) + 1
     return counts
@@ -445,9 +436,7 @@ def issue_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, int]:
             issue_ids.append(str(issue_id))
     unique = list(dict.fromkeys(issue_ids))
     statuses = issue_status(conn, unique)
-    closed = sum(
-        1 for i in unique if (statuses.get(i) or "").lower() in CLOSED_ISSUE_STATUSES
-    )
+    closed = sum(1 for i in unique if (statuses.get(i) or "").lower() in CLOSED_ISSUE_STATUSES)
     return {"open": len(unique) - closed, "closed": closed}
 
 
@@ -525,9 +514,7 @@ def drift_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def _finished_version_splits(
-    conn: sqlite3.Connection, agent_id: str
-) -> list[tuple[int, str]]:
+def _finished_version_splits(conn: sqlite3.Connection, agent_id: str) -> list[tuple[int, str]]:
     pairs = {
         (run.version, run.split)
         for run in runs(conn, agent_id)
@@ -536,9 +523,7 @@ def _finished_version_splits(
     return sorted(pairs, key=lambda p: (p[0], _split_key(p[1])))
 
 
-def series_by_version(
-    conn: sqlite3.Connection, agent_id: str
-) -> dict[str, list[dict[str, Any]]]:
+def series_by_version(conn: sqlite3.Connection, agent_id: str) -> dict[str, list[dict[str, Any]]]:
     """pass@1 / pass^k / cost / latency series, one row per (version, split).
 
     Only versions with a *finished* run appear; train and holdout are separate
@@ -585,9 +570,7 @@ def series_by_version(
             }
         )
 
-        latencies = [
-            v for v in (_num(e.get("latency_ms")) for e in results) if v is not None
-        ]
+        latencies = [v for v in (_num(e.get("latency_ms")) for e in results) if v is not None]
         latency_rows.append(
             {
                 "version": version,
@@ -635,19 +618,13 @@ def markers(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
                 {
                     "kind": kind,
                     "ts": event.ts,
-                    "version": to_version
-                    if to_version is not None
-                    else _int(event.agent_version),
+                    "version": to_version if to_version is not None else _int(event.agent_version),
                     "to_version": to_version,
-                    "from_version": _int(proposal.get("from_version"))
-                    if proposal
-                    else None,
+                    "from_version": _int(proposal.get("from_version")) if proposal else None,
                     "lever": _lever_of(proposal, event),
                     "hypothesis": proposal.get("hypothesis") if proposal else None,
                     "diagnosis": proposal.get("diagnosis") if proposal else None,
-                    "metric_signal": proposal.get("metric_signal")
-                    if proposal
-                    else None,
+                    "metric_signal": proposal.get("metric_signal") if proposal else None,
                     "reason": event.get("reason") if kind == "fix_rejected" else None,
                 }
             )
@@ -658,9 +635,7 @@ def markers(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
             {
                 "kind": "memory_demoted",
                 "ts": event.ts,
-                "version": version
-                if version is not None
-                else _int(event.agent_version),
+                "version": version if version is not None else _int(event.agent_version),
                 "entry_id": event.get("entry_id"),
                 "hits": _int(event.get("hits")),
                 "misses": _int(event.get("misses")),
@@ -682,9 +657,7 @@ def markers(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
         )
         cluster["count"] += 1
         drift_kind = str(event.get("kind") or "unknown")
-        cluster["count_by_kind"][drift_kind] = (
-            cluster["count_by_kind"].get(drift_kind, 0) + 1
-        )
+        cluster["count_by_kind"][drift_kind] = cluster["count_by_kind"].get(drift_kind, 0) + 1
     out.extend(clusters.values())
 
     out.sort(key=lambda m: (m.get("ts") or "", str(m.get("kind"))))
@@ -802,9 +775,7 @@ def rule_stats(conn: sqlite3.Connection, agent_id: str) -> dict[str, dict[str, i
 def _agent_versions(conn: sqlite3.Connection, agent_id: str) -> list[int]:
     """Every version 0..max seen for this agent, contiguous, for charting."""
     versions = {
-        v
-        for v in (_int(e.agent_version) for e in events(conn, agent_id=agent_id))
-        if v is not None
+        v for v in (_int(e.agent_version) for e in events(conn, agent_id=agent_id)) if v is not None
     }
     for event in events(conn, kind=("fix_proposed", "fix_accepted"), agent_id=agent_id):
         to_version = _int(event.get("to_version"))
@@ -821,6 +792,37 @@ def _agent_versions(conn: sqlite3.Connection, agent_id: str) -> list[int]:
 def _memory_version(event: Event) -> int | None:
     version = _int(event.get("version"))
     return version if version is not None else _int(event.agent_version)
+
+
+#: `memory_written.kind` -> the on-disk file it corresponds to (contracts/agent.py).
+_MEMORY_FILENAMES = {
+    "rule": "rules.jsonl",
+    "tool_note": "tool_notes.jsonl",
+    "episode": "episodes.jsonl",
+}
+
+
+def _memory_entry_detail(
+    agent_id: str, version: int | None, kind: Any, entry_id: Any, root: str | Path | None
+) -> dict[str, Any]:
+    """The on-disk row for one ``memory_written`` event, keyed by ``entry_id``.
+
+    ``MemoryWritten`` (``contracts/events.py``) forbids extra fields, so the
+    ledger event only records that an entry was written -- its content (rule
+    text, confidence, tool note, evidence) lives in the versioned
+    ``agents/<id>/v<N>/memory/*.jsonl`` file. Returns ``{}`` when the snapshot
+    or the row is not on disk (e.g. a rejected version with no memory dir).
+    """
+    filename = _MEMORY_FILENAMES.get(str(kind))
+    if filename is None or version is None or entry_id is None:
+        return {}
+    path = repo_root(root) / "agents" / agent_id / f"v{version}" / "memory" / filename
+    for row in _read_jsonl(path):
+        if str(row.get("id")) == str(entry_id):
+            detail = dict(row)
+            detail.pop("id", None)
+            return detail
+    return {}
 
 
 def memory_by_version(
@@ -879,16 +881,10 @@ def memory_by_version(
     return out
 
 
-def _mean_confidence(
-    agent_id: str, version: int, root: str | Path | None
-) -> float | None:
-    path = (
-        repo_root(root) / "agents" / agent_id / f"v{version}" / "memory" / "rules.jsonl"
-    )
+def _mean_confidence(agent_id: str, version: int, root: str | Path | None) -> float | None:
+    path = repo_root(root) / "agents" / agent_id / f"v{version}" / "memory" / "rules.jsonl"
     confidences = [
-        c
-        for c in (_num(r.get("confidence")) for r in _read_jsonl(path))
-        if c is not None
+        c for c in (_num(r.get("confidence")) for r in _read_jsonl(path)) if c is not None
     ]
     return _mean(confidences)
 
@@ -1003,8 +999,7 @@ def tool_call_stats(
         by_task.setdefault(str(case_id), []).append(stats)
 
     tasks = {
-        task_id: {key: field_mean(key, rows) for key in empty}
-        for task_id, rows in by_task.items()
+        task_id: {key: field_mean(key, rows) for key in empty} for task_id, rows in by_task.items()
     }
     aggregate = {key: field_mean(key, per_execution) for key in empty}
     return {"tasks": tasks, "aggregate": aggregate}
@@ -1041,20 +1036,21 @@ def _failing_group(proposal: Event | None) -> dict[str, Any]:
         "signature": group.get("signature"),
         "tag": group.get("tag"),
         "count": _int(group.get("count")),
-        "case_ids": [str(c) for c in case_ids]
-        if isinstance(case_ids, (list, tuple))
-        else [],
+        "case_ids": [str(c) for c in case_ids] if isinstance(case_ids, (list, tuple)) else [],
     }
 
 
-def fix_cards(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
+def fix_cards(
+    conn: sqlite3.Connection, agent_id: str, root: str | Path | None = None
+) -> list[dict[str, Any]]:
     """``FixCard`` list per ``contracts/api.md`` / PLAN_ADDENDUM.md sec A, newest first.
 
     One card per ``fix_proposed``, joined to its ``fix_accepted`` /
     ``fix_rejected`` by ``to_version``. A proposal with no outcome yet gets
     ``status = "proposed"`` rather than being dropped. ``memory`` fixes carry
-    ``memory_entries`` (the ``memory_written`` payloads for that version) so
-    the card can show the entries instead of a text diff.
+    ``memory_entries`` (the ``memory_written`` events for that version, merged
+    with their on-disk detail -- see ``_memory_entry_detail``) so the card can
+    show the entries instead of a text diff.
     """
     outcomes: dict[int, Event] = {}
     for event in events(conn, kind=("fix_accepted", "fix_rejected"), agent_id=agent_id):
@@ -1066,7 +1062,11 @@ def fix_cards(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
     for event in events(conn, kind="memory_written", agent_id=agent_id):
         version = _memory_version(event)
         if version is not None:
-            memory_by_v.setdefault(version, []).append(dict(event.payload))
+            detail = _memory_entry_detail(
+                agent_id, version, event.get("kind"), event.get("entry_id"), root
+            )
+            entry = {**dict(event.payload), **detail}
+            memory_by_v.setdefault(version, []).append(entry)
 
     cards: list[tuple[int, dict[str, Any]]] = []
     for proposal in events(conn, kind="fix_proposed", agent_id=agent_id):
@@ -1175,9 +1175,9 @@ def _card_numbers(
         before["pass_at_1"] = pass_at_1(conn, agent_id, from_version, "train")["mean"]
         before["pass_pow_k"] = pass_pow_k(conn, agent_id, from_version, "train")["mean"]
         before["cost_per_run"] = cost_per_run(conn, agent_id, from_version, "train")
-        before["tool_calls_per_task"] = tool_call_stats(
-            conn, agent_id, from_version, "train"
-        )["aggregate"]["calls"]
+        before["tool_calls_per_task"] = tool_call_stats(conn, agent_id, from_version, "train")[
+            "aggregate"
+        ]["calls"]
 
     after = dict(empty_after)
     if outcome is not None:
@@ -1231,9 +1231,7 @@ def _compare_side(
         return None
     candidates = [
         e
-        for e in events(
-            conn, kind="case_result", agent_id=agent_id, agent_version=version
-        )
+        for e in events(conn, kind="case_result", agent_id=agent_id, agent_version=version)
         if str(e.get("case_id")) == str(case_id)
     ]
     if not candidates:
@@ -1336,9 +1334,7 @@ def insights(
     }
 
 
-def insights_compare(
-    conn: sqlite3.Connection, root: str | Path | None = None
-) -> dict[str, Any]:
+def insights_compare(conn: sqlite3.Connection, root: str | Path | None = None) -> dict[str, Any]:
     """``GET /insights/compare``: per-domain series for every agent + ablation.
 
     ``ablation`` is ``reports/ablation.json`` verbatim when W8 has written it,

@@ -7,6 +7,7 @@ PLAN_ADDENDUM.md sec J: task/trial/grader.
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 
@@ -103,12 +104,8 @@ def test_pass_pow_k_v1_train_grows_as_c3_stabilizes(seeded: SeededLedger) -> Non
 
 def test_pass_pow_k_holdout(seeded: SeededLedger) -> None:
     # v0: only h1 stable -> 0.5.  v1: only h1 stable (h2 flakes) -> 0.5.
-    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 0, "holdout")[
-        "mean"
-    ] == pytest.approx(0.5)
-    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 1, "holdout")[
-        "mean"
-    ] == pytest.approx(0.5)
+    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 0, "holdout")["mean"] == pytest.approx(0.5)
+    assert metrics.pass_pow_k(seeded.conn, AGENT_ID, 1, "holdout")["mean"] == pytest.approx(0.5)
 
 
 # ------------------------------------------------------------- stable set
@@ -130,12 +127,8 @@ def test_stable_pass_set_grows_once_the_flaky_task_settles(
 
 def test_cost_per_run_is_the_whole_run(seeded: SeededLedger) -> None:
     # 4 tasks x 3 trials x $0.01 at v0, x $0.005 at v1.
-    assert metrics.cost_per_run(seeded.conn, AGENT_ID, 0, "train") == pytest.approx(
-        0.12
-    )
-    assert metrics.cost_per_run(seeded.conn, AGENT_ID, 1, "train") == pytest.approx(
-        0.06
-    )
+    assert metrics.cost_per_run(seeded.conn, AGENT_ID, 0, "train") == pytest.approx(0.12)
+    assert metrics.cost_per_run(seeded.conn, AGENT_ID, 1, "train") == pytest.approx(0.06)
 
 
 def test_latency_percentiles_interpolate(seeded: SeededLedger) -> None:
@@ -201,12 +194,8 @@ def test_series_by_version_has_one_row_per_version_and_split(
 ) -> None:
     series = metrics.series_by_version(seeded.conn, AGENT_ID)
     expected_keys = [(0, "train"), (0, "holdout"), (1, "train"), (1, "holdout")]
-    assert [
-        (r["version"], r["split"]) for r in series["pass_at_1_by_version"]
-    ] == expected_keys
-    assert [
-        (r["version"], r["split"]) for r in series["pass_pow_k_by_version"]
-    ] == expected_keys
+    assert [(r["version"], r["split"]) for r in series["pass_at_1_by_version"]] == expected_keys
+    assert [(r["version"], r["split"]) for r in series["pass_pow_k_by_version"]] == expected_keys
 
     at_1 = {(r["version"], r["split"]): r for r in series["pass_at_1_by_version"]}
     assert at_1[(0, "train")]["mean"] == pytest.approx(2 / 3)
@@ -354,23 +343,19 @@ def _insert_train_run_with_a_dead_task(conn: sqlite3.Connection, version: int) -
     ts = f"2026-09-06T1{version}:00:00Z"
     conn.execute(
         "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
-        "(?, 'run_started', 'flag_agent', ?, ?, '{\"split\": \"train\", \"trials\": 1}')",
-        (ts, version, run_id),
+        "(?, 'run_started', 'flag_agent', ?, ?, ?)",
+        (ts, version, run_id, json.dumps({"split": "train", "trials": 1})),
     )
+    for case_id, passed in (("live", True), ("dead", False)):
+        conn.execute(
+            "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
+            "(?, 'case_result', 'flag_agent', ?, ?, ?)",
+            (ts, version, run_id, json.dumps({"case_id": case_id, "trial": 0, "passed": passed})),
+        )
     conn.execute(
         "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
-        '(?, \'case_result\', \'flag_agent\', ?, ?, \'{"case_id": "live", "trial": 0, "passed": true}\')',
-        (ts, version, run_id),
-    )
-    conn.execute(
-        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
-        '(?, \'case_result\', \'flag_agent\', ?, ?, \'{"case_id": "dead", "trial": 0, "passed": false}\')',
-        (ts, version, run_id),
-    )
-    conn.execute(
-        "INSERT INTO events (ts, kind, agent_id, agent_version, run_id, payload) VALUES "
-        "(?, 'run_finished', 'flag_agent', ?, ?, '{\"split\": \"train\"}')",
-        (ts, version, run_id),
+        "(?, 'run_finished', 'flag_agent', ?, ?, ?)",
+        (ts, version, run_id, json.dumps({"split": "train"})),
     )
     conn.commit()
 
@@ -634,7 +619,5 @@ def test_insights_compare_groups_by_domain(seeded: SeededLedger) -> None:
 def test_insights_compare_includes_the_ablation_report_when_present(
     seeded_with_ablation: SeededLedger,
 ) -> None:
-    payload = metrics.insights_compare(
-        seeded_with_ablation.conn, seeded_with_ablation.root
-    )
+    payload = metrics.insights_compare(seeded_with_ablation.conn, seeded_with_ablation.root)
     assert payload["ablation"]["playbook_on"]["holdout_mean"] == pytest.approx(0.58)

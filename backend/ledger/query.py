@@ -173,9 +173,7 @@ def runs(
     started = events(conn, kind="run_started", agent_id=agent_id, agent_version=version)
     finished_by_run = {
         e.run_id: e
-        for e in events(
-            conn, kind="run_finished", agent_id=agent_id, agent_version=version
-        )
+        for e in events(conn, kind="run_finished", agent_id=agent_id, agent_version=version)
         if e.run_id
     }
 
@@ -213,9 +211,7 @@ def latest_run(
     finished_only: bool = True,
 ) -> Run | None:
     """The most recent run of ``(agent_id, version, split)``, or None."""
-    candidates = runs(
-        conn, agent_id, version=version, split=split, finished_only=finished_only
-    )
+    candidates = runs(conn, agent_id, version=version, split=split, finished_only=finished_only)
     return candidates[-1] if candidates else None
 
 
@@ -268,9 +264,7 @@ def agent_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
-def issue_status(
-    conn: sqlite3.Connection, issue_ids: Iterable[str]
-) -> dict[str, str | None]:
+def issue_status(conn: sqlite3.Connection, issue_ids: Iterable[str]) -> dict[str, str | None]:
     """Map issue id -> status from the ``issues`` table.
 
     Ids with no row (or no table yet) map to ``None`` so callers decide how to
