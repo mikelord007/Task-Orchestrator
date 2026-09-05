@@ -1,0 +1,28 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-019",
+  "input": {
+    "body": "Overall a good month. Onboarding was smooth, the import tool saved us a lot of manual work, and support has been responsive. A few wishes: bulk edit on the boards view, a Slack integration that posts on status change, and keyboard navigation in the picker. I know these are all nice-to-haves.\n\nOne thing I should mention: deleting a single project deleted every project in the workspace for us on Friday. We restored from our own backup so we are fine, but we have not touched Delete since.",
+    "customer_tier": "free",
+    "subject": "Feedback after our first month",
+    "ticket_id": "tk-019"
+  },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "split": "holdout",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "long-body",
+    "needs-human",
+    "prio:p0",
+    "tier:free"
+  ]
+}

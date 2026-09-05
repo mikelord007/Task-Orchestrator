@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p3"
+  },
+  "id": "tk-023",
+  "input": {
+    "body": "WHERE is the setting to change the default sort order. I have looked everywhere. Your help centre is useless, your search is useless. I have wasted twenty minutes of my life on this. Someone tell me where the button is or admit there isn't one.",
+    "customer_tier": "pro",
+    "subject": "Why is this so hard",
+    "ticket_id": "tk-023"
+  },
+  "reference_output": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p3"
+  },
+  "split": "train",
+  "tags": [
+    "angry-low-priority",
+    "cat:other",
+    "needs-human",
+    "prio:p3",
+    "tier:pro"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-035",
+  "input": {
+    "body": "I reset my password on 3 March and now neither the old nor the new one works. The reset email arrives fine and the link says success, but logging in returns 'invalid credentials'. My colleagues are not affected.",
+    "customer_tier": "enterprise",
+    "subject": "Cannot sign in after password reset",
+    "ticket_id": "tk-035"
+  },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "split": "train",
+  "tags": [
+    "cat:account",
+    "needs-human",
+    "prio:p1",
+    "routine",
+    "tier:enterprise"
+  ]
+}

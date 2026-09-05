@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-050",
+  "input": {
+    "body": "We are onboarding 20 people next week and the admin panel says we are at our seat limit. Can you raise it, and confirm what that does to invoice INV-40132? Not blocking anyone yet.",
+    "customer_tier": "pro",
+    "subject": "Please add 20 more seats",
+    "ticket_id": "tk-050"
+  },
+  "reference_output": {
+    "category": "account",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:account",
+    "prio:p3",
+    "routine",
+    "tier:pro"
+  ]
+}
