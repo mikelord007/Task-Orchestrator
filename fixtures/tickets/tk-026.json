@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-026",
+  "input": {
+    "body": "I remember a guide about importing Parquet files into report records but I cannot find it any more - the link I had bookmarked returns error HTTP 403. Could you point me to the current one?",
+    "customer_tier": "free",
+    "subject": "Where can I find the Parquet import guide?",
+    "ticket_id": "tk-026"
+  },
+  "split": "train",
+  "tags": [
+    "cat:other",
+    "prio:p3",
+    "routine",
+    "tier:free"
+  ]
+}

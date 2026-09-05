@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p3"
+  },
+  "id": "tk-021",
+  "input": {
+    "body": "The font in the settings panel is TOO SMALL. I have complained about this before. I am not going to squint at my screen because your designers like whitespace. I want a manager. I want a date. I have been a customer for three years and this is how you treat people.",
+    "customer_tier": "free",
+    "subject": "This is a joke of a product",
+    "ticket_id": "tk-021"
+  },
+  "split": "train",
+  "tags": [
+    "angry-low-priority",
+    "cat:feature",
+    "needs-human",
+    "prio:p3",
+    "tier:free"
+  ]
+}

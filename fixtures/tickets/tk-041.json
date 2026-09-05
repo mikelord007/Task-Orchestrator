@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-041",
+  "input": {
+    "body": "Since 11 June every user in our org is bounced straight back to the login page after authenticating with our identity provider. All 12 people are locked out and there is no fallback login we can use. Nothing changed on our IdP side.",
+    "customer_tier": "free",
+    "subject": "SSO login loop for our whole organisation",
+    "ticket_id": "tk-041"
+  },
+  "split": "train",
+  "tags": [
+    "cat:account",
+    "needs-human",
+    "prio:p0",
+    "routine",
+    "tier:free"
+  ]
+}

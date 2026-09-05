@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-039",
+  "input": {
+    "body": "Nothing broken here, just wanted to say the report changes shipped around 17 April made a real difference to our financial year reporting. Please pass it on to the team.",
+    "customer_tier": "pro",
+    "subject": "Thanks for the report improvements",
+    "ticket_id": "tk-039"
+  },
+  "split": "train",
+  "tags": [
+    "cat:other",
+    "prio:p3",
+    "routine",
+    "tier:pro"
+  ]
+}

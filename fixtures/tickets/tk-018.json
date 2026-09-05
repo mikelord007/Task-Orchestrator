@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-018",
+  "input": {
+    "body": "Just wanted to say the team really appreciated how fast you turned around the timezone bug, it made our month-end much less painful and I've passed that on internally. While I have you: is there a roadmap page we can subscribe to? We would like to plan around the Q4 features. Oh and one more thing, our API token from the integration guide appears to have been printed in plain text in the shared audit log that all 200 of our users can read. Probably worth a look.",
+    "customer_tier": "enterprise",
+    "subject": "Thanks for the quick fix last week",
+    "ticket_id": "tk-018"
+  },
+  "split": "holdout",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "needs-human",
+    "prio:p0",
+    "tier:enterprise"
+  ]
+}

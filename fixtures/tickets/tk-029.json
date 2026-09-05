@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-029",
+  "input": {
+    "body": "Since 11 June the contact view spins forever and eventually shows error HTTP 403. This is the screen the whole team works in and we have not found any way around it - different browsers, incognito, cleared cache, nothing helps. Nobody here can do their job.",
+    "customer_tier": "free",
+    "subject": "contact view will not load at all",
+    "ticket_id": "tk-029"
+  },
+  "split": "train",
+  "tags": [
+    "cat:bug",
+    "needs-human",
+    "prio:p1",
+    "routine",
+    "tier:free"
+  ]
+}

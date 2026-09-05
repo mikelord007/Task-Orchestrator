@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-048",
+  "input": {
+    "body": "We would like to move our 33-seat plan to annual billing before month. I cannot find the option in the billing settings, only the card details. Is this something you have to do on your side?",
+    "customer_tier": "pro",
+    "subject": "How do I switch from monthly to annual billing?",
+    "ticket_id": "tk-048"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:billing",
+    "prio:p3",
+    "routine",
+    "tier:pro"
+  ]
+}

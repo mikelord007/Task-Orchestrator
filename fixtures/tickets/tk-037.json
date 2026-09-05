@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": false,
+    "priority": "p2"
+  },
+  "id": "tk-037",
+  "input": {
+    "body": "Our latest invoice INV-40139 bills 60 seats but the admin panel shows 22 active users. Could you check what happened and send a corrected copy? Nothing is blocked, we just need the numbers to line up before sprint close.",
+    "customer_tier": "pro",
+    "subject": "Invoice INV-40139 does not match our seat count",
+    "ticket_id": "tk-037"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "prio:p2",
+    "routine",
+    "tier:pro"
+  ]
+}

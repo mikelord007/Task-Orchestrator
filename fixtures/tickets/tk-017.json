@@ -1,0 +1,23 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-017",
+  "input": {
+    "body": "A short list of nits from our design team after a week of use:\n- the sidebar collapse animation stutters on Safari\n- the empty state illustration is off-centre on tablet\n- table headers lose their border when you scroll horizontally\n- the avatar stack overlaps oddly at exactly five members\nNone of these block anyone, they are just papercuts we noticed. Also, since about 09:00 today nobody in our organisation can load the app at all - it hangs on the loading spinner forever on every browser and every machine we have tried. Probably related to the same release?",
+    "customer_tier": "pro",
+    "subject": "Minor UI polish suggestions",
+    "ticket_id": "tk-017"
+  },
+  "split": "train",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "long-body",
+    "needs-human",
+    "prio:p0",
+    "tier:pro"
+  ]
+}

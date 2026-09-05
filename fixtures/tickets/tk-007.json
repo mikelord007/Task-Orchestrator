@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-007",
+  "input": {
+    "body": "Guten Tag, wir wurden diesen Monat zweimal belastet. The invoice INV-40122 shows 24 seats but we only have 12 aktive Nutzer. Bitte um Rueckerstattung der Differenz und eine korrigierte Rechnung fuer unsere Buchhaltung. Vielen Dank.",
+    "customer_tier": "pro",
+    "subject": "Rechnung stimmt nicht / invoice mismatch",
+    "ticket_id": "tk-007"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "mixed-language",
+    "needs-human",
+    "prio:p2",
+    "tier:pro"
+  ]
+}

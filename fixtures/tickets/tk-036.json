@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-036",
+  "input": {
+    "body": "How long are deleted dashboard records kept before they are purged? The help centre says 'a limited period'. We need a number for an internal policy document. Thanks.",
+    "customer_tier": "pro",
+    "subject": "Question about the dashboard retention window",
+    "ticket_id": "tk-036"
+  },
+  "split": "train",
+  "tags": [
+    "cat:other",
+    "prio:p3",
+    "routine",
+    "tier:pro"
+  ]
+}

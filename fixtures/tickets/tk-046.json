@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-046",
+  "input": {
+    "body": "The summary at the top of the workspace page adds up to $149.00 but the rows below it total something different. Exporting to CSV gives the correct figure, so we are using that for now. Started around 2 May.",
+    "customer_tier": "enterprise",
+    "subject": "Wrong totals in the workspace summary",
+    "ticket_id": "tk-046"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:bug",
+    "needs-human",
+    "prio:p1",
+    "routine",
+    "tier:enterprise"
+  ]
+}

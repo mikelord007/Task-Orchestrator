@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-047",
+  "input": {
+    "body": "Since 11 June the dashboard view spins forever and eventually shows error E-500. This is the screen the whole team works in and we have not found any way around it - different browsers, incognito, cleared cache, nothing helps. Nobody here can do their job.",
+    "customer_tier": "pro",
+    "subject": "dashboard view will not load at all",
+    "ticket_id": "tk-047"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:bug",
+    "needs-human",
+    "prio:p1",
+    "routine",
+    "tier:pro"
+  ]
+}

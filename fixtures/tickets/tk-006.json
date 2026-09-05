@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "account",
+    "needs_human": false,
+    "priority": "p2"
+  },
+  "id": "tk-006",
+  "input": {
+    "body": "Hola, buenas tardes. Since yesterday afternoon I cannot sign in with my work email. El sistema dice 'invalid credentials' pero la contrasena es correcta, la acabo de restablecer dos veces. My colleagues on the same domain can log in fine, so parece que es solo mi cuenta. Gracias de antemano.",
+    "customer_tier": "pro",
+    "subject": "No puedo iniciar sesion desde ayer",
+    "ticket_id": "tk-006"
+  },
+  "split": "train",
+  "tags": [
+    "cat:account",
+    "mixed-language",
+    "prio:p2",
+    "tier:pro"
+  ]
+}

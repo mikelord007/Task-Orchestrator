@@ -1,0 +1,23 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-011",
+  "input": {
+    "body": "1. The keyboard shortcut for search stopped working on Firefox. Minor, I use the mouse.\n2. Would love a dark mode for the print view someday.\n3. Also our nightly sync has been silently dropping about 15% of records for the past four days and we only noticed because finance caught a mismatch. We have no way to tell which records were lost.\nSorry to cram these together.",
+    "customer_tier": "pro",
+    "subject": "Three things",
+    "ticket_id": "tk-011"
+  },
+  "split": "train",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "multi-issue",
+    "needs-human",
+    "prio:p0",
+    "tier:pro"
+  ]
+}

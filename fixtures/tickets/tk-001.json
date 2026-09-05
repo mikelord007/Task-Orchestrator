@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-001",
+  "input": {
+    "body": "Really, congratulations. Truly outstanding engineering. I clicked Export on our 40k-row workspace and it produced a 0-byte file, and then the workspace came back empty. Every board, gone. I especially enjoyed that there is no undo. Chef's kiss. Anyway, our whole ops team is sitting here staring at an empty screen, so whenever you get a spare moment.",
+    "customer_tier": "pro",
+    "subject": "Fantastic work on the export feature",
+    "ticket_id": "tk-001"
+  },
+  "split": "train",
+  "tags": [
+    "cat:bug",
+    "needs-human",
+    "prio:p0",
+    "sarcasm",
+    "tier:pro"
+  ]
+}

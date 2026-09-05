@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-004",
+  "input": {
+    "body": "Whoever picked the exact same grey for Cancel and Delete Permanently deserves a raise. I have not lost anything yet, purely by luck. Could you perhaps make destructive actions look destructive? Radical idea, I know.",
+    "customer_tier": "pro",
+    "subject": "Wonderful colour choice on the delete button",
+    "ticket_id": "tk-004"
+  },
+  "split": "train",
+  "tags": [
+    "cat:feature",
+    "prio:p3",
+    "sarcasm",
+    "tier:pro"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-012",
+  "input": {
+    "body": "First, the invite email lands in spam for everyone on our domain, so half the team never onboarded. Second, we were charged for 30 seats on the first invoice when we only invited 18. Third, the profile photo upload rejects PNGs over 2MB with no error message. Happy to split this into separate tickets if that's easier.",
+    "customer_tier": "pro",
+    "subject": "Couple of issues from onboarding",
+    "ticket_id": "tk-012"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "multi-issue",
+    "needs-human",
+    "prio:p2",
+    "tier:pro"
+  ]
+}

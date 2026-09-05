@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p3"
+  },
+  "id": "tk-020",
+  "input": {
+    "body": "I have been asking for a dark mode for EIGHT MONTHS. Eight. Every other tool we use has it. I have raised it three times and been fobbed off every time. If this is not on the roadmap by the end of the quarter we are moving to a competitor and I will make sure our partners hear about it. Put me through to whoever actually makes decisions there.",
+    "customer_tier": "pro",
+    "subject": "ABSOLUTELY UNACCEPTABLE",
+    "ticket_id": "tk-020"
+  },
+  "split": "train",
+  "tags": [
+    "angry-low-priority",
+    "cat:feature",
+    "needs-human",
+    "prio:p3",
+    "tier:pro"
+  ]
+}

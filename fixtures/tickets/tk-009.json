@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-009",
+  "input": {
+    "body": "Bonjour, serait-il possible d'ajouter le format JJ/MM/AAAA dans les parametres? Our French team keeps misreading American dates in the reports. Ce n'est pas urgent du tout, juste agreable a avoir. Merci beaucoup pour votre travail.",
+    "customer_tier": "pro",
+    "subject": "Feature request: format de date francais",
+    "ticket_id": "tk-009"
+  },
+  "split": "train",
+  "tags": [
+    "cat:feature",
+    "mixed-language",
+    "prio:p3",
+    "tier:pro"
+  ]
+}

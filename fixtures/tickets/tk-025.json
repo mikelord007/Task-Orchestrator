@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-025",
+  "input": {
+    "body": "Every card charge across our organisation has been declining since 17 April with 'processor error'. This affects all 12 of our billing accounts, not just one card, and our customers are seeing it too. Nothing we do on our side changes it.",
+    "customer_tier": "pro",
+    "subject": "All payments failing since 17 April",
+    "ticket_id": "tk-025"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "needs-human",
+    "prio:p0",
+    "routine",
+    "tier:pro"
+  ]
+}

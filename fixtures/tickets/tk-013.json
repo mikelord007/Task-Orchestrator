@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-013",
+  "input": {
+    "body": "Bug: the CSV importer maps the second and third columns the wrong way round. We can fix it by reordering the file before upload, so it's annoying rather than fatal.\nQuestion: does the importer support tab-separated files?\nIdea: an import preview screen would have saved us two hours today.",
+    "customer_tier": "free",
+    "subject": "Bug + question + idea",
+    "ticket_id": "tk-013"
+  },
+  "split": "train",
+  "tags": [
+    "cat:bug",
+    "multi-issue",
+    "needs-human",
+    "prio:p2",
+    "tier:free"
+  ]
+}

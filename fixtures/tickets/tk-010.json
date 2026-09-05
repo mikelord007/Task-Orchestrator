@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-010",
+  "input": {
+    "body": "Hi team, quick question, nada urgente. The docs mention a limit of 1000 requests per minute, pero no dice si es por token o por organizacion. We are planning our integration and want to size it correctly. Podrian aclarar? Gracias.",
+    "customer_tier": "free",
+    "subject": "Doubt about API rate limit / duda sobre limites",
+    "ticket_id": "tk-010"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:other",
+    "mixed-language",
+    "prio:p3",
+    "tier:free"
+  ]
+}
