@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces: cool near-black with a blue cast, four steps, no pure black. */
+  --color-ink-900: #080b0f;
+  --color-ink-800: #0e141b;
+  --color-ink-700: #161e27;
+  --color-ink-600: #1e2833;
+  --color-line: #212c38;
+  --color-line-soft: #18212b;
+
+  /* Text */
+  --color-fg: #d7e0e8;
+  --color-fg-dim: #9aa9b8;
+  --color-fg-mute: #6d7d8d;
+
+  /* Hue is meaning. Green/red only ever mean pass/fail. */
+  --color-pass: #3fd3a0;
+  --color-fail: #f2616a;
+  /* Cyan/violet only ever mean train/holdout. */
+  --color-train: #4cc2ff;
+  --color-holdout: #a98bff;
+  /* Amber only ever means drift. */
+  --color-drift: #e8b14a;
+
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", monospace;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-xs: 3px;
+}
+
+html,
+body {
+  background: var(--color-ink-900);
+  color: var(--color-fg);
+}
+
+body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Human prose only: hypotheses, diagnoses, rule text, issue bodies. */
+.prose-h {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.6;
+  max-width: 72ch;
+}
+
+::selection {
+  background: var(--color-train);
+  color: var(--color-ink-900);
+}
+
+*:focus-visible {
+  outline: 1px solid var(--color-train);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
