@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-024",
+  "input": {
+    "body": "URGENT. CRITICAL. Your release notes email went out with our company name misspelled. This is deeply unprofessional and reflects badly on us internally. I want this acknowledged today by someone senior and I want to know what process failed. I am copying my VP on the next one.",
+    "customer_tier": "enterprise",
+    "subject": "Escalating this immediately",
+    "ticket_id": "tk-024"
+  },
+  "reference_output": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "split": "holdout",
+  "tags": [
+    "angry-low-priority",
+    "cat:other",
+    "needs-human",
+    "prio:p2",
+    "tier:enterprise"
+  ]
+}

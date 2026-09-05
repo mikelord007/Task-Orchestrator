@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "id": "tk-028",
+  "input": {
+    "body": "The summary at the top of the contact page adds up to $89.00 but the rows below it total something different. Exporting to CSV gives the correct figure, so we are using that for now. Started around 9 July.",
+    "customer_tier": "enterprise",
+    "subject": "Wrong totals in the contact summary",
+    "ticket_id": "tk-028"
+  },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
+  "split": "train",
+  "tags": [
+    "cat:bug",
+    "needs-human",
+    "prio:p1",
+    "routine",
+    "tier:enterprise"
+  ]
+}

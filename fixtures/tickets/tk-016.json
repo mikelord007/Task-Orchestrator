@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-016",
+  "input": {
+    "body": "Hi, I wanted to ask how the date filter on the reports page treats timezones. We are in UTC+5:30 and I want to be sure the daily figures line up with our accounting day. I read the help article twice and it does not really say. It would be helpful if the docs spelled it out, or if the filter showed the timezone next to the dates. Not a big deal either way, we can work around it with a spreadsheet for now. On an unrelated note, the report export we downloaded this morning contains rows belonging to a different company. Names, email addresses, deal values, none of it ours. I stopped opening it once I realised. Anyway, mainly writing about the timezone thing.",
+    "customer_tier": "pro",
+    "subject": "Question about the reporting filters",
+    "ticket_id": "tk-016"
+  },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "split": "train",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "needs-human",
+    "prio:p0",
+    "tier:pro"
+  ]
+}
