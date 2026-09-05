@@ -66,6 +66,14 @@ def test_get_events_since_is_inclusive_and_ordered(client: TestClient) -> None:
     assert all(e["ts"] >= midpoint for e in later)
 
 
+def test_get_events_since_accepts_a_numeric_event_id_cursor(client: TestClient) -> None:
+    """A digit string over HTTP is an exclusive id cursor, not a timestamp."""
+    everything = client.get("/events").json()
+    cursor_id = everything[2]["id"]
+    later = client.get("/events", params={"since": str(cursor_id)}).json()
+    assert [e["id"] for e in later] == [e["id"] for e in everything if e["id"] > cursor_id]
+
+
 def test_get_events_on_an_empty_ledger_is_an_empty_list(
     empty_client: TestClient,
 ) -> None:
@@ -109,7 +117,8 @@ def test_get_fixes(client: TestClient) -> None:
     assert body[0]["status"] == "rejected"
     assert body[1]["status"] == "accepted"
     assert body[1]["diff_url"] == f"/agents/{AGENT_ID}/fixes/1/diff"
-    assert body[1]["metric_signal"].startswith("tool_calls_per_task fell")
+    # metric_signal is contract-restricted to lever=tools fixes; this one is memory.
+    assert body[1]["metric_signal"] is None
 
 
 def test_get_fix_diff_is_plain_text(client: TestClient) -> None:

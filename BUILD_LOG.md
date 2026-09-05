@@ -71,7 +71,8 @@ Stall (22:23Z update): the shared account usage limit paused the orchestrator an
 |---|---|---|---|---|---|---|
 | `task-orchestrator-4` | W0 — Phase 0 scaffold | `ws/w0-scaffold` | [#3](https://github.com/mikelord007/Task-Orchestrator/pull/3) | merged (a14dbd5) | 2026-09-06 | 2026-09-05 22:40Z |
 | `task-orchestrator-10` | W0b — addendum doc (`PLAN_ADDENDUM.md`) | `ws/w0b-addendum` | #2 | merged (eba2a1c) | 2026-09-05 | 2026-09-05 |
-| `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | [#7](https://github.com/mikelord007/Task-Orchestrator/pull/7) | ready for review (CI green) | 2026-09-05 | 2026-09-05 22:52Z |
+| `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | [#7](https://github.com/mikelord007/Task-Orchestrator/pull/7) | merged (1f9df25) | 2026-09-05 | 2026-09-05 22:52Z |
+| `task-orchestrator-7` | W1b — since= id cursor, normalized_args/tokens_estimated, metric_signal gate | `ws/w1b-since-cursor` | [#11](https://github.com/mikelord007/Task-Orchestrator/pull/11) | ready for review (CI pending) | 2026-09-05 | — |
 | `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | — | in progress | 2026-09-05 | — |
 | `task-orchestrator-9` | W3 — architect + toolbox | `ws/w3-architect` | [#9](https://github.com/mikelord007/Task-Orchestrator/pull/9) | ready for review (CI green) | 2026-09-05 | 2026-09-06 |
 | `task-orchestrator-9` | W3b — contract-change: `orchestration_reason` | `ws/w3b-contract-orchestration-reason` | [#8](https://github.com/mikelord007/Task-Orchestrator/pull/8) | merged (1c5285f) | 2026-09-06 | 2026-09-06 |
