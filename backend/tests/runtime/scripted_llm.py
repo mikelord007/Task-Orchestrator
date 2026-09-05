@@ -12,7 +12,8 @@ safe under the eval harness's thread pool.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 Handler = Callable[[str, int, list[dict[str, Any]]], dict[str, Any]]
 
@@ -35,7 +36,9 @@ def response(
     }
 
 
-def tool_call(name: str, args: dict[str, Any], call_id: str | None = None) -> dict[str, Any]:
+def tool_call(
+    name: str, args: dict[str, Any], call_id: str | None = None
+) -> dict[str, Any]:
     return {"id": call_id or f"call_{name}", "name": name, "args": args}
 
 
@@ -47,7 +50,10 @@ class ScriptedLLM:
         self.calls: list[dict[str, Any]] = []
 
     def complete(
-        self, messages: list[dict[str, Any]], model: str, tools: list[dict[str, Any]] | None = None
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         case_id = self.case_id_of(messages)
         turn = sum(1 for m in messages if m.get("role") == "assistant")

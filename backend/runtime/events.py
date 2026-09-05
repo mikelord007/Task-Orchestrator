@@ -10,7 +10,8 @@ Both the emitter and the reader are injectable so tests never touch the DB.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 EmitFn = Callable[..., Any]
 ReadEventsFn = Callable[..., list[dict[str, Any]]]

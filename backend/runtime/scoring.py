@@ -11,9 +11,10 @@ import importlib.util
 import json
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 DEFAULT_EVALUATORS_DIR = Path("evaluators")
 
@@ -31,7 +32,9 @@ class ScoreResult:
     notes: str
 
 
-def evaluator_dir(evaluator_id: str, evaluators_dir: Path | str = DEFAULT_EVALUATORS_DIR) -> Path:
+def evaluator_dir(
+    evaluator_id: str, evaluators_dir: Path | str = DEFAULT_EVALUATORS_DIR
+) -> Path:
     return Path(evaluators_dir) / evaluator_id
 
 
@@ -75,9 +78,15 @@ def score_case(scorer: ScoreFn, expected: dict[str, Any], actual: Any) -> ScoreR
     try:
         raw = scorer(expected, actual)
     except Exception as exc:  # noqa: BLE001 - one bad case must not kill the run
-        return ScoreResult(passed=False, score=0.0, notes=f"scorer error: {type(exc).__name__}: {exc}")
+        return ScoreResult(
+            passed=False, score=0.0, notes=f"scorer error: {type(exc).__name__}: {exc}"
+        )
     if not isinstance(raw, dict):
-        return ScoreResult(passed=False, score=0.0, notes=f"scorer returned {type(raw).__name__}, expected dict")
+        return ScoreResult(
+            passed=False,
+            score=0.0,
+            notes=f"scorer returned {type(raw).__name__}, expected dict",
+        )
     return ScoreResult(
         passed=bool(raw.get("passed")),
         score=float(raw.get("score") or 0.0),

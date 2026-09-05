@@ -37,7 +37,9 @@ def test_tokenize_handles_empty_and_none():
 
 
 def test_case_text_flattens_nested_case_input():
-    text = mem.case_text({"title": "Crash on Windows", "body": {"detail": ["ConPTY", 42]}})
+    text = mem.case_text(
+        {"title": "Crash on Windows", "body": {"detail": ["ConPTY", 42]}}
+    )
     tokens = mem.tokenize(text)
     assert {"crash", "windows", "conpty", "42"} <= tokens
 
@@ -131,7 +133,10 @@ def test_load_memory_reads_the_three_jsonl_files_and_tolerates_missing(tmp_path)
     pkg = tmp_path / "v0"
     (pkg / "memory").mkdir(parents=True)
     (pkg / "memory" / "rules.jsonl").write_text(
-        json.dumps(rule("r1", "a", ["x"])) + "\n\n" + json.dumps(rule("r2", "b", ["y"])) + "\n",
+        json.dumps(rule("r1", "a", ["x"]))
+        + "\n\n"
+        + json.dumps(rule("r2", "b", ["y"]))
+        + "\n",
         encoding="utf-8",
     )
     loaded = mem.load_memory(pkg)
@@ -154,7 +159,11 @@ def test_mark_demoted_rewrites_only_the_named_rules(tmp_path):
         encoding="utf-8",
     )
     mem.mark_demoted_on_disk(pkg, ["r2"])
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert rows[0].get("demoted") is not True
     assert rows[1]["demoted"] is True
 

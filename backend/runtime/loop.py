@@ -19,11 +19,17 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from backend.runtime.config import Knobs
-from backend.runtime.drift import ACTION_ABORT, DriftDecision, DriftWatchdog, normalize_args
+from backend.runtime.drift import (
+    ACTION_ABORT,
+    DriftDecision,
+    DriftWatchdog,
+    normalize_args,
+)
 from backend.runtime.package import LoadedPackage, invoke_tool
 from backend.runtime.transcript import Transcript
 
@@ -33,7 +39,11 @@ DriftSink = Callable[[DriftDecision], Any]
 _FENCE = re.compile(r"^\s*```(?:json|JSON)?\s*|\s*```\s*$")
 
 
-def default_complete(messages: list[dict[str, Any]], model: str, tools: list[dict[str, Any]] | None = None):
+def default_complete(
+    messages: list[dict[str, Any]],
+    model: str,
+    tools: list[dict[str, Any]] | None = None,
+):
     """Every LLM call goes through ``backend/llm.py``."""
     from backend import llm
 
@@ -61,7 +71,9 @@ def normalize_response(raw: Any) -> ModelResponse:
         tool_calls=list(raw.get("tool_calls") or []),
         usage={
             "tokens_in": int(usage.get("tokens_in") or usage.get("prompt_tokens") or 0),
-            "tokens_out": int(usage.get("tokens_out") or usage.get("completion_tokens") or 0),
+            "tokens_out": int(
+                usage.get("tokens_out") or usage.get("completion_tokens") or 0
+            ),
         },
         cost_usd=float(raw.get("cost_usd") or 0.0),
         raw=raw,
@@ -173,8 +185,12 @@ def run_loop(
             _handle(timeout, transcript, messages, on_drift, result)
             return result
 
-        transcript.record_request(model=model, messages=messages, tools=specs, phase=phase)
-        response = normalize_response(complete(messages, model=model, tools=specs or None))
+        transcript.record_request(
+            model=model, messages=messages, tools=specs, phase=phase
+        )
+        response = normalize_response(
+            complete(messages, model=model, tools=specs or None)
+        )
         transcript.record_response(
             model=model,
             text=response.text,
@@ -192,7 +208,10 @@ def run_loop(
         for raw_call in response.tool_calls:
             call_id, name, args = parse_tool_call(raw_call)
             transcript.record_tool_call(
-                tool=name, args=args, normalized_args=normalize_args(args), call_id=call_id
+                tool=name,
+                args=args,
+                normalized_args=normalize_args(args),
+                call_id=call_id,
             )
             started = time.monotonic()
             tool = package.tools.get(name)
@@ -259,7 +278,7 @@ def _handle(
 ) -> None:
     event_id = on_drift(decision) if on_drift is not None else None
     transcript.record_drift(
-        decision.to_payload(case_id=transcript.case_id, repeat=transcript.repeat),
+        decision.to_payload(case_id=transcript.case_id, trial=transcript.trial),
         event_id=event_id if isinstance(event_id, int) else None,
     )
     if decision.action == ACTION_ABORT:

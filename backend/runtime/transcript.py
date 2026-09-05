@@ -6,7 +6,7 @@ step is ever produced by asking the model to describe its own behaviour, and
 
 The transcript is the single source of truth for the drift watchdog, the failure
 analyst (W6) and Neatlogs. It is persisted to
-``runs/<run_id>/<case_id>.r<repeat>.json``.
+``runs/<run_id>/<case_id>.t<trial>.json``.
 """
 
 from __future__ import annotations
@@ -22,13 +22,19 @@ TRANSCRIPT_VERSION = 1
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
-def transcript_path(runs_dir: Path | str, run_id: str, case_id: str, repeat: int) -> Path:
-    """``runs/<run_id>/<case_id>.r<repeat>.json`` (case id made filename-safe)."""
+def transcript_path(
+    runs_dir: Path | str, run_id: str, case_id: str, trial: int
+) -> Path:
+    """``runs/<run_id>/<case_id>.t<trial>.json`` (task id made filename-safe)."""
     safe = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in str(case_id))
-    return Path(runs_dir) / run_id / f"{safe}.r{repeat}.json"
+    return Path(runs_dir) / run_id / f"{safe}.t{trial}.json"
 
 
 @dataclass
@@ -52,7 +58,7 @@ class ToolCallRecord:
 
 
 class Transcript:
-    """Append-only in-memory transcript for one (case, repeat)."""
+    """Append-only in-memory transcript for one (task, trial)."""
 
     def __init__(
         self,
@@ -61,7 +67,7 @@ class Transcript:
         agent_id: str,
         agent_version: int,
         case_id: str,
-        repeat: int,
+        trial: int,
         orchestration: str = "single",
         case_input: Any = None,
         expected_keys: list[str] | None = None,
@@ -73,7 +79,7 @@ class Transcript:
         self.agent_id = agent_id
         self.agent_version = agent_version
         self.case_id = case_id
-        self.repeat = repeat
+        self.trial = trial
         self.orchestration = orchestration
         self.case_input = case_input
         self.expected_keys = list(expected_keys or [])
@@ -184,7 +190,9 @@ class Transcript:
             usage={"tokens_in": t_in, "tokens_out": t_out},
             cost_usd=float(cost_usd or 0.0),
         )
-        message = AssistantMessage(text=text or "", tool_calls=list(tool_calls or []), phase=phase)
+        message = AssistantMessage(
+            text=text or "", tool_calls=list(tool_calls or []), phase=phase
+        )
         self.assistant_messages.append(message)
         return message
 
@@ -193,7 +201,9 @@ class Transcript:
     ) -> None:
         self.tool_calls += 1
         self.tool_call_history.append(
-            ToolCallRecord(tool=tool, normalized_args=normalized_args, step=self.step_count)
+            ToolCallRecord(
+                tool=tool, normalized_args=normalized_args, step=self.step_count
+            )
         )
         self._append(
             "tool_call",
@@ -228,7 +238,9 @@ class Transcript:
     def record_nudge(self, *, kind: str, message: str) -> None:
         self._append("nudge", kind=kind, message=message)
 
-    def record_drift(self, payload: dict[str, Any], event_id: int | None = None) -> None:
+    def record_drift(
+        self, payload: dict[str, Any], event_id: int | None = None
+    ) -> None:
         entry = dict(payload)
         if event_id is not None:
             entry["event_id"] = event_id
@@ -254,7 +266,7 @@ class Transcript:
             "agent_id": self.agent_id,
             "agent_version": self.agent_version,
             "case_id": self.case_id,
-            "repeat": self.repeat,
+            "trial": self.trial,
             "orchestration": self.orchestration,
             "started_ts": self.started_ts,
             "finished_ts": self.finished_ts,
@@ -290,7 +302,9 @@ class Transcript:
         }
 
     def write(self, runs_dir: Path | str) -> str:
-        path = transcript_path(runs_dir, self.run_id, self.case_id, self.repeat)
+        path = transcript_path(runs_dir, self.run_id, self.case_id, self.trial)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8"
+        )
         return str(path).replace("\\", "/")

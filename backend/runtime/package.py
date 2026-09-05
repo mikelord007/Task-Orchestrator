@@ -13,9 +13,10 @@ from __future__ import annotations
 import importlib.util
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 DEFAULT_AGENTS_DIR = Path("agents")
 
@@ -56,7 +57,11 @@ class LoadedPackage:
     @property
     def routing(self) -> dict[str, str]:
         routing = self.config.get("routing") or {}
-        return {str(k): str(v) for k, v in routing.items()} if isinstance(routing, dict) else {}
+        return (
+            {str(k): str(v) for k, v in routing.items()}
+            if isinstance(routing, dict)
+            else {}
+        )
 
     def tool_specs(self) -> list[dict[str, Any]]:
         return [tool.spec() for tool in self.tools.values()]
@@ -85,7 +90,7 @@ def load_tool_module(path: Path) -> Any:
     sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a package error
+    except Exception as exc:
         sys.modules.pop(module_name, None)
         raise PackageError(f"tool module {path.name} failed to import: {exc}") from exc
     return module
@@ -152,19 +157,26 @@ def _parse_yaml(text: str) -> dict[str, Any]:
     return data
 
 
-def load_from_dir(directory: Path | str, agent_id: str = "", version: int | None = None) -> LoadedPackage:
+def load_from_dir(
+    directory: Path | str, agent_id: str = "", version: int | None = None
+) -> LoadedPackage:
     """Load a package straight off disk (used by tests and by :func:`load`)."""
     directory = Path(directory)
     if not directory.exists():
         raise PackageError(f"agent package not found: {directory}")
     config_path = directory / "agent.yaml"
-    config = _parse_yaml(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    config = (
+        _parse_yaml(config_path.read_text(encoding="utf-8"))
+        if config_path.exists()
+        else {}
+    )
     prompt_path = directory / "prompt.md"
     prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
     if version is None:
         version = int(config.get("version") or 0)
     return LoadedPackage(
-        agent_id=agent_id or str(config.get("agent_id") or config.get("name") or directory.name),
+        agent_id=agent_id
+        or str(config.get("agent_id") or config.get("name") or directory.name),
         version=version,
         directory=directory,
         config=config,
@@ -173,11 +185,15 @@ def load_from_dir(directory: Path | str, agent_id: str = "", version: int | None
     )
 
 
-def package_dir(agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR) -> Path:
+def package_dir(
+    agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR
+) -> Path:
     return Path(agents_dir) / agent_id / f"v{version}"
 
 
-def load(agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR) -> LoadedPackage:
+def load(
+    agent_id: str, version: int, agents_dir: Path | str = DEFAULT_AGENTS_DIR
+) -> LoadedPackage:
     """Load an agent package version via ``contracts.agent.load_package``.
 
     ``contracts`` owns the package schema; the runtime only adds the executable

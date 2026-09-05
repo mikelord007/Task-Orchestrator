@@ -40,7 +40,9 @@ class RecordingLedger:
         )
         return event_id
 
-    def read(self, agent_id: str | None = None, kind: str | None = None) -> list[dict[str, Any]]:
+    def read(
+        self, agent_id: str | None = None, kind: str | None = None
+    ) -> list[dict[str, Any]]:
         return [
             event
             for event in self.events
@@ -63,7 +65,7 @@ def ledger() -> RecordingLedger:
 @pytest.fixture
 def knobs() -> Knobs:
     return Knobs(
-        eval_repeats=3,
+        eval_trials=3,
         eval_concurrency=1,
         drift_max_steps=12,
         drift_token_budget=20_000,
@@ -98,6 +100,8 @@ def evaluator_path() -> Path:
 def toy_cases() -> list[dict[str, Any]]:
     return [
         json.loads(line)
-        for line in (TOY_EVALUATOR / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (TOY_EVALUATOR / "cases.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.strip()
     ]

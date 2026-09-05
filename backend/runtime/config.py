@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-DEFAULT_EVAL_REPEATS = 3
+DEFAULT_EVAL_TRIALS = 3
 DEFAULT_EVAL_CONCURRENCY = 4
 DEFAULT_DRIFT_MAX_STEPS = 12
 DEFAULT_DRIFT_TOKEN_BUDGET = 20_000
@@ -31,7 +31,7 @@ def _int_env(name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class Knobs:
-    eval_repeats: int = DEFAULT_EVAL_REPEATS
+    eval_trials: int = DEFAULT_EVAL_TRIALS
     eval_concurrency: int = DEFAULT_EVAL_CONCURRENCY
     drift_max_steps: int = DEFAULT_DRIFT_MAX_STEPS
     drift_token_budget: int = DEFAULT_DRIFT_TOKEN_BUDGET
@@ -42,9 +42,14 @@ class Knobs:
 
 
 def load_knobs() -> Knobs:
-    """Build a :class:`Knobs` from the current environment."""
+    """Build a :class:`Knobs` from the current environment.
+
+    ``EVAL_TRIALS`` is canonical; ``EVAL_REPEATS`` is accepted as a deprecated
+    fallback alias (PLAN_ADDENDUM.md section A) for anyone still setting it.
+    """
+    eval_trials_default = _int_env("EVAL_REPEATS", DEFAULT_EVAL_TRIALS)
     return Knobs(
-        eval_repeats=_int_env("EVAL_REPEATS", DEFAULT_EVAL_REPEATS),
+        eval_trials=_int_env("EVAL_TRIALS", eval_trials_default),
         eval_concurrency=_int_env("EVAL_CONCURRENCY", DEFAULT_EVAL_CONCURRENCY),
         drift_max_steps=_int_env("DRIFT_MAX_STEPS", DEFAULT_DRIFT_MAX_STEPS),
         drift_token_budget=_int_env("DRIFT_TOKEN_BUDGET", DEFAULT_DRIFT_TOKEN_BUDGET),

@@ -44,7 +44,13 @@ def failure_signature(
     if tool_error:
         parts.append(f"tool_error {tool_error}")
     if missing_keys:
-        keys = sorted({_normalize(str(k)).replace(" ", "_") for k in missing_keys if str(k).strip()})
+        keys = sorted(
+            {
+                _normalize(str(k)).replace(" ", "_")
+                for k in missing_keys
+                if str(k).strip()
+            }
+        )
         keys = [k for k in keys if k]
         if keys:
             parts.append("missing " + ",".join(keys))
@@ -69,6 +75,4 @@ def missing_expected_keys(expected: dict[str, Any], actual: Any) -> list[str]:
         return []
     if not isinstance(actual, dict):
         return sorted(str(k) for k in expected)
-    return sorted(
-        str(k) for k in expected if k not in actual or actual.get(k) is None
-    )
+    return sorted(str(k) for k in expected if k not in actual or actual.get(k) is None)

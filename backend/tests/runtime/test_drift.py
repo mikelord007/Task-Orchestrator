@@ -18,12 +18,14 @@ def make_transcript() -> Transcript:
         agent_id="a1",
         agent_version=0,
         case_id="c1",
-        repeat=0,
+        trial=0,
         expected_keys=["labels", "component"],
     )
 
 
-def respond(t: Transcript, text: str = "", tool_calls=None, tokens_out: int = 10) -> None:
+def respond(
+    t: Transcript, text: str = "", tool_calls=None, tokens_out: int = 10
+) -> None:
     t.record_response(
         model="m",
         text=text,
@@ -119,7 +121,9 @@ def test_budget_aborts_once_cumulative_tokens_exceed_the_budget():
 
 
 def test_step_limit_aborts_once_steps_exceed_the_maximum():
-    knobs = Knobs(drift_max_steps=3, drift_token_budget=10**9, drift_repeat_call_limit=99)
+    knobs = Knobs(
+        drift_max_steps=3, drift_token_budget=10**9, drift_repeat_call_limit=99
+    )
     t = make_transcript()
     wd = DriftWatchdog(knobs, expected_keys=["labels"])
     for i in range(3):
@@ -219,10 +223,10 @@ def test_decision_payload_matches_the_drift_detected_event_shape():
         respond(t, tool_calls=[{"name": "x", "args": {}}])
         call_tool(t, "x", {})
         d = wd.check(t)
-    payload = d.to_payload(case_id="c1", repeat=2)
+    payload = d.to_payload(case_id="c1", trial=2)
     assert set(payload) == {
         "case_id",
-        "repeat",
+        "trial",
         "step",
         "kind",
         "evidence",
@@ -230,7 +234,7 @@ def test_decision_payload_matches_the_drift_detected_event_shape():
         "tokens_at_detection",
     }
     assert payload["case_id"] == "c1"
-    assert payload["repeat"] == 2
+    assert payload["trial"] == 2
 
 
 @pytest.mark.parametrize("kind", ["loop", "budget", "off_task", "step_limit"])

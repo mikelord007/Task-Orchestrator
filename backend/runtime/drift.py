@@ -49,7 +49,10 @@ _MESSAGE_EXCERPT_CHARS = 240
 
 def _canonicalize(value: Any) -> Any:
     if isinstance(value, dict):
-        return {str(k): _canonicalize(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
+        return {
+            str(k): _canonicalize(v)
+            for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+        }
     if isinstance(value, (list, tuple)):
         return [_canonicalize(v) for v in value]
     if isinstance(value, str):
@@ -59,7 +62,9 @@ def _canonicalize(value: Any) -> Any:
 
 def normalize_args(args: Any) -> str:
     """Stable string form of tool arguments, used to detect identical calls."""
-    return json.dumps(_canonicalize(args), sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        _canonicalize(args), sort_keys=True, separators=(",", ":"), default=str
+    )
 
 
 @dataclass(frozen=True)
@@ -71,11 +76,11 @@ class DriftDecision:
     step: int
     message: str | None = None
 
-    def to_payload(self, *, case_id: str, repeat: int) -> dict[str, Any]:
-        """The ``drift_detected`` payload from contracts/events.py section 4.1."""
+    def to_payload(self, *, case_id: str, trial: int) -> dict[str, Any]:
+        """The ``drift_detected`` payload (PLAN_ADDENDUM.md section A)."""
         return {
             "case_id": case_id,
-            "repeat": repeat,
+            "trial": trial,
             "step": self.step,
             "kind": self.kind,
             "evidence": self.evidence,
@@ -98,11 +103,19 @@ class DriftWatchdog:
 
     # -- checks ---------------------------------------------------------
 
-    def check(self, transcript: "Transcript") -> DriftDecision | None:
+    def check(self, transcript: Transcript) -> DriftDecision | None:
         """First drift decision produced by the current transcript state, if any."""
         if self._terminal:
             return None
-        for probe in (self._check_budget, self._check_step_limit, self._check_loop, self._check_off_task):
+        # Order per PLAN_ADDENDUM.md section C: loop and budget are the most
+        # concrete signals, step_limit next, off_task last (least reliable,
+        # first on the cut list).
+        for probe in (
+            self._check_loop,
+            self._check_budget,
+            self._check_step_limit,
+            self._check_off_task,
+        ):
             decision = probe(transcript)
             if decision is not None:
                 if decision.action == ACTION_ABORT:
@@ -110,7 +123,7 @@ class DriftWatchdog:
                 return decision
         return None
 
-    def check_timeout(self, transcript: "Transcript") -> DriftDecision | None:
+    def check_timeout(self, transcript: Transcript) -> DriftDecision | None:
         """Per-case wall-clock timeout, recorded as a ``budget`` abort for accounting."""
         if self._terminal:
             return None
@@ -133,7 +146,7 @@ class DriftWatchdog:
 
     # -- individual kinds -----------------------------------------------
 
-    def _check_budget(self, transcript: "Transcript") -> DriftDecision | None:
+    def _check_budget(self, transcript: Transcript) -> DriftDecision | None:
         used = transcript.tokens_used
         if used <= self.knobs.drift_token_budget:
             return None
@@ -145,7 +158,7 @@ class DriftWatchdog:
             step=transcript.step_count,
         )
 
-    def _check_step_limit(self, transcript: "Transcript") -> DriftDecision | None:
+    def _check_step_limit(self, transcript: Transcript) -> DriftDecision | None:
         steps = transcript.step_count
         if steps <= self.knobs.drift_max_steps:
             return None
@@ -157,7 +170,7 @@ class DriftWatchdog:
             step=steps,
         )
 
-    def _check_loop(self, transcript: "Transcript") -> DriftDecision | None:
+    def _check_loop(self, transcript: Transcript) -> DriftDecision | None:
         limit = self.knobs.drift_repeat_call_limit
         if limit <= 0 or not transcript.tool_call_history:
             return None
@@ -182,7 +195,7 @@ class DriftWatchdog:
             )
         return None
 
-    def _check_off_task(self, transcript: "Transcript") -> DriftDecision | None:
+    def _check_off_task(self, transcript: Transcript) -> DriftDecision | None:
         if not self.expected_keys:
             return None
         # Only the acting phase can be "off task"; a planner's prose is prose by
@@ -209,7 +222,9 @@ class DriftWatchdog:
             action=action,
             evidence={
                 "expected_keys": list(self.expected_keys),
-                "last_messages": [(m.text or "")[:_MESSAGE_EXCERPT_CHARS] for m in recent],
+                "last_messages": [
+                    (m.text or "")[:_MESSAGE_EXCERPT_CHARS] for m in recent
+                ],
             },
             tokens_at_detection=transcript.tokens_used,
             step=transcript.step_count,
