@@ -1,4 +1,3 @@
-import type { FlaggedTask } from "@/lib/types";
 import { Empty, Pill } from "@/components/ui";
 
 /**
@@ -6,7 +5,7 @@ import { Empty, Pill } from "@/components/ui";
  * a broken task, not an incapable agent — so it is surfaced for review, not
  * silently counted against the agent.
  */
-export default function FlaggedTasks({ tasks }: { tasks: FlaggedTask[] }) {
+export default function FlaggedTasks({ tasks }: { tasks: string[] }) {
   if (tasks.length === 0) {
     return (
       <Empty>
@@ -16,14 +15,10 @@ export default function FlaggedTasks({ tasks }: { tasks: FlaggedTask[] }) {
   }
 
   return (
-    <ul className="space-y-1.5">
-      {tasks.map((t) => (
-        <li key={t.case_id} className="flex flex-wrap items-center gap-2 text-[12px]">
-          <Pill tone="fail">{t.case_id}</Pill>
-          <span className="text-fg-mute">
-            0% at v{t.versions_at_zero.join(", v")}
-          </span>
-          {t.tag ? <span className="text-fg-mute">({t.tag})</span> : null}
+    <ul className="flex flex-wrap gap-1.5">
+      {tasks.map((caseId) => (
+        <li key={caseId}>
+          <Pill tone="fail">{caseId}</Pill>
         </li>
       ))}
     </ul>

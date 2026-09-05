@@ -1,42 +1,47 @@
 /**
  * Wire types for the Task Orchestrator REST API.
  *
- * Source of truth: PLAN_ADDENDUM.md section A (and the W5 entry in
- * addendum-deltas.md), which supersedes the pre-addendum PLAN.md section 4.5.
+ * Source of truth: `contracts/api.md` (frozen after Phase 0), cross-checked
+ * against `contracts/events.py`, `contracts/agent_package.md`,
+ * `contracts/evaluator.md` and `contracts/playbook.md` where api.md is silent
+ * on a shape. Where api.md is genuinely silent (the exact `GET /evaluators`
+ * and `GET /events` row shapes, most of `GET /agents/{id}`), the type below
+ * is this workstream's reasonable inference, not a contract quote.
  *
- * Terminology (addendum J): a `case` in the JSON is called a **task** in prose
- * and UI; a `repeat` is a **trial**; `score.py` is the **grader**. Field names
- * below keep the contract's wire names (`case_id`, `passed_by_trial`, ...)
- * even where the UI says "task".
+ * Terminology (contract section J): a `case` in the JSON is called a **task**
+ * in prose and UI; a `repeat` is a **trial**; `score.py` is the **grader**.
+ * Field names below keep the contract's wire names (`case_id`,
+ * `passed_by_trial`, ...) even where the UI says "task".
  *
- * contracts/ does not exist on this branch yet (Phase 0 had not merged when
- * this workstream started). When it lands these types are reconciled against
- * it; mismatches are reported, not silently changed.
+ * Flat floats vs. RateStat (events.py's own boundary, restated here): ledger
+ * events and anything that is a direct read of one (`FixCard.before/after`,
+ * `RunSummary`) use flat float fields, because an event is one observed fact.
+ * `RateStat` (mean/std/min/max) exists only on the `/insights` per-version
+ * chart series, where the caller wants spread bundled with the mean.
  */
 
 /* ------------------------------------------------------------------ common */
 
 export type Split = "train" | "holdout";
 export type Lever = "prompt" | "tools" | "memory" | "orchestration" | "routing" | "grader";
-export type Orchestration = "single" | "planner_worker" | "generate_critic";
+/** `generate_critic` was dropped (PLAN.md 0.4); do not add it back without a contract change. */
+export type Orchestration = "single" | "planner_worker";
 export type DriftKind = "loop" | "budget" | "off_task" | "step_limit";
 
 /**
- * pass@1 = mean per-trial pass rate over tasks. pass^k (k = trials) = fraction
- * of tasks that passed every trial (the stable pass set). Never call either
- * one "accuracy". mean/std/min/max are computed over the trial-level pass
- * rates; trials/task_count say what produced them.
+ * The return shape of W1's `pass_at_1()` / `pass_pow_k()` metric functions and
+ * the `/insights` chart series only. pass@1 = mean per-trial pass rate over
+ * tasks. pass^k (k = trials) = fraction of tasks that passed every trial (the
+ * stable pass set). Never call either one "accuracy".
  */
 export interface RateStat {
   mean: number;
   std: number;
   min: number;
   max: number;
-  trials?: number;
-  task_count?: number;
 }
 
-/** One point on a pass@1 / pass^k chart. */
+/** VersionPoint in contracts/api.md: one point on a pass@1 / pass^k chart. */
 export interface RatePoint {
   version: number;
   split: Split;
@@ -50,7 +55,7 @@ export type Json = Record<string, unknown>;
 
 /* ------------------------------------------------------------------ memory */
 
-/** agents/<id>/v<N>/memory/rules.jsonl (addendum section E) */
+/** agents/<id>/v<N>/memory/rules.jsonl (contracts/agent_package.md) */
 export interface MemoryRule {
   id: string;
   rule: string;
@@ -63,7 +68,6 @@ export interface MemoryRule {
   source: "reflection" | "issue";
   /** Demoted rules stay on disk but are no longer injected. */
   demoted: boolean;
-  demoted_version?: number;
 }
 
 /** agents/<id>/v<N>/memory/tool_notes.jsonl */
@@ -92,7 +96,7 @@ export interface AgentMemory {
   episodes: Episode[];
 }
 
-/** A memory entry as carried on a lever=memory fix card. */
+/** A memory entry as carried on a lever=memory fix card (this workstream's UI shape, not a contract type). */
 export interface MemoryEntryChange {
   id: string;
   kind: "rule" | "tool_note" | "episode";
@@ -119,7 +123,7 @@ export interface ToolRef {
   description: string;
 }
 
-/** GET /agents */
+/** GET /agents. Exact row shape is this workstream's inference (api.md does not detail it). */
 export interface AgentSummary {
   agent_id: string;
   name: string;
@@ -128,15 +132,15 @@ export interface AgentSummary {
   evaluator_id: string;
   current_version: number;
   created_ts: string;
-  /** Latest recorded run per split for the current version; null when never run. */
+  /** Latest recorded run's pass@1 for the current version; null when never run. */
   latest_train: RateStat | null;
   latest_holdout: RateStat | null;
 }
 
 /**
- * GET /agents/{id} and GET /agents/{id}/versions/{n}
- * The agents row plus the described version's agent.yaml fields, prompt,
- * tools and memory.
+ * GET /agents/{id} and GET /agents/{id}/versions/{n}. Field list beyond the
+ * agents row is this workstream's inference: agent.yaml's fields
+ * (contracts/agent_package.md) plus prompt, tools and memory for the version.
  */
 export interface AgentDetail extends AgentSummary {
   /** The version this payload describes (= current_version for GET /agents/{id}). */
@@ -168,23 +172,26 @@ export interface CreateAgentResponse {
 
 /* --------------------------------------------------------------- evaluator */
 
-/** GET /evaluators */
+/** GET /evaluators. Row shape is this workstream's inference. */
 export interface Evaluator {
   evaluator_id: string;
   domain: string;
   description: string;
   /** The tools an agent for this evaluator is allowed to use. */
   allowed_tools: string[];
-  /** Task counts (contract field name stays case_counts). */
   case_counts: { train: number; holdout: number };
 }
 
 /* -------------------------------------------------------------------- runs */
 
-/** One task's row inside a run, aggregated over its trials. */
-export interface CaseRow {
+/**
+ * TaskResult (contracts/api.md): one task's row inside a run. Only
+ * `passed_by_trial` is genuinely per-trial; every other field is taken from
+ * trial 0 of that task in this run.
+ */
+export interface TaskResult {
   case_id: string;
-  /** One entry per trial, in trial order. */
+  /** length == trials */
   passed_by_trial: boolean[];
   score: number;
   cost_usd: number;
@@ -194,25 +201,25 @@ export interface CaseRow {
   rules_injected: string[];
   transcript_path: string;
   trace_url?: string;
-  /** Set when any trial of this task tripped the drift watchdog. */
   drift_kind?: DriftKind;
 }
 
-/** GET /agents/{id}/runs */
+/** RunSummary (contracts/api.md). GET /agents/{id}/runs -> RunSummary[]. */
 export interface RunSummary {
   run_id: string;
+  agent_id: string;
   version: number;
   split: Split;
   trials: number;
-  pass_at_1: RateStat;
-  /** Fraction of this run's tasks that passed every trial. */
+  started_ts: string;
+  finished_ts?: string;
+  pass_at_1: number;
   pass_pow_k: number;
   total_cost_usd: number;
   p50_latency_ms: number;
   p95_latency_ms: number;
-  started_ts?: string;
-  finished_ts?: string;
-  cases: CaseRow[];
+  drift_count: number;
+  tasks: TaskResult[];
 }
 
 export interface RunRequest {
@@ -225,25 +232,19 @@ export interface RunResponse {
 
 /* ----------------------------------------------------------------- compare */
 
-export interface InjectedRule {
-  id: string;
-  rule?: string;
-}
-
+/** CompareSide (contracts/api.md). `rules_injected` is a list of MemoryRule.id, not objects. */
 export interface CompareSide {
   output: Json;
-  rules_injected: InjectedRule[];
+  rules_injected: string[];
   tool_calls: number;
   tokens: number;
 }
 
-/** GET /agents/{id}/compare?case_id= */
+/** Compare (contracts/api.md). GET /agents/{id}/compare?case_id= */
 export interface CompareResult {
-  case_id: string;
   expected: Json;
   v0: CompareSide | null;
   current: CompareSide | null;
-  current_version?: number;
 }
 
 /* --------------------------------------------------------------- fix cards */
@@ -255,23 +256,26 @@ export interface FailingGroup {
   case_ids: string[];
 }
 
-/** fix_accepted / fix_rejected metric names, addendum section A. */
+/**
+ * fix_accepted/fix_rejected are flat floats (contracts/events.py), and
+ * FixCard.before/after mirror those field names exactly (contracts/api.md).
+ * No nested spread here by design.
+ */
 export interface FixMetrics {
   pass_at_1: number | null;
-  pass_at_1_std?: number | null;
   pass_pow_k: number | null;
   group_pass: number | null;
   cost_per_run: number | null;
   tool_calls_per_task: number | null;
 }
 
+/** On a rejected card, only pass_at_1 is set; every other field is null. */
 export interface FixAfterMetrics extends FixMetrics {
   holdout_pass_at_1: number | null;
-  holdout_pass_at_1_std?: number | null;
   holdout_pass_pow_k: number | null;
 }
 
-/** GET /agents/{id}/fixes */
+/** GET /agents/{id}/fixes -> FixCard[] */
 export interface FixCard {
   to_version: number;
   from_version: number;
@@ -280,11 +284,9 @@ export interface FixCard {
   failing_group: FailingGroup;
   hypothesis: string;
   diagnosis: string;
-  /**
-   * Tools-lever diagnoses cite the tracked-metric signal that motivated the
-   * change, e.g. "4.1 redundant calls/task" or "3 invalid-parameter errors".
-   */
-  metric_signal?: string;
+  /** Set only for lever=tools fixes (the tracked-metric heuristic behind the diagnosis, section K); null otherwise. */
+  metric_signal?: string | null;
+  /** For lever=memory, describes the entries added/changed rather than a text diff. */
   diff_summary: string;
   files_touched: string[];
   diff_url: string;
@@ -293,7 +295,7 @@ export interface FixCard {
   /** Only on rejected cards. */
   regressed_case_ids?: string[];
   reason?: "regression" | "no_gain" | "error";
-  /** Only on lever=memory cards: shown instead of a text diff. */
+  /** Only on lever=memory cards: shown instead of a text diff. Not a contract field. */
   memory_entries?: MemoryEntryChange[];
   ts?: string;
 }
@@ -326,6 +328,7 @@ export interface JobResponse {
 export type IssueSource = "human" | "auto";
 export type IssueStatus = "open" | "fixing" | "fixed" | "wontfix";
 
+/** GET /issues, GET /issues/{id}. Row shape beyond the create request is this workstream's inference. */
 export interface Issue {
   issue_id: string;
   agent_id: string;
@@ -341,30 +344,32 @@ export interface Issue {
   tags?: string[];
 }
 
-/** Issues are text-only: screenshot upload was dropped. */
+/**
+ * POST /issues {agent_id, title, body, tags?[]} (contracts/api.md). Plain
+ * JSON, not multipart — issues are text-only. The "grader disagreed?" path
+ * sends tags: ["grader-bug"]; the task id it concerns goes in the body text,
+ * not a separate field.
+ */
 export interface CreateIssueRequest {
   agent_id: string;
   title: string;
   body: string;
   tags?: string[];
-  /** The task this issue was filed from, when filed from a run row. */
-  case_id?: string;
 }
 
 /* ---------------------------------------------------------------- insights */
 
+/** cost_by_version (contracts/api.md): no split, no total — cost_per_run only. */
 export interface CostPoint {
   version: number;
-  split: Split;
-  total_cost_usd: number;
-  cost_per_run_usd: number;
+  cost_per_run: number;
 }
 
+/** latency_by_version (contracts/api.md). */
 export interface LatencyPoint {
   version: number;
-  split: Split;
-  p50_latency_ms: number;
-  p95_latency_ms: number;
+  p50_ms: number;
+  p95_ms: number;
 }
 
 /** memory_by_version: rules + tool notes count and mean confidence per version. */
@@ -377,9 +382,10 @@ export interface MemoryByVersionPoint {
 }
 
 /**
- * tool_stats_by_version (addendum section K): calls, errors, redundant calls
- * (same tool + identical normalized args within one trial), tool-response
- * tokens and latency, per task. All expected to fall as fixes land.
+ * tool_stats_by_version (contracts/api.md, section K heuristics): calls,
+ * errors, redundant calls (same tool + identical normalized args within one
+ * trial), tool-response tokens and latency, per task for that version/split.
+ * All expected to fall as fixes land.
  */
 export interface ToolStatsByVersionPoint {
   version: number;
@@ -391,35 +397,24 @@ export interface ToolStatsByVersionPoint {
   latency_ms: number;
 }
 
+/** drift (contracts/api.md): no per-version breakdown on this endpoint. */
 export interface DriftStats {
   count_by_kind: Partial<Record<DriftKind, number>>;
   tokens_saved: number;
   cases_recovered_by_nudge: number;
-  count_by_version?: { version: number; count: number }[];
 }
 
-/** A task stuck at 0% across the last 3 versions ("usually a broken task"). */
-export interface FlaggedTask {
-  case_id: string;
-  versions_at_zero: number[];
-  tag?: string;
-}
-
+/** Marker (contracts/api.md): chart annotation, no derived label. */
 export interface Marker {
   version: number;
+  ts: string;
   kind: "issue_opened" | "fix_accepted" | "fix_rejected" | "drift_detected";
   lever?: Lever;
   diagnosis?: string;
-  label: string;
-  to_version?: number;
-  count?: number;
-  ts?: string;
 }
 
-/** GET /insights/{agent_id} */
+/** GET /insights/{agent_id} -> Insights (contracts/api.md). */
 export interface Insights {
-  agent_id: string;
-  trials: number;
   pass_at_1_by_version: RatePoint[];
   pass_pow_k_by_version: RatePoint[];
   cost_by_version: CostPoint[];
@@ -428,15 +423,16 @@ export interface Insights {
   regressions_caught: number;
   issues: { open: number; closed: number };
   lessons_count: number;
-  drift: DriftStats;
-  markers: Marker[];
   memory_by_version: MemoryByVersionPoint[];
   tool_stats_by_version: ToolStatsByVersionPoint[];
-  /** Tasks newly in the stable pass set this version that were not last version. */
+  drift: DriftStats;
+  /** Running total of task_graduated events. */
   graduated_count: number;
-  /** Train pass@1 >= 95% for two consecutive versions. */
+  /** True once train pass@1 >= 0.95 for two consecutive versions. */
   saturated: boolean;
-  flagged_tasks: FlaggedTask[];
+  /** case_ids stuck at 0% for the last 3 versions. */
+  flagged_tasks: string[];
+  markers: Marker[];
 }
 
 export interface AblationReport {
@@ -446,7 +442,11 @@ export interface AblationReport {
   applied_lesson_ids: string[];
 }
 
-/** GET /insights/compare */
+/**
+ * GET /insights/compare -> per-domain series + reports/ablation.json if
+ * present. Exact shape is this workstream's inference (api.md gives only the
+ * one-line description).
+ */
 export interface InsightsCompare {
   domains: {
     agent_id: string;
@@ -454,12 +454,12 @@ export interface InsightsCompare {
     domain: string;
     pass_at_1_by_version: RatePoint[];
   }[];
-  /** reports/ablation.json, when it exists. */
   ablation: AblationReport | null;
 }
 
 /* ---------------------------------------------------- playbook and events */
 
+/** playbook/lessons.jsonl row (contracts/playbook.md). GET /playbook returns these as-is. */
 export interface Lesson {
   id: string;
   lever: Lever;
@@ -471,7 +471,7 @@ export interface Lesson {
   ts: string;
 }
 
-/** GET /events */
+/** GET /events?agent_id=&kind=&since=. Row shape is this workstream's inference over the events table. */
 export interface LedgerEvent {
   id: number;
   ts: string;

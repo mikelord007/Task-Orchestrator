@@ -36,7 +36,7 @@ export default function MemoryTab({ memory }: { memory: AgentMemory }) {
                   {rule.demoted ? (
                     <Pill
                       tone="drift"
-                      title={`Demoted at v${rule.demoted_version}: ${rule.misses} misses against ${rule.hits} hits. Kept on disk, no longer injected.`}
+                      title={`Demoted: ${rule.misses} misses against ${rule.hits} hits. Kept on disk, no longer injected.`}
                     >
                       demoted
                     </Pill>

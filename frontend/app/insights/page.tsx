@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
-import { getInsights, getInsightsCompare, getPlaybook, listAgents, listFixes } from "@/lib/api";
+import { getInsights, getInsightsCompare, getPlaybook, listAgents, listFixes, listRuns } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import FixCard from "@/components/FixCard";
 import Stat from "@/components/Stat";
@@ -42,10 +42,13 @@ function Insights() {
     [agentId],
   );
   const fixes = useAsync(() => (agentId ? listFixes(agentId) : Promise.resolve([])), [agentId]);
+  const runs = useAsync(() => (agentId ? listRuns(agentId) : Promise.resolve([])), [agentId]);
   const compare = useAsync(() => getInsightsCompare(), []);
   const playbook = useAsync(() => getPlaybook(), []);
 
   const agentName = agents.data?.find((a) => a.agent_id === agentId)?.name ?? agentId;
+  /** Insights carries no trials field (contracts/api.md); read it off the most recent run instead. */
+  const trials = runs.data?.slice(-1)[0]?.trials;
 
   return (
     <div className="mx-auto max-w-[1360px] px-6 py-5">
@@ -105,7 +108,7 @@ function Insights() {
               <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
             ) : (
               <PassRateChart
-                trials={insights.data?.trials ?? 0}
+                trials={trials ?? 0}
                 pass1={insights.data?.pass_at_1_by_version ?? []}
                 passK={insights.data?.pass_pow_k_by_version ?? []}
               />
@@ -149,7 +152,11 @@ function Insights() {
           </Panel>
 
           <Panel title="Drift">
-            {insights.data ? <DriftPanel drift={insights.data.drift} /> : <Empty>No data yet.</Empty>}
+            {insights.data ? (
+              <DriftPanel drift={insights.data.drift} runs={runs.data ?? []} />
+            ) : (
+              <Empty>No data yet.</Empty>
+            )}
           </Panel>
 
           <Panel title="Memory growth">

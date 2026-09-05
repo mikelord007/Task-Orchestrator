@@ -1,15 +1,25 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, Line, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { DriftStats } from "@/lib/types";
+import type { DriftStats, RunSummary } from "@/lib/types";
 import { compactTokens } from "@/lib/format";
 import { Empty } from "@/components/ui";
 import { CHART_COLORS, axisTick, tooltipStyle } from "./chart-common";
 
-/** Drift by kind, tokens saved by aborting, tasks recovered by a nudge, and the count falling by version. */
-export default function DriftPanel({ drift }: { drift: DriftStats }) {
+/**
+ * Drift by kind, tokens saved by aborting, tasks recovered by a nudge, and the
+ * count falling by version. The by-version breakdown is not part of the
+ * `/insights` drift shape (contracts/api.md); it is derived here from each
+ * run's `drift_count` (GET /agents/{id}/runs), train split only.
+ */
+export default function DriftPanel({ drift, runs }: { drift: DriftStats; runs: RunSummary[] }) {
   const kindRows = Object.entries(drift.count_by_kind).map(([kind, count]) => ({ kind, count }));
-  const hasAny = kindRows.length > 0 || (drift.count_by_version?.length ?? 0) > 0;
+  const byVersion = runs
+    .filter((r) => r.split === "train")
+    .slice()
+    .sort((a, b) => a.version - b.version)
+    .map((r) => ({ version: r.version, count: r.drift_count }));
+  const hasAny = kindRows.length > 0 || byVersion.length > 0;
 
   if (!hasAny) {
     return (
@@ -45,13 +55,13 @@ export default function DriftPanel({ drift }: { drift: DriftStats }) {
       </div>
 
       <div>
-        <p className="text-[11px] text-fg-mute">drift events by version</p>
-        {!drift.count_by_version || drift.count_by_version.length === 0 ? (
+        <p className="text-[11px] text-fg-mute">drift events by version (train)</p>
+        {byVersion.length === 0 ? (
           <Empty>Not tracked yet.</Empty>
         ) : (
           <div className="mt-1 h-32 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={drift.count_by_version} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+              <ComposedChart data={byVersion} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
                 <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
                 <YAxis tick={axisTick} tickLine={false} axisLine={false} width={24} allowDecimals={false} />

@@ -34,17 +34,13 @@ export default function CostLatencyChart({
     return <Empty>No cost recorded yet. It appears once a split has been run.</Empty>;
   }
 
-  const costRows = cost
-    .filter((c) => c.split === "train")
-    .map((c) => ({ version: c.version, cost: c.cost_per_run_usd }));
-  const latencyRows = latency
-    .filter((l) => l.split === "train")
-    .map((l) => ({ version: l.version, p50: l.p50_latency_ms, p95: l.p95_latency_ms }));
+  const costRows = cost.map((c) => ({ version: c.version, cost: c.cost_per_run }));
+  const latencyRows = latency.map((l) => ({ version: l.version, p50: l.p50_ms, p95: l.p95_ms }));
   const scatterRows = pass1
     .filter((p) => p.split === "train")
     .map((p) => {
-      const c = cost.find((x) => x.version === p.version && x.split === "train");
-      return c ? { version: p.version, cost: c.cost_per_run_usd, pass1: p.mean } : null;
+      const c = cost.find((x) => x.version === p.version);
+      return c ? { version: p.version, cost: c.cost_per_run, pass1: p.mean } : null;
     })
     .filter((r): r is { version: number; cost: number; pass1: number } => r !== null)
     .sort((a, b) => a.version - b.version);
@@ -52,7 +48,7 @@ export default function CostLatencyChart({
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <div>
-        <p className="text-[11px] text-fg-mute">cost per run (train)</p>
+        <p className="text-[11px] text-fg-mute">cost per run</p>
         <div className="mt-1 h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={costRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
@@ -71,7 +67,7 @@ export default function CostLatencyChart({
       </div>
 
       <div>
-        <p className="text-[11px] text-fg-mute">p50 / p95 latency (train, ms)</p>
+        <p className="text-[11px] text-fg-mute">p50 / p95 latency (ms)</p>
         <div className="mt-1 h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={latencyRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>

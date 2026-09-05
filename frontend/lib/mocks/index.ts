@@ -176,7 +176,7 @@ export async function createIssue(body: CreateIssueRequest): Promise<Issue> {
     source: "human",
     status: "open",
     created_ts: new Date().toISOString(),
-    linked_case_ids: body.case_id ? [body.case_id] : [],
+    linked_case_ids: [],
     tags: body.tags,
   };
   createdIssues.unshift(issue);
@@ -193,8 +193,6 @@ export async function getInsights(agentId: string): Promise<Insights> {
   const found = data.INSIGHTS[agentId];
   if (found) return delay(clone(found));
   return delay<Insights>({
-    agent_id: agentId,
-    trials: data.TRIALS,
     pass_at_1_by_version: [],
     pass_pow_k_by_version: [],
     cost_by_version: [],

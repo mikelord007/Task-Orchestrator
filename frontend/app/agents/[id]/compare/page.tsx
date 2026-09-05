@@ -32,9 +32,15 @@ function Compare() {
 
   const cases = useMemo(() => {
     const seen = new Set<string>();
-    for (const run of runs.data ?? []) for (const c of run.cases) seen.add(c.case_id);
+    for (const run of runs.data ?? []) for (const t of run.tasks) seen.add(t.case_id);
     return Array.from(seen).sort();
   }, [runs.data]);
+
+  const ruleText = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const rule of agent.data?.memory.rules ?? []) map[rule.id] = rule.rule;
+    return map;
+  }, [agent.data]);
 
   function pick(id: string) {
     router.replace(`/agents/${agentId}/compare?case_id=${encodeURIComponent(id)}`, {
@@ -42,7 +48,7 @@ function Compare() {
     });
   }
 
-  const currentVersion = result.data?.current_version ?? agent.data?.current_version ?? 0;
+  const currentVersion = agent.data?.current_version ?? 0;
 
   return (
     <div className="mx-auto max-w-[1360px] px-6 py-5">
@@ -101,6 +107,7 @@ function Compare() {
             output={result.data.expected}
             expected={result.data.expected}
             side={null}
+            ruleText={ruleText}
           />
           <Column
             title="v0"
@@ -108,6 +115,7 @@ function Compare() {
             output={result.data.v0?.output ?? null}
             expected={result.data.expected}
             side={result.data.v0}
+            ruleText={ruleText}
           />
           <Column
             title={`v${currentVersion}`}
@@ -115,6 +123,7 @@ function Compare() {
             output={result.data.current?.output ?? null}
             expected={result.data.expected}
             side={result.data.current}
+            ruleText={ruleText}
           />
         </div>
       )}
@@ -128,12 +137,14 @@ function Column({
   output,
   expected,
   side,
+  ruleText,
 }: {
   title: string;
   note: string;
   output: Json | null;
   expected: Json;
   side: CompareSide | null;
+  ruleText: Record<string, string>;
 }) {
   const isExpected = title === "expected";
   const keys = Array.from(
@@ -188,13 +199,13 @@ function Column({
             </p>
           ) : (
             <ul className="mt-1 space-y-1.5">
-              {side.rules_injected.map((rule) => (
-                <li key={rule.id}>
+              {side.rules_injected.map((ruleId) => (
+                <li key={ruleId}>
                   <div className="flex items-center gap-1.5">
-                    <Pill tone="quiet">{rule.id}</Pill>
+                    <Pill tone="quiet">{ruleId}</Pill>
                   </div>
-                  {rule.rule ? (
-                    <p className="prose-h mt-0.5 text-[12px] text-fg-dim">{rule.rule}</p>
+                  {ruleText[ruleId] ? (
+                    <p className="prose-h mt-0.5 text-[12px] text-fg-dim">{ruleText[ruleId]}</p>
                   ) : null}
                 </li>
               ))}

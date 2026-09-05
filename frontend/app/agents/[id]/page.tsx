@@ -77,12 +77,8 @@ function AgentDetail() {
   const a = agent.data;
   const versions = a.versions ?? Array.from({ length: a.current_version + 1 }, (_, i) => i);
   const shownVersion = a.version;
-  const latestTrain =
-    runs.data?.filter((r) => r.split === "train" && r.version === a.current_version).slice(-1)[0]
-      ?.pass_at_1 ?? a.latest_train;
-  const latestHoldout =
-    runs.data?.filter((r) => r.split === "holdout" && r.version === a.current_version).slice(-1)[0]
-      ?.pass_at_1 ?? a.latest_holdout;
+  const latestTrain = a.latest_train;
+  const latestHoldout = a.latest_holdout;
 
   const counts: Record<Tab, number | null> = {
     prompt: null,

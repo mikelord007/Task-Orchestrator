@@ -23,7 +23,15 @@ import type {
   ToolNote,
   ToolRef,
 } from "../types";
-import { graduatedCount, isSaturated, flaggedTasks, makeRun, passPowKPoint, row, toRatePoint } from "./derive";
+import {
+  graduatedCount,
+  isSaturated,
+  flaggedTasks,
+  makeRun,
+  pass1RatePoint,
+  passPowKRatePoint,
+  row,
+} from "./derive";
 
 export const AGENT_A = "gh-triage-01";
 export const AGENT_B = "ticket-triage-01";
@@ -105,7 +113,6 @@ const RULES_V3: MemoryRule[] = [
     created_version: 1,
     source: "reflection",
     demoted: true,
-    demoted_version: 3,
   },
   {
     id: "r-005",
@@ -298,12 +305,13 @@ const TRACE = (id: string) => `https://app.neatlogs.com/trace/${id}`;
 const RUNS_A: RunSummary[] = [
   makeRun({
     run_id: "run-a-t0",
+    agent_id: AGENT_A,
     version: 0,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T05:10:00Z",
     finished_ts: "2026-09-06T05:29:00Z",
-    cases: [
+    tasks: [
       row("gh-1731", "...", { score: 0.34, cost_usd: 0.038, latency_ms: 13400, tool_calls: 11, tool_errors: 2, trace_url: TRACE("a0-1731") }),
       row("gh-1758", "xxx", { score: 0.96, cost_usd: 0.029, latency_ms: 9800, tool_calls: 7 }),
       row("gh-1802", "...", { score: 0.31, cost_usd: 0.041, latency_ms: 14100, tool_calls: 12, tool_errors: 3, trace_url: TRACE("a0-1802") }),
@@ -320,12 +328,13 @@ const RUNS_A: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-a-h0",
+    agent_id: AGENT_A,
     version: 0,
     split: "holdout",
     trials: TRIALS,
     started_ts: "2026-09-06T05:31:00Z",
     finished_ts: "2026-09-06T05:40:00Z",
-    cases: [
+    tasks: [
       row("gh-2141", "...", { score: 0.3, cost_usd: 0.04, latency_ms: 13900, tool_calls: 11, tool_errors: 1 }),
       row("gh-2166", "xxx", { score: 0.94, cost_usd: 0.028, latency_ms: 9100, tool_calls: 7 }),
       row("gh-2189", "...", { score: 0.26, cost_usd: 0.045, latency_ms: 15600, tool_calls: 13, tool_errors: 2 }),
@@ -336,12 +345,13 @@ const RUNS_A: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-a-t1",
+    agent_id: AGENT_A,
     version: 1,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T06:41:00Z",
     finished_ts: "2026-09-06T06:57:00Z",
-    cases: [
+    tasks: [
       row("gh-1731", "xxx", { score: 0.92, cost_usd: 0.03, latency_ms: 10100, tool_calls: 7, rules_injected: ["r-001", "r-002"] }),
       row("gh-1758", "xxx", { score: 0.97, cost_usd: 0.026, latency_ms: 8700, tool_calls: 6, rules_injected: ["r-002"] }),
       row("gh-1802", "xx.", { score: 0.78, cost_usd: 0.031, latency_ms: 10600, tool_calls: 7, rules_injected: ["r-001", "r-002"] }),
@@ -358,12 +368,13 @@ const RUNS_A: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-a-h1",
+    agent_id: AGENT_A,
     version: 1,
     split: "holdout",
     trials: TRIALS,
     started_ts: "2026-09-06T06:58:00Z",
     finished_ts: "2026-09-06T07:06:00Z",
-    cases: [
+    tasks: [
       row("gh-2141", "xxx", { score: 0.9, cost_usd: 0.029, latency_ms: 9600, tool_calls: 7, rules_injected: ["r-001"] }),
       row("gh-2166", "xxx", { score: 0.95, cost_usd: 0.026, latency_ms: 8500, tool_calls: 6, rules_injected: ["r-002"] }),
       row("gh-2189", "...", { score: 0.28, cost_usd: 0.039, latency_ms: 13800, tool_calls: 11, tool_errors: 2, rules_injected: ["r-004"] }),
@@ -375,12 +386,13 @@ const RUNS_A: RunSummary[] = [
   // Gate run for the rejected candidate: train only, no holdout was ever run.
   makeRun({
     run_id: "run-a-t2",
+    agent_id: AGENT_A,
     version: 2,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T07:58:00Z",
     finished_ts: "2026-09-06T08:11:00Z",
-    cases: [
+    tasks: [
       row("gh-1731", "xxx", { score: 0.92, cost_usd: 0.03, latency_ms: 10000, tool_calls: 7, rules_injected: ["r-001", "r-002"] }),
       row("gh-1758", ".x.", { score: 0.49, cost_usd: 0.031, latency_ms: 10300, tool_calls: 7, rules_injected: ["r-002"] }),
       row("gh-1802", "xxx", { score: 0.88, cost_usd: 0.03, latency_ms: 10100, tool_calls: 7, rules_injected: ["r-001", "r-002"] }),
@@ -397,12 +409,13 @@ const RUNS_A: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-a-t3",
+    agent_id: AGENT_A,
     version: 3,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T09:22:00Z",
     finished_ts: "2026-09-06T09:34:00Z",
-    cases: [
+    tasks: [
       row("gh-1731", "xxx", { score: 0.97, cost_usd: 0.021, latency_ms: 7100, tool_calls: 4, rules_injected: ["r-001", "r-002"] }),
       row("gh-1758", "xxx", { score: 0.98, cost_usd: 0.019, latency_ms: 6600, tool_calls: 4, rules_injected: ["r-002"] }),
       row("gh-1802", "xxx", { score: 0.95, cost_usd: 0.02, latency_ms: 6900, tool_calls: 4, rules_injected: ["r-001", "r-002"] }),
@@ -419,12 +432,13 @@ const RUNS_A: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-a-h3",
+    agent_id: AGENT_A,
     version: 3,
     split: "holdout",
     trials: TRIALS,
     started_ts: "2026-09-06T09:35:00Z",
     finished_ts: "2026-09-06T09:42:00Z",
-    cases: [
+    tasks: [
       row("gh-2141", "xxx", { score: 0.94, cost_usd: 0.02, latency_ms: 6800, tool_calls: 4, rules_injected: ["r-001"] }),
       row("gh-2166", "xxx", { score: 0.96, cost_usd: 0.019, latency_ms: 6400, tool_calls: 4, rules_injected: ["r-002"] }),
       row("gh-2189", ".x.", { score: 0.5, cost_usd: 0.027, latency_ms: 9400, tool_calls: 6, tool_errors: 1, rules_injected: ["r-003"] }),
@@ -438,12 +452,13 @@ const RUNS_A: RunSummary[] = [
 const RUNS_B: RunSummary[] = [
   makeRun({
     run_id: "run-b-t0",
+    agent_id: AGENT_B,
     version: 0,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T10:20:00Z",
     finished_ts: "2026-09-06T10:27:00Z",
-    cases: [
+    tasks: [
       row("tk-014", "x..", { score: 0.51, cost_usd: 0.008, latency_ms: 3100, tool_calls: 2 }),
       row("tk-021", "xxx", { score: 0.92, cost_usd: 0.007, latency_ms: 2700, tool_calls: 2 }),
       row("tk-033", "...", { score: 0.22, cost_usd: 0.009, latency_ms: 3600, tool_calls: 3, tool_errors: 1 }),
@@ -454,12 +469,13 @@ const RUNS_B: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-b-t2",
+    agent_id: AGENT_B,
     version: 2,
     split: "train",
     trials: TRIALS,
     started_ts: "2026-09-06T11:44:00Z",
     finished_ts: "2026-09-06T11:50:00Z",
-    cases: [
+    tasks: [
       row("tk-014", "xxx", { score: 0.9, cost_usd: 0.006, latency_ms: 2400, tool_calls: 2, rules_injected: ["rb-002"] }),
       row("tk-021", "xxx", { score: 0.94, cost_usd: 0.006, latency_ms: 2300, tool_calls: 2 }),
       row("tk-033", "xx.", { score: 0.71, cost_usd: 0.007, latency_ms: 2800, tool_calls: 2, rules_injected: ["rb-001"] }),
@@ -470,12 +486,13 @@ const RUNS_B: RunSummary[] = [
   }),
   makeRun({
     run_id: "run-b-h2",
+    agent_id: AGENT_B,
     version: 2,
     split: "holdout",
     trials: TRIALS,
     started_ts: "2026-09-06T11:51:00Z",
     finished_ts: "2026-09-06T11:55:00Z",
-    cases: [
+    tasks: [
       row("tk-061", "xxx", { score: 0.91, cost_usd: 0.006, latency_ms: 2400, tool_calls: 2 }),
       row("tk-068", "xx.", { score: 0.73, cost_usd: 0.007, latency_ms: 2600, tool_calls: 2, rules_injected: ["rb-001"] }),
       row("tk-074", "xxx", { score: 0.9, cost_usd: 0.006, latency_ms: 2300, tool_calls: 2 }),
@@ -490,7 +507,9 @@ function latest(agentId: string, split: "train" | "holdout", version: number) {
   const found = RUNS[agentId]
     .filter((r) => r.split === split && r.version === version)
     .slice(-1)[0];
-  return found ? found.pass_at_1 : null;
+  if (!found) return null;
+  const { mean, std, min, max } = pass1RatePoint(found);
+  return { mean, std, min, max };
 }
 
 export const AGENTS: AgentSummary[] = [
@@ -586,12 +605,14 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
 
 const trainRunA = (v: number) => RUNS_A.find((r) => r.split === "train" && r.version === v)!;
 const holdoutRunA = (v: number) => RUNS_A.find((r) => r.split === "holdout" && r.version === v);
-const trainPR = (v: number) => trainRunA(v).pass_at_1;
-const holdoutPR = (v: number) => holdoutRunA(v)?.pass_at_1 ?? null;
+/** FixCard.before/after are flat floats (contracts/api.md); pass_at_1 here is a plain number. */
+const trainPass1 = (v: number) => trainRunA(v).pass_at_1;
+const holdoutPass1 = (v: number) => holdoutRunA(v)?.pass_at_1 ?? null;
+const holdoutPassPowK = (v: number) => holdoutRunA(v)?.pass_pow_k ?? null;
 const trainCost = (v: number) => trainRunA(v).total_cost_usd;
 const toolCallsPerTask = (v: number) => {
   const run = trainRunA(v);
-  return round2(run.cases.reduce((acc, c) => acc + c.tool_calls, 0) / run.cases.length);
+  return round2(run.tasks.reduce((acc, t) => acc + t.tool_calls, 0) / run.tasks.length);
 };
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -621,25 +642,21 @@ export const FIXES: Record<string, FixCard[]> = {
         "agents/gh-triage-01/v3/memory/tool_notes.jsonl",
       ],
       diff_url: "/agents/gh-triage-01/fixes/3/diff",
-      metric_signal: "duplicate_of misses: 3 of 3 duplicate-tagged tasks, none retried github_search_similar_issues after an empty top-10.",
       before: {
-        pass_at_1: trainPR(1).mean,
-        pass_at_1_std: trainPR(1).std,
+        pass_at_1: trainPass1(1),
         pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.111,
         cost_per_run: trainCost(1),
         tool_calls_per_task: toolCallsPerTask(1),
       },
       after: {
-        pass_at_1: trainPR(3).mean,
-        pass_at_1_std: trainPR(3).std,
+        pass_at_1: trainPass1(3),
         pass_pow_k: trainRunA(3).pass_pow_k,
         group_pass: 0.778,
         cost_per_run: trainCost(3),
         tool_calls_per_task: toolCallsPerTask(3),
-        holdout_pass_at_1: holdoutPR(3)!.mean,
-        holdout_pass_at_1_std: holdoutPR(3)!.std,
-        holdout_pass_pow_k: holdoutRunA(3)!.pass_pow_k,
+        holdout_pass_at_1: holdoutPass1(3),
+        holdout_pass_pow_k: holdoutPassPowK(3),
       },
       memory_entries: [
         {
@@ -700,28 +717,26 @@ export const FIXES: Record<string, FixCard[]> = {
       hypothesis:
         "The component field is wrong whenever the body names more than one file. Instructing the prompt to take the deepest path in the traceback should break the tie.",
       diagnosis:
-        "The edit told the agent to always take the deepest path in a stack trace. That is right for crashes and wrong for enhancement requests, which cite a file only as an example. Two cases that had been passing in every repeat started failing, so the gate rejected the candidate.",
+        "The edit told the agent to always take the deepest path in a stack trace. That is right for crashes and wrong for enhancement requests, which cite a file only as an example. Two tasks that had been passing every trial (pass^k) started failing, so the gate rejected the candidate.",
       diff_summary: "prompt.md, 1 section rewritten (+6 -2)",
       files_touched: ["agents/gh-triage-01/v2/prompt.md"],
       diff_url: "/agents/gh-triage-01/fixes/2/diff",
       regressed_case_ids: ["gh-1758", "gh-2011"],
       before: {
-        pass_at_1: trainPR(1).mean,
-        pass_at_1_std: trainPR(1).std,
+        pass_at_1: trainPass1(1),
         pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.083,
         cost_per_run: trainCost(1),
         tool_calls_per_task: toolCallsPerTask(1),
       },
       after: {
-        pass_at_1: trainPR(2).mean,
-        pass_at_1_std: trainPR(2).std,
-        pass_pow_k: trainRunA(2).pass_pow_k,
-        group_pass: 0.25,
-        cost_per_run: trainCost(2),
-        tool_calls_per_task: toolCallsPerTask(2),
+        // Rejected: only pass_at_1 (the candidate's own) is set; every other after field is null (contracts/api.md).
+        pass_at_1: trainPass1(2),
+        pass_pow_k: null,
+        group_pass: null,
+        cost_per_run: null,
+        tool_calls_per_task: null,
         holdout_pass_at_1: null,
-        holdout_pass_at_1_std: null,
         holdout_pass_pow_k: null,
       },
     },
@@ -747,25 +762,21 @@ export const FIXES: Record<string, FixCard[]> = {
         "agents/gh-triage-01/v1/memory/tool_notes.jsonl",
       ],
       diff_url: "/agents/gh-triage-01/fixes/1/diff",
-      metric_signal: "0 of 5 platform:windows misses recovered; the label description had already been fetched and ignored.",
       before: {
-        pass_at_1: trainPR(0).mean,
-        pass_at_1_std: trainPR(0).std,
+        pass_at_1: trainPass1(0),
         pass_pow_k: trainRunA(0).pass_pow_k,
         group_pass: 0.0,
         cost_per_run: trainCost(0),
         tool_calls_per_task: toolCallsPerTask(0),
       },
       after: {
-        pass_at_1: trainPR(1).mean,
-        pass_at_1_std: trainPR(1).std,
+        pass_at_1: trainPass1(1),
         pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.6,
         cost_per_run: trainCost(1),
         tool_calls_per_task: toolCallsPerTask(1),
-        holdout_pass_at_1: holdoutPR(1)!.mean,
-        holdout_pass_at_1_std: holdoutPR(1)!.std,
-        holdout_pass_pow_k: holdoutRunA(1)!.pass_pow_k,
+        holdout_pass_at_1: holdoutPass1(1),
+        holdout_pass_pow_k: holdoutPassPowK(1),
       },
       memory_entries: [
         ...RULES_V3.filter((r) => r.created_version === 1).map(
@@ -815,24 +826,20 @@ export const FIXES: Record<string, FixCard[]> = {
       diff_summary: "+1 rule",
       files_touched: ["agents/ticket-triage-01/v2/memory/rules.jsonl"],
       diff_url: "/agents/ticket-triage-01/fixes/2/diff",
-      metric_signal: "2 of 2 sarcasm-tagged tickets graded p0 with needs_human true.",
       before: {
         pass_at_1: 0.5,
-        pass_at_1_std: 0.068,
         pass_pow_k: 0.0,
         group_pass: 0.0,
         cost_per_run: 0.048,
         tool_calls_per_task: 2.33,
       },
       after: {
-        pass_at_1: RUNS_B[1].pass_at_1.mean,
-        pass_at_1_std: RUNS_B[1].pass_at_1.std,
+        pass_at_1: RUNS_B[1].pass_at_1,
         pass_pow_k: RUNS_B[1].pass_pow_k,
         group_pass: 0.833,
         cost_per_run: RUNS_B[1].total_cost_usd,
         tool_calls_per_task: 2.0,
-        holdout_pass_at_1: RUNS_B[2].pass_at_1.mean,
-        holdout_pass_at_1_std: RUNS_B[2].pass_at_1.std,
+        holdout_pass_at_1: RUNS_B[2].pass_at_1,
         holdout_pass_pow_k: RUNS_B[2].pass_pow_k,
       },
       memory_entries: [
@@ -904,7 +911,6 @@ export const DIFFS: Record<string, string> = {
 
 const COMPARE: Record<string, CompareResult> = {
   "gh-1731": {
-    case_id: "gh-1731",
     expected: {
       labels: ["bug", "platform:windows"],
       component: "tui",
@@ -932,17 +938,12 @@ const COMPARE: Record<string, CompareResult> = {
         duplicate_of: null,
         priority: "p1",
       },
-      rules_injected: [
-        { id: "r-001", rule: RULES_V3[0].rule },
-        { id: "r-002", rule: RULES_V3[1].rule },
-      ],
+      rules_injected: ["r-001", "r-002"],
       tool_calls: 4,
       tokens: 6710,
     },
-    current_version: 3,
   },
   "gh-1948": {
-    case_id: "gh-1948",
     expected: {
       labels: ["bug", "duplicate"],
       component: "providers",
@@ -970,17 +971,12 @@ const COMPARE: Record<string, CompareResult> = {
         duplicate_of: 1712,
         priority: "p2",
       },
-      rules_injected: [
-        { id: "r-002", rule: RULES_V3[1].rule },
-        { id: "r-005", rule: RULES_V3[4].rule },
-      ],
+      rules_injected: ["r-002", "r-005"],
       tool_calls: 5,
       tokens: 7980,
     },
-    current_version: 3,
   },
   "gh-2204": {
-    case_id: "gh-2204",
     expected: {
       labels: ["bug", "crash"],
       component: "runtime",
@@ -1008,17 +1004,12 @@ const COMPARE: Record<string, CompareResult> = {
         duplicate_of: null,
         priority: "p0",
       },
-      rules_injected: [
-        { id: "r-002", rule: RULES_V3[1].rule },
-        { id: "r-006", rule: RULES_V3[5].rule },
-      ],
+      rules_injected: ["r-002", "r-006"],
       tool_calls: 4,
       tokens: 6890,
     },
-    current_version: 3,
   },
   "gh-2044": {
-    case_id: "gh-2044",
     expected: {
       labels: ["enhancement", "platform:windows"],
       component: "tooling",
@@ -1046,28 +1037,17 @@ const COMPARE: Record<string, CompareResult> = {
         duplicate_of: null,
         priority: "p3",
       },
-      rules_injected: [
-        { id: "r-001", rule: RULES_V3[0].rule },
-        { id: "r-005", rule: RULES_V3[4].rule },
-      ],
+      rules_injected: ["r-001", "r-005"],
       tool_calls: 6,
       tokens: 9240,
     },
-    current_version: 3,
   },
 };
 
 export function compareFor(agentId: string, caseId: string): CompareResult {
   const hit = COMPARE[caseId];
   if (hit) return hit;
-  const detail = agentDetail(agentId);
-  return {
-    case_id: caseId,
-    expected: {},
-    v0: null,
-    current: null,
-    current_version: detail.current_version,
-  };
+  return { expected: {}, v0: null, current: null };
 }
 
 /* ----------------------------------------------------------------- issues */
@@ -1181,21 +1161,16 @@ export const PLAYBOOK: Lesson[] = [
 function insightsA(): Insights {
   const trainRuns = RUNS_A.filter((r) => r.split === "train").sort((a, b) => a.version - b.version);
   return {
-    agent_id: AGENT_A,
-    trials: TRIALS,
-    pass_at_1_by_version: RUNS_A.map((r) => toRatePoint(r, r.pass_at_1)),
-    pass_pow_k_by_version: RUNS_A.map((r) => passPowKPoint(r)),
-    cost_by_version: RUNS_A.map((r) => ({
+    pass_at_1_by_version: RUNS_A.map((r) => pass1RatePoint(r)),
+    pass_pow_k_by_version: RUNS_A.map((r) => passPowKRatePoint(r)),
+    cost_by_version: RUNS_A.filter((r) => r.split === "train").map((r) => ({
       version: r.version,
-      split: r.split,
-      total_cost_usd: r.total_cost_usd,
-      cost_per_run_usd: r.total_cost_usd,
+      cost_per_run: r.total_cost_usd,
     })),
-    latency_by_version: RUNS_A.map((r) => ({
+    latency_by_version: RUNS_A.filter((r) => r.split === "train").map((r) => ({
       version: r.version,
-      split: r.split,
-      p50_latency_ms: r.p50_latency_ms,
-      p95_latency_ms: r.p95_latency_ms,
+      p50_ms: r.p50_latency_ms,
+      p95_ms: r.p95_latency_ms,
     })),
     fixes_by_lever: { memory: 2, prompt: 1 },
     regressions_caught: 1,
@@ -1205,39 +1180,30 @@ function insightsA(): Insights {
       count_by_kind: { loop: 3, budget: 2, step_limit: 1 },
       tokens_saved: 41200,
       cases_recovered_by_nudge: 2,
-      count_by_version: [
-        { version: 0, count: 5 },
-        { version: 1, count: 1 },
-        { version: 2, count: 0 },
-        { version: 3, count: 0 },
-      ],
     },
     markers: [
-      { version: 0, kind: "issue_opened", label: "iss-001 Windows labels", ts: "2026-09-06T05:44:00Z" },
-      { version: 0, kind: "drift_detected", label: "5 drift events", count: 5 },
+      { version: 0, kind: "issue_opened", ts: "2026-09-06T05:44:00Z" },
+      { version: 0, kind: "drift_detected", ts: "2026-09-06T05:29:00Z" },
       {
         version: 1,
         kind: "fix_accepted",
         lever: "memory",
-        to_version: 1,
-        label: "v1 memory",
+        ts: "2026-09-06T06:57:00Z",
         diagnosis: "Four rules and two tool notes written from the transcript; platform:windows now applied.",
       },
       {
         version: 2,
         kind: "fix_rejected",
         lever: "prompt",
-        to_version: 2,
-        label: "v2 rejected",
+        ts: "2026-09-06T08:11:00Z",
         diagnosis: "Deepest-path instruction regressed two stably-passing tasks.",
       },
       {
         version: 3,
         kind: "fix_accepted",
         lever: "memory",
-        to_version: 3,
-        label: "v3 memory",
-        diagnosis: "state=all tool note plus two rules; r-004 demoted at 1 hit / 5 misses.",
+        ts: "2026-09-06T09:34:00Z",
+        diagnosis: "Retry-with-keywords tool note plus two rules; r-004 demoted at 1 hit / 5 misses.",
       },
     ],
     memory_by_version: [
@@ -1261,21 +1227,16 @@ function insightsA(): Insights {
 function insightsB(): Insights {
   const trainRuns = RUNS_B.filter((r) => r.split === "train").sort((a, b) => a.version - b.version);
   return {
-    agent_id: AGENT_B,
-    trials: TRIALS,
-    pass_at_1_by_version: RUNS_B.map((r) => toRatePoint(r, r.pass_at_1)),
-    pass_pow_k_by_version: RUNS_B.map((r) => passPowKPoint(r)),
-    cost_by_version: RUNS_B.map((r) => ({
+    pass_at_1_by_version: RUNS_B.map((r) => pass1RatePoint(r)),
+    pass_pow_k_by_version: RUNS_B.map((r) => passPowKRatePoint(r)),
+    cost_by_version: RUNS_B.filter((r) => r.split === "train").map((r) => ({
       version: r.version,
-      split: r.split,
-      total_cost_usd: r.total_cost_usd,
-      cost_per_run_usd: r.total_cost_usd,
+      cost_per_run: r.total_cost_usd,
     })),
-    latency_by_version: RUNS_B.map((r) => ({
+    latency_by_version: RUNS_B.filter((r) => r.split === "train").map((r) => ({
       version: r.version,
-      split: r.split,
-      p50_latency_ms: r.p50_latency_ms,
-      p95_latency_ms: r.p95_latency_ms,
+      p50_ms: r.p50_latency_ms,
+      p95_ms: r.p95_latency_ms,
     })),
     fixes_by_lever: { memory: 1 },
     regressions_caught: 0,
@@ -1287,8 +1248,7 @@ function insightsB(): Insights {
         version: 2,
         kind: "fix_accepted",
         lever: "memory",
-        to_version: 2,
-        label: "v2 memory",
+        ts: "2026-09-06T11:50:00Z",
         diagnosis: "Tone separated from impact; sarcastic tickets no longer graded p0.",
       },
     ],
@@ -1345,9 +1305,12 @@ export const COMPARE_DOMAINS: InsightsCompare = {
 
 export const EVENTS: LedgerEvent[] = [
   { id: 1, ts: "2026-09-06T05:02:00Z", kind: "agent_created", agent_id: AGENT_A, agent_version: 0, payload: { goal: BASE_A.goal, domain: "github_triage", evaluator_id: "github_triage", orchestration: "single", applied_lessons: [] } },
-  { id: 2, ts: "2026-09-06T05:10:00Z", kind: "run_started", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", case_count: 12, trials: TRIALS } },
-  { id: 3, ts: "2026-09-06T05:21:00Z", kind: "drift_detected", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { case_id: "gh-1948", trial: 0, step: 9, kind: "loop", evidence: "github_search_similar_issues called 4x with identical args", action: "abort", tokens_at_detection: 15800 } },
-  { id: 4, ts: "2026-09-06T05:29:00Z", kind: "run_finished", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", trials: TRIALS, pass_at_1: RUNS_A[0].pass_at_1.mean, pass_pow_k: RUNS_A[0].pass_pow_k } },
+  { id: 2, ts: "2026-09-06T05:10:00Z", kind: "run_started", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0",
+    payload: { split: "train", case_count: 12, trials: TRIALS } },
+  { id: 3, ts: "2026-09-06T05:21:00Z", kind: "drift_detected", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0",
+    payload: { case_id: "gh-1948", trial: 0, step: 9, kind: "loop", evidence: "github_search_similar_issues called 4x with identical args", action: "abort", tokens_at_detection: 15800 } },
+  { id: 4, ts: "2026-09-06T05:29:00Z", kind: "run_finished", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0",
+    payload: { split: "train", trials: TRIALS, pass_at_1: RUNS_A[0].pass_at_1, pass_pow_k: RUNS_A[0].pass_pow_k } },
   { id: 5, ts: "2026-09-06T06:20:00Z", kind: "memory_written", agent_id: AGENT_A, agent_version: 1, payload: { entry_id: "r-001", kind: "rule", source: "reflection", evidence_case_ids: ["gh-1731", "gh-1802", "gh-1877"], version: 1 } },
   { id: 6, ts: "2026-09-06T06:57:00Z", kind: "fix_accepted", agent_id: AGENT_A, agent_version: 1, lever: "memory", payload: { to_version: 1 } },
   { id: 7, ts: "2026-09-06T08:11:00Z", kind: "fix_rejected", agent_id: AGENT_A, agent_version: 2, lever: "prompt", payload: { to_version: 2, reason: "regression", regressed_case_ids: ["gh-1758", "gh-2011"] } },

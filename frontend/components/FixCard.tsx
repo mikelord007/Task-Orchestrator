@@ -135,8 +135,8 @@ function BeforeAfter({ card }: { card: FixCardData }) {
   }[] = [
     {
       label: "pass@1",
-      before: withSpread(card.before.pass_at_1, card.before.pass_at_1_std),
-      after: withSpread(card.after.pass_at_1, card.after.pass_at_1_std),
+      before: pct(card.before.pass_at_1),
+      after: pct(card.after.pass_at_1),
       change: delta(card.before.pass_at_1, card.after.pass_at_1),
       tone: "train",
     },
@@ -156,7 +156,7 @@ function BeforeAfter({ card }: { card: FixCardData }) {
     {
       label: "holdout pass@1",
       before: DASH,
-      after: withSpread(card.after.holdout_pass_at_1, card.after.holdout_pass_at_1_std),
+      after: pct(card.after.holdout_pass_at_1),
       change: DASH,
       tone: "holdout",
     },
@@ -215,8 +215,3 @@ function BeforeAfter({ card }: { card: FixCardData }) {
   );
 }
 
-function withSpread(mean: number | null | undefined, std: number | null | undefined): string {
-  if (mean === null || mean === undefined) return DASH;
-  if (std === null || std === undefined) return pct(mean);
-  return `${pct(mean)} ± ${num(std * 100, 1)}`;
-}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { createIssue } from "@/lib/api";
-import type { CaseRow, RunSummary, Split } from "@/lib/types";
+import type { RunSummary, Split, TaskResult } from "@/lib/types";
 import { num, pct, shortTs, usd, ms } from "@/lib/format";
 import PassStrip from "@/components/PassStrip";
 import Stat from "@/components/Stat";
@@ -91,8 +91,8 @@ function RunBlock({
   agentId: string;
   ruleText: Record<string, string>;
 }) {
-  const drifted = run.cases.filter((c) => c.drift_kind).length;
-  const stable = run.cases.filter((c) => c.passed_by_trial.every(Boolean)).length;
+  const drifted = run.tasks.filter((t) => t.drift_kind).length;
+  const stable = run.tasks.filter((t) => t.passed_by_trial.every(Boolean)).length;
 
   return (
     <section>
@@ -102,13 +102,13 @@ function RunBlock({
           <span className="text-[12px] text-fg">v{run.version}</span>
           <span className="text-[11px] text-fg-mute">{run.run_id}</span>
           <span className="text-[11px] text-fg-mute">
-            trials {run.trials} · {run.cases.length} tasks · {shortTs(run.finished_ts)}
+            trials {run.trials} · {run.tasks.length} tasks · {shortTs(run.finished_ts)}
           </span>
         </div>
         <div className="flex flex-wrap gap-6">
           <Stat
             label="pass@1"
-            rate={run.pass_at_1}
+            value={pct(run.pass_at_1)}
             tone={run.split === "train" ? "train" : "holdout"}
             size="md"
           />
@@ -118,7 +118,7 @@ function RunBlock({
             tone={run.split === "train" ? "train" : "holdout"}
             size="md"
           />
-          <Stat label="stable" value={`${stable}/${run.cases.length}`} size="md" />
+          <Stat label="stable" value={`${stable}/${run.tasks.length}`} size="md" />
           <Stat label="cost" value={usd(run.total_cost_usd)} size="md" />
           <Stat label="p50 / p95" value={`${ms(run.p50_latency_ms)} / ${ms(run.p95_latency_ms)}`} size="md" />
           {drifted > 0 ? <Stat label="drifted tasks" value={String(drifted)} tone="drift" size="md" /> : null}
@@ -141,8 +141,8 @@ function RunBlock({
           </tr>
         </thead>
         <tbody>
-          {run.cases.map((c) => (
-            <TaskRow key={c.case_id} run={run} c={c} agentId={agentId} ruleText={ruleText} />
+          {run.tasks.map((t) => (
+            <TaskRow key={t.case_id} run={run} task={t} agentId={agentId} ruleText={ruleText} />
           ))}
         </tbody>
       </table>
@@ -152,63 +152,63 @@ function RunBlock({
 
 function TaskRow({
   run,
-  c,
+  task,
   agentId,
   ruleText,
 }: {
   run: RunSummary;
-  c: CaseRow;
+  task: TaskResult;
   agentId: string;
   ruleText: Record<string, string>;
 }) {
-  const failed = c.passed_by_trial.some((p) => !p);
+  const failed = task.passed_by_trial.some((p) => !p);
 
   return (
     <tr>
       <Td>
         <Link
-          href={`/agents/${agentId}/compare?case_id=${encodeURIComponent(c.case_id)}`}
+          href={`/agents/${agentId}/compare?case_id=${encodeURIComponent(task.case_id)}`}
           className="text-fg hover:text-train hover:underline"
           title="Compare v0 and the current version on this task"
         >
-          {c.case_id}
+          {task.case_id}
         </Link>
       </Td>
       <Td>
-        <PassStrip passed={c.passed_by_trial} />
-        {failed ? <GraderDisagreeButton agentId={agentId} run={run} task={c} /> : null}
+        <PassStrip passed={task.passed_by_trial} />
+        {failed ? <GraderDisagreeButton agentId={agentId} run={run} task={task} /> : null}
       </Td>
-      <Td className="text-right tabular-nums text-fg-dim">{num(c.score, 2)}</Td>
-      <Td className="text-right tabular-nums text-fg-dim">{usd(c.cost_usd)}</Td>
-      <Td className="text-right tabular-nums text-fg-dim">{ms(c.latency_ms)}</Td>
-      <Td className="text-right tabular-nums text-fg-dim">{c.tool_calls}</Td>
-      <Td className={`text-right tabular-nums ${c.tool_errors > 0 ? "text-fail" : "text-fg-mute"}`}>
-        {c.tool_errors}
+      <Td className="text-right tabular-nums text-fg-dim">{num(task.score, 2)}</Td>
+      <Td className="text-right tabular-nums text-fg-dim">{usd(task.cost_usd)}</Td>
+      <Td className="text-right tabular-nums text-fg-dim">{ms(task.latency_ms)}</Td>
+      <Td className="text-right tabular-nums text-fg-dim">{task.tool_calls}</Td>
+      <Td className={`text-right tabular-nums ${task.tool_errors > 0 ? "text-fail" : "text-fg-mute"}`}>
+        {task.tool_errors}
       </Td>
       <Td>
-        {c.rules_injected.length === 0 ? (
+        {task.rules_injected.length === 0 ? (
           <span className="text-fg-mute">—</span>
         ) : (
           <span
             className="cursor-help text-fg-dim underline decoration-dotted underline-offset-2"
-            title={c.rules_injected
+            title={task.rules_injected
               .map((id) => `${id}: ${ruleText[id] ?? "(text not in this version)"}`)
               .join("\n\n")}
           >
-            {c.rules_injected.length} injected
+            {task.rules_injected.length} injected
           </span>
         )}
       </Td>
-      <Td>{c.drift_kind ? <DriftBadge kind={c.drift_kind} /> : null}</Td>
+      <Td>{task.drift_kind ? <DriftBadge kind={task.drift_kind} /> : null}</Td>
       <Td className="text-[11px]">
-        {c.trace_url ? (
-          <a href={c.trace_url} target="_blank" rel="noreferrer" className="text-fg-mute hover:text-train">
+        {task.trace_url ? (
+          <a href={task.trace_url} target="_blank" rel="noreferrer" className="text-fg-mute hover:text-train">
             trace
           </a>
         ) : null}
-        {c.trace_url && c.transcript_path ? <span className="text-fg-mute"> </span> : null}
-        {c.transcript_path ? (
-          <span className="text-fg-mute" title={c.transcript_path}>
+        {task.trace_url && task.transcript_path ? <span className="text-fg-mute"> </span> : null}
+        {task.transcript_path ? (
+          <span className="text-fg-mute" title={task.transcript_path}>
             transcript
           </span>
         ) : null}
@@ -229,7 +229,7 @@ function GraderDisagreeButton({
 }: {
   agentId: string;
   run: RunSummary;
-  task: CaseRow;
+  task: TaskResult;
 }) {
   const [state, setState] = useState<"idle" | "busy" | "sent">("idle");
 
@@ -247,7 +247,6 @@ function GraderDisagreeButton({
           title: `Grader disagreed: ${task.case_id}`,
           body: `Filed from the runs table. Task ${task.case_id} at v${run.version} (${run.split}) failed ${failedTrials} of ${run.trials} trials, score ${task.score.toFixed(2)}. Reviewing whether the grader's verdict is correct for this task, not whether the agent is.`,
           tags: ["grader-bug"],
-          case_id: task.case_id,
         });
         setState("sent");
       }}
