@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-002",
+  "input": {
+    "body": "What a delightful surprise to discover that the plan I have been on for eleven months quietly became $80 more per seat. No email, no banner, nothing. Beautiful. I'd like the difference back on the last invoice please, and an explanation I can forward to finance.",
+    "customer_tier": "free",
+    "subject": "Love the new pricing page, very transparent",
+    "ticket_id": "tk-002"
+  },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "split": "train",
+  "tags": [
+    "cat:billing",
+    "needs-human",
+    "prio:p2",
+    "sarcasm",
+    "tier:free"
+  ]
+}

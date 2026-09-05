@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-040",
+  "input": {
+    "body": "Editing 3 project records one at a time takes most of an afternoon. A multi-select with a bulk edit action would save us that time every quarter. Would you consider it?",
+    "customer_tier": "free",
+    "subject": "Bulk edit for project records",
+    "ticket_id": "tk-040"
+  },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "split": "train",
+  "tags": [
+    "cat:feature",
+    "prio:p3",
+    "routine",
+    "tier:free"
+  ]
+}

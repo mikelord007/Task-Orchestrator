@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-049",
+  "input": {
+    "body": "Is a public API for workspace objects on the roadmap? We would like to sync them into our warehouse nightly instead of exporting to XLSX by hand. No rush, planning ahead.",
+    "customer_tier": "free",
+    "subject": "Any plans for a workspace API?",
+    "ticket_id": "tk-049"
+  },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "split": "holdout",
+  "tags": [
+    "cat:feature",
+    "prio:p3",
+    "routine",
+    "tier:free"
+  ]
+}

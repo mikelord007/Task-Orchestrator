@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "id": "tk-033",
+  "input": {
+    "body": "It would help a lot if we could export a contact directly to CSV. Right now we copy into a spreadsheet by hand every sprint. Definitely a nice-to-have, not blocking us.",
+    "customer_tier": "free",
+    "subject": "Feature request: export contact to CSV",
+    "ticket_id": "tk-033"
+  },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
+  "split": "train",
+  "tags": [
+    "cat:feature",
+    "prio:p3",
+    "routine",
+    "tier:free"
+  ]
+}

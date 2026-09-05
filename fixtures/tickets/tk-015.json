@@ -1,0 +1,28 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-015",
+  "input": {
+    "body": "Small: the tooltip on the archive icon is cut off at 125% zoom.\nSmall: 'Recieve notifications' is spelled wrong in settings.\nNot so small: any user with the Viewer role can open the billing page and read our card details and full invoice history. I checked with two different accounts. That seems bad.",
+    "customer_tier": "pro",
+    "subject": "Two small things and one not so small",
+    "ticket_id": "tk-015"
+  },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "split": "train",
+  "tags": [
+    "buried-p0",
+    "cat:bug",
+    "multi-issue",
+    "needs-human",
+    "prio:p0",
+    "tier:pro"
+  ]
+}
