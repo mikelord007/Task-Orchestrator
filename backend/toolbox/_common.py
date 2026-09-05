@@ -22,14 +22,18 @@ def is_error(result: str) -> bool:
     return result.startswith(ERROR_PREFIX)
 
 
-def get_str(payload: dict, key: str, *, required: bool = True, default: str = "") -> str:
+def get_str(
+    payload: dict, key: str, *, required: bool = True, default: str = ""
+) -> str:
     value = payload.get(key, None)
     if value is None:
         if required:
             raise ValueError(f"missing required argument {key!r}")
         return default
     if not isinstance(value, str):
-        raise TypeError(f"argument {key!r} must be a string, got {type(value).__name__}")
+        raise TypeError(
+            f"argument {key!r} must be a string, got {type(value).__name__}"
+        )
     return value
 
 
@@ -52,7 +56,9 @@ def get_int(
     try:
         value = int(value)
     except (TypeError, ValueError):
-        raise ValueError(f"argument {key!r} must be an integer, got {value!r}") from None
+        raise ValueError(
+            f"argument {key!r} must be an integer, got {value!r}"
+        ) from None
     if minimum is not None and value < minimum:
         raise ValueError(f"argument {key!r} must be >= {minimum}, got {value}")
     if maximum is not None:

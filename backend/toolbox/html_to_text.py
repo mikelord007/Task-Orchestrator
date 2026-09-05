@@ -9,10 +9,38 @@ from ._common import err, get_int, get_str, truncate
 
 _SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "head"}
 _BLOCK_TAGS = {
-    "address", "article", "aside", "blockquote", "br", "div", "dd", "dl", "dt",
-    "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4",
-    "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
-    "table", "tr", "ul",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "br",
+    "div",
+    "dd",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "tr",
+    "ul",
 }
 _CELL_TAGS = {"td", "th"}
 
@@ -99,7 +127,9 @@ TOOL = {
 def run(input: dict) -> str:
     try:
         html = get_str(input, "html")
-        max_chars = get_int(input, "max_chars", required=False, default=20000, minimum=1)
+        max_chars = get_int(
+            input, "max_chars", required=False, default=20000, minimum=1
+        )
     except (TypeError, ValueError) as exc:
         return err(f"html_to_text: {exc}")
 
@@ -107,6 +137,6 @@ def run(input: dict) -> str:
     try:
         parser.feed(html)
         parser.close()
-    except Exception as exc:  # malformed markup should never kill a run
+    except Exception as exc:  # noqa: BLE001 -- malformed markup should never kill a run
         return err(f"html_to_text: could not parse the HTML ({exc})")
     return truncate(parser.text(), max_chars)

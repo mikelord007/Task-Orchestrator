@@ -19,13 +19,10 @@ from types import ModuleType
 
 from . import date_parse, html_to_text, json_validate, number_parse, regex_extract
 from .github_tools import (
-    get_file,
-    get_issue,
-    list_issue_comments,
-    list_issues,
-    list_labels,
-    list_recent_commits,
-    search_issues,
+    component_owners,
+    issue_context,
+    label_taxonomy,
+    similar_issues,
 )
 
 _MODULES: tuple[ModuleType, ...] = (
@@ -34,13 +31,10 @@ _MODULES: tuple[ModuleType, ...] = (
     date_parse,
     json_validate,
     number_parse,
-    list_issues,
-    get_issue,
-    list_issue_comments,
-    list_labels,
-    search_issues,
-    get_file,
-    list_recent_commits,
+    issue_context,
+    similar_issues,
+    label_taxonomy,
+    component_owners,
 )
 
 #: name -> module. The single source of truth for what tools exist.
@@ -115,10 +109,14 @@ def write_agent_tool(name: str, dest_dir: str | Path) -> Path:
     destination = Path(dest_dir)
     destination.mkdir(parents=True, exist_ok=True)
     path = destination / f"{name}.py"
-    path.write_text(_TEMPLATE.format(name=name, module=module.__name__), encoding="utf-8")
+    path.write_text(
+        _TEMPLATE.format(name=name, module=module.__name__), encoding="utf-8"
+    )
     return path
 
 
-def write_agent_tools(names: list[str] | tuple[str, ...], dest_dir: str | Path) -> list[Path]:
+def write_agent_tools(
+    names: list[str] | tuple[str, ...], dest_dir: str | Path
+) -> list[Path]:
     """Materialise several tools into an agent package's ``tools/`` directory."""
     return [write_agent_tool(name, dest_dir) for name in names]

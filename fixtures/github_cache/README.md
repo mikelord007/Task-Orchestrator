@@ -3,6 +3,17 @@
 Recorded GitHub REST responses. This directory is what makes the `github_triage`
 evaluator deterministic, offline and free.
 
+Caching happens at the **REST-call level**, one layer below what an agent
+calls. The agent sees four consolidated, task-shaped tools
+(`github_get_issue_context`, `github_search_similar_issues`,
+`github_get_label_taxonomy`, `github_find_component_owners`, in
+`backend/toolbox/github_tools/`, per PLAN_ADDENDUM.md section F); each one
+composes several of the internal primitives in `backend/toolbox/github.py`
+(`get_issue`, `list_issue_comments`, `search_issues`, `list_labels`,
+`get_issue_timeline`, `get_commit`, `list_recent_commits`, `get_file`, ...).
+Every primitive call is cached separately, so a composite tool's output is
+exactly reproducible as long as its underlying REST calls are.
+
 Every file is `<sha256>.json`, where the key is
 
 ```

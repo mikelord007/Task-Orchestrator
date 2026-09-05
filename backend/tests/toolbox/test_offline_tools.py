@@ -35,7 +35,12 @@ def test_html_to_text_drops_markup_scripts_and_styles():
 
 def test_html_to_text_puts_block_elements_on_their_own_lines():
     text = html_to_text.run({"html": "<p>one</p><p>two</p><div>three<br>four</div>"})
-    assert [line for line in text.splitlines() if line] == ["one", "two", "three", "four"]
+    assert [line for line in text.splitlines() if line] == [
+        "one",
+        "two",
+        "three",
+        "four",
+    ]
     # Blocks are separated by at most one blank line, never a wall of them.
     assert "\n\n\n" not in text
 
@@ -67,11 +72,13 @@ def test_regex_extract_returns_groups_and_can_select_one():
 
 
 def test_regex_extract_honours_flags_and_max_matches():
-    assert load(regex_extract.run({"pattern": "abc", "text": "ABC", "flags": "i"}))["matches"] == [
-        "ABC"
-    ]
+    assert load(regex_extract.run({"pattern": "abc", "text": "ABC", "flags": "i"}))[
+        "matches"
+    ] == ["ABC"]
     assert load(regex_extract.run({"pattern": "abc", "text": "ABC"}))["matches"] == []
-    capped = load(regex_extract.run({"pattern": r"\d", "text": "12345", "max_matches": 2}))
+    capped = load(
+        regex_extract.run({"pattern": r"\d", "text": "12345", "max_matches": 2})
+    )
     assert capped["matches"] == ["1", "2"]
 
 
@@ -99,7 +106,10 @@ def test_date_parse_normalises_common_shapes(text, expected):
 
 
 def test_date_parse_dayfirst_switches_numeric_order():
-    assert load(date_parse.run({"text": "03/07/2024", "dayfirst": True}))["date"] == "2024-07-03"
+    assert (
+        load(date_parse.run({"text": "03/07/2024", "dayfirst": True}))["date"]
+        == "2024-07-03"
+    )
 
 
 def test_date_parse_extracts_a_trailing_time_and_timezone_without_converting():

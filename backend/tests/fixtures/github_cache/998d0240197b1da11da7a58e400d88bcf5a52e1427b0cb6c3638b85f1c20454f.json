@@ -1,0 +1,21 @@
+{
+  "request": {
+    "tool": "github_get_commit",
+    "args": {
+      "repo": "acme/widgets",
+      "sha": "aa11bb22cc33"
+    }
+  },
+  "response": {
+    "sha": "aa11bb22cc33",
+    "message": "terminal: guard against zero-width resize",
+    "author": "Dana",
+    "date": "2024-03-01T09:00:00Z",
+    "html_url": "https://github.com/acme/widgets/commit/aa11bb22cc33",
+    "files": [
+      "src/terminal/resize.py",
+      "src/terminal/buffer.py"
+    ]
+  },
+  "fetched_at": "2026-09-05T22:28:55.310310+00:00"
+}

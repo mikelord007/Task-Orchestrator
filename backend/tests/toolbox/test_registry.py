@@ -15,13 +15,10 @@ EXPECTED_TOOLS = {
     "date_parse",
     "json_validate",
     "number_parse",
-    "github_list_issues",
-    "github_get_issue",
-    "github_list_issue_comments",
-    "github_list_labels",
-    "github_search_issues",
-    "github_get_file",
-    "github_list_recent_commits",
+    "github_get_issue_context",
+    "github_search_similar_issues",
+    "github_get_label_taxonomy",
+    "github_find_component_owners",
 }
 
 
@@ -30,10 +27,12 @@ def test_the_toolbox_contains_exactly_the_documented_tools():
 
 
 def test_github_and_offline_tools_partition_the_toolbox():
+    # Four consolidated, task-shaped tools per PLAN_ADDENDUM.md section F --
+    # not one wrapper per REST endpoint.
     assert set(registry.GITHUB_TOOLS) | set(registry.OFFLINE_TOOLS) == EXPECTED_TOOLS
     assert not set(registry.GITHUB_TOOLS) & set(registry.OFFLINE_TOOLS)
     assert all(name.startswith("github_") for name in registry.GITHUB_TOOLS)
-    assert len(registry.GITHUB_TOOLS) == 7
+    assert len(registry.GITHUB_TOOLS) == 4
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_TOOLS))
@@ -51,20 +50,27 @@ def test_every_registered_module_satisfies_the_tool_contract(name):
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_TOOLS))
-def test_every_description_says_what_it_returns_when_to_use_it_and_what_it_does_not_do(name):
+def test_every_description_says_what_it_returns_when_to_use_it_and_what_it_does_not_do(
+    name,
+):
     description = registry.TOOLBOX[name].TOOL["description"]
     assert len(description) > 300, "descriptions are the agent's only documentation"
     lowered = description.lower()
     assert "returns" in lowered, "say what comes back"
-    assert "does not" in lowered, "say what the tool will not do, so the agent stops asking"
+    assert "does not" in lowered, (
+        "say what the tool will not do, so the agent stops asking"
+    )
     # A one-line summary, then at least: what it returns, when to reach for it,
     # what it will not do, and argument semantics.
     assert description.count("\n\n") >= 3, "description is missing a section"
 
 
 def test_specs_returns_llm_ready_definitions_for_a_selection():
-    selected = registry.specs(["github_get_issue", "json_validate"])
-    assert [tool["name"] for tool in selected] == ["github_get_issue", "json_validate"]
+    selected = registry.specs(["github_get_issue_context", "json_validate"])
+    assert [tool["name"] for tool in selected] == [
+        "github_get_issue_context",
+        "json_validate",
+    ]
     assert registry.specs() == [registry.spec(name) for name in sorted(EXPECTED_TOOLS)]
     # Must survive a JSON round trip: this is what goes on the wire to the model.
     assert json.loads(json.dumps(selected)) == selected
@@ -80,7 +86,10 @@ def test_unknown_names_are_reported_not_raised_by_run():
 def test_get_raises_a_listing_error_and_unknown_reports_the_bad_names():
     with pytest.raises(registry.UnknownToolError):
         registry.get("no_such_tool")
-    assert registry.unknown(["json_validate", "nope", "also_nope"]) == ["nope", "also_nope"]
+    assert registry.unknown(["json_validate", "nope", "also_nope"]) == [
+        "nope",
+        "also_nope",
+    ]
     assert registry.unknown(list(EXPECTED_TOOLS)) == []
 
 
@@ -118,16 +127,18 @@ def test_write_agent_tool_emits_an_importable_re_export(tmp_path):
 def test_write_agent_tool_works_for_a_github_tool_and_creates_the_directory(tmp_path):
     dest = tmp_path / "agents" / "gh" / "v0" / "tools"
     assert not dest.exists()
-    path = registry.write_agent_tool("github_get_issue", dest)
+    path = registry.write_agent_tool("github_get_issue_context", dest)
     assert path.is_file()
-    generated = _import_from_path("github_get_issue", path)
-    assert generated.TOOL["name"] == "github_get_issue"
+    generated = _import_from_path("github_get_issue_context", path)
+    assert generated.TOOL["name"] == "github_get_issue_context"
 
 
 def test_write_agent_tools_materialises_a_whole_package_and_is_idempotent(tmp_path):
-    names = ["github_list_labels", "github_get_issue", "json_validate"]
+    names = ["github_get_label_taxonomy", "github_get_issue_context", "json_validate"]
     first = registry.write_agent_tools(names, tmp_path)
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(f"{n}.py" for n in names)
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
+        f"{n}.py" for n in names
+    )
     before = {p: p.read_text(encoding="utf-8") for p in first}
     registry.write_agent_tools(names, tmp_path)
     assert {p: p.read_text(encoding="utf-8") for p in first} == before

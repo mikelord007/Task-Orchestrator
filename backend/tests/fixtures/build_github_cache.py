@@ -4,7 +4,7 @@ The fixture is a small, hand-written stand-in for a real recording against
 ``acme/widgets``. It is written through ``toolbox.github.write_cache`` so the
 files carry exactly the keys the production code computes -- if the cache key
 formula ever changes, rerunning this script is what re-syncs the fixture, and
-``test_github_cache.py::test_cache_key_is_stable`` is what catches the change.
+``test_github_primitives.py::test_cache_key_is_stable`` is what catches the change.
 
 Run with:  uv run python backend/tests/fixtures/build_github_cache.py
 """
@@ -112,8 +112,16 @@ ENTRIES: list[tuple[str, dict, object]] = [
             "repo": REPO,
             "count": 6,
             "labels": [
-                {"name": "bug", "description": "Something is broken", "color": "d73a4a"},
-                {"name": "docs", "description": "Documentation only", "color": "0075ca"},
+                {
+                    "name": "bug",
+                    "description": "Something is broken",
+                    "color": "d73a4a",
+                },
+                {
+                    "name": "docs",
+                    "description": "Documentation only",
+                    "color": "0075ca",
+                },
                 {
                     "name": "platform:windows",
                     "description": "Only reproduces on Windows",
@@ -234,6 +242,61 @@ ENTRIES: list[tuple[str, dict, object]] = [
                     "html_url": f"https://github.com/{REPO}/commit/dd44ee55ff66",
                 },
             ],
+        },
+    ),
+    (
+        "github_search_issues",
+        {"repo": REPO, "q": "resize", "page": 1, "per_page": 10},
+        {
+            "repo": REPO,
+            "query": "resize",
+            "total_count": 3,
+            "count": 3,
+            "issues": [ISSUE_101, ISSUE_140, ISSUE_202],
+        },
+    ),
+    (
+        "github_get_issue_timeline",
+        {"repo": REPO, "number": 101, "per_page": 30},
+        {
+            "issue_number": 101,
+            "commit_shas": ["aa11bb22cc33"],
+            "references": [
+                {
+                    "number": 140,
+                    "title": "ConPTY resize corrupts scrollback",
+                    "is_pull_request": False,
+                    "state": "closed",
+                }
+            ],
+        },
+    ),
+    (
+        "github_get_issue_timeline",
+        {"repo": REPO, "number": EVALUATED_ISSUE, "per_page": 30},
+        {
+            "issue_number": EVALUATED_ISSUE,
+            "commit_shas": ["dd44ee55ff66"],
+            "references": [
+                {
+                    "number": 140,
+                    "title": "ConPTY resize corrupts scrollback",
+                    "is_pull_request": False,
+                    "state": "closed",
+                }
+            ],
+        },
+    ),
+    (
+        "github_get_commit",
+        {"repo": REPO, "sha": "aa11bb22cc33"},
+        {
+            "sha": "aa11bb22cc33",
+            "message": "terminal: guard against zero-width resize",
+            "author": "Dana",
+            "date": "2024-03-01T09:00:00Z",
+            "html_url": f"https://github.com/{REPO}/commit/aa11bb22cc33",
+            "files": ["src/terminal/resize.py", "src/terminal/buffer.py"],
         },
     ),
 ]
