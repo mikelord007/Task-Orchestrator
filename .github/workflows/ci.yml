@@ -1,0 +1,36 @@
+name: CI
+
+# pull_request covers every push to a branch with an open PR; push is
+# restricted to main so the same commit does not trigger two runs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: uv sync
+        run: uv sync --project backend --locked
+
+      - name: ruff check
+        run: uv run --project backend ruff check backend contracts scripts evaluators agents
+
+      - name: ruff format --check
+        run: uv run --project backend ruff format --check backend contracts scripts evaluators agents
+
+      - name: pytest
+        working-directory: backend
+        run: uv run python -m pytest
