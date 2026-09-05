@@ -66,19 +66,28 @@ def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pyte
 
 
 def test_discover_routers_skips_subpackages_with_no_api_module():
+    from fastapi import APIRouter
+
     import backend
     from backend.app import discover_routers
 
-    # backend.tests, backend.testing etc. have no api.py -- discover_routers
-    # must not raise scanning them (it catches ModuleNotFoundError). This does
-    # NOT assert the whole backend package has zero routers: a real
-    # workstream router (backend.architect.api, as of W3) legitimately exists
-    # now, so scanning backend as a whole is not a "no api.py anywhere" case
-    # any more. Confirm the actual mechanism directly instead.
-    discover_routers(backend)  # must not raise
+    # backend.tests, backend.testing etc. have no api.py and must be skipped
+    # without raising. This no longer asserts the overall result is empty:
+    # once a workstream lands a real backend/<pkg>/api.py (e.g. backend.ledger),
+    # discover_routers(backend) is *supposed* to find it -- that is the whole
+    # point of auto-discovery. Only every found item being a real APIRouter is
+    # asserted here.
+    routers = discover_routers(backend)
+    assert isinstance(routers, list)
+    assert all(isinstance(r, APIRouter) for r in routers)
 
+
+def test_discover_routers_does_not_raise_for_subpackages_with_no_api_module():
     import importlib
 
+    # The actual mechanism discover_routers relies on to skip a subpackage:
+    # importing "<subpackage>.api" must fail with ModuleNotFoundError, which
+    # is what the try/except in discover_routers catches.
     for name in ("backend.tests", "backend.testing"):
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(f"{name}.api")
