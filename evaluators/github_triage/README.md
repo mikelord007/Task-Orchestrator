@@ -115,22 +115,37 @@ a third of issues).
 
 ## Negative tasks
 
-8 tasks are tagged `negative:no_priority`: issues whose language reads as urgent
-(words like "crash", "broken", "critical", "outage") but where the maintainers set
-**no** priority at all. These exist to catch an agent that invents a `P0`/`P1`
-because the schema has a slot for one and the text sounds alarming — the correct
-answer is `"none"`.
+13 tasks carry a `negative:*` tag — issues where the correct answer is "nothing
+extra," to catch an agent that invents an answer because the output schema has
+a slot for one:
 
-This is a narrower negative signal than the illustrative examples in the addendum
-(issues whose only labels are `comp/*`, or issues discussed as similar-but-not-a-
-duplicate). Both were checked against the full 1304-issue closed corpus and neither
-occurs even once: every `comp/*`-labelled issue here also carries a type label
-(`bug`/`enhancement`/`cloud`/`needs-triage`), and no comment thread discusses another
-issue as similar without either confirming a duplicate or ignoring the resemblance
-entirely. `negative:no_priority` is the real, present analogue that still exercises
-a graded field (`priority`), selected as the 8 oldest qualifying tasks out of ~24
-that would otherwise match, so the tag marks a deliberate highlight set rather than
-just relabelling the existing `no-priority` tag under a new name.
+- **`negative:no_priority`** (8 tasks) — issues whose language reads as urgent
+  (words like "crash", "broken", "critical", "outage") but where the maintainers
+  set **no** priority at all. Correct answer: `"none"`. Selected as the 8 oldest
+  of the ~24 tasks in the corpus that qualify, so the tag marks a deliberate
+  highlight set rather than just relabelling the existing `no-priority` tag
+  under a new name.
+- **`negative:not_duplicate`** (5 tasks: `gh-4420`, `gh-4452`, `gh-4520`,
+  `gh-4639`, `gh-4908`) — issues whose own body raises and resolves the
+  duplicate/related-issue question (an explicit "Duplicate search" section, or
+  language distinguishing the bug from a similar-sounding prior one, or a
+  failure that recurs until a restart) while `duplicate_of` stays `null`.
+  Correct answer: `null`. Unlike `no_priority`, this can't be swept up by a
+  keyword rule with an acceptable false-positive rate — the same words
+  ("duplicate," "again," "related") also appear as ordinary engineering
+  vocabulary (a *duplicate CLI invocation*, a bug that happens *again* under
+  certain conditions) with no bearing on whether the issue itself is a
+  duplicate report. These five were located by reading the corpus and are
+  pinned by id in `scripts/build_github_cases.py`.
+
+**`negative:no_extra_labels`** — the addendum's other illustrative example
+(issues whose only labels are `comp/*`, so the graded `labels` field is empty)
+does not occur anywhere in this repo's 1304 closed issues, checked exhaustively
+and without a body-length floor: every `comp/*`-labelled issue here also
+carries a type label (`bug` on 47/60 tasks, `enhancement` on 13, `cloud` on 4,
+`needs-triage` on 1). There is nothing to tag and nothing to swap in from the
+wider corpus — this is a real property of how this repo's maintainers triage,
+reported honestly rather than manufactured.
 
 ## Splits — temporal, not random
 
@@ -160,7 +175,8 @@ after a fix is accepted.
 `tags` carries `comp:<name>` per component and `prio:<P0\|P1\|P2\|none>`, plus the
 hard-case tags failure analysis groups on: `multi-component` (8), `no-priority` (41),
 `assigned` (31), `windows` (8), `short-body` (2, < 300 chars), `long-body`
-(30, > 3000 chars), `duplicate`, and `negative:no_priority` (8, see above).
+(30, > 3000 chars), `duplicate`, `negative:no_priority` (8), and
+`negative:not_duplicate` (5) — see *Negative tasks* above.
 
 `duplicate` currently matches **no** task: the repo has only 7 `duplicate`-labelled
 issues in 1304 closed ones and none fall inside the 60 most recent component-labelled

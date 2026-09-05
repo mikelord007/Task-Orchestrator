@@ -188,10 +188,58 @@ def test_apply_negative_tags_caps_at_the_target_oldest_first():
     assert negative_ids == {f"gh-{i}" for i in range(builder.NEGATIVE_TARGET)}
 
 
-def test_the_committed_corpus_has_the_target_number_of_negatives():
+def test_the_committed_corpus_has_the_target_number_of_no_priority_negatives():
     cases = [json.loads(line) for line in CASES_PATH.read_text(encoding="utf-8").splitlines()]
-    negatives = [c for c in cases if any(t.startswith("negative:") for t in c["tags"])]
+    negatives = [c for c in cases if "negative:no_priority" in c["tags"]]
     assert len(negatives) == builder.NEGATIVE_TARGET
+
+
+def test_not_duplicate_ids_are_hand_picked_and_genuinely_not_duplicates():
+    """Every pinned id is required to actually exist and have no `duplicate_of`."""
+    low, high = builder.NOT_DUPLICATE_TARGET_RANGE
+    assert low <= len(builder.NOT_DUPLICATE_IDS) <= high
+    cases = {
+        json.loads(line)["id"]: json.loads(line)
+        for line in CASES_PATH.read_text(encoding="utf-8").splitlines()
+    }
+    for case_id in builder.NOT_DUPLICATE_IDS:
+        case = cases[case_id]
+        assert case["expected"]["duplicate_of"] is None, case_id
+        assert "negative:not_duplicate" in case["tags"], case_id
+
+
+def test_the_committed_corpus_has_the_target_number_of_not_duplicate_negatives():
+    cases = [json.loads(line) for line in CASES_PATH.read_text(encoding="utf-8").splitlines()]
+    negatives = [c for c in cases if "negative:not_duplicate" in c["tags"]]
+    low, high = builder.NOT_DUPLICATE_TARGET_RANGE
+    assert low <= len(negatives) <= high
+
+
+def test_apply_negative_tags_skips_a_not_duplicate_id_that_is_absent():
+    """A future regeneration that drops a pinned id should not raise."""
+    cases = [
+        {
+            "id": "gh-1",
+            "input": {"title": "x", "body": "x", "created_at": "2026-08-01T00:00:00Z"},
+            "expected": {"priority": "P1", "duplicate_of": None},
+            "tags": [],
+        }
+    ]
+    tagged = builder.apply_negative_tags(cases)
+    assert tagged[0]["tags"] == []
+
+
+def test_apply_negative_tags_rejects_a_not_duplicate_id_with_a_real_duplicate_of():
+    cases = [
+        {
+            "id": next(iter(builder.NOT_DUPLICATE_IDS)),
+            "input": {"title": "x", "body": "x", "created_at": "2026-08-01T00:00:00Z"},
+            "expected": {"priority": "P1", "duplicate_of": 1},
+            "tags": [],
+        }
+    ]
+    with pytest.raises(AssertionError):
+        builder.apply_negative_tags(cases)
 
 
 # ------------------------------------------------------------------ temporal split
