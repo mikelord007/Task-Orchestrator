@@ -1,4 +1,4 @@
-import type { PassRate } from "@/lib/types";
+import type { RateStat } from "@/lib/types";
 import { DASH, pct } from "@/lib/format";
 
 /**
@@ -16,7 +16,7 @@ export default function Stat({
 }: {
   label: string;
   /** Pass a rate to get the mean ± std readout and the min/max band. */
-  rate?: PassRate | null;
+  rate?: RateStat | null;
   /** Or pass a preformatted value for non-rate stats. */
   value?: string;
   suffix?: string;
@@ -69,13 +69,13 @@ export default function Stat({
 }
 
 /** min -> max drawn against the full 0-100 range. */
-function Band({ rate, color }: { rate: PassRate; color: string }) {
+function Band({ rate, color }: { rate: RateStat; color: string }) {
   const left = Math.max(0, Math.min(100, rate.min * 100));
   const width = Math.max(1.5, Math.min(100 - left, (rate.max - rate.min) * 100));
   return (
     <div
       className="relative mt-1 h-[3px] w-full bg-ink-700"
-      title={`min ${pct(rate.min)} / max ${pct(rate.max)} over repeats`}
+      title={`min ${pct(rate.min)} / max ${pct(rate.max)} over trials`}
     >
       <div
         className={`absolute top-0 h-[3px] ${color} opacity-70`}

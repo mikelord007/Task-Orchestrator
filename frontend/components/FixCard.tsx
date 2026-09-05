@@ -8,8 +8,8 @@ import MemoryEntries from "./MemoryEntries";
 import { LeverChip, Pill } from "./ui";
 
 const REJECT_REASON = {
-  regression: "a case that had been passing in every repeat started failing",
-  no_gain: "the candidate did not beat the current version",
+  regression: "a task that had been passing every trial (pass^k) started failing",
+  no_gain: "the candidate did not beat the current version's pass@1",
   error: "the candidate could not be evaluated",
 } as const;
 
@@ -48,6 +48,9 @@ export default function FixCard({
         <div>
           <Labelled term="Hypothesis">{card.hypothesis}</Labelled>
           <Labelled term="Diagnosis">{card.diagnosis}</Labelled>
+          {card.metric_signal ? (
+            <Labelled term="Metric signal">{card.metric_signal}</Labelled>
+          ) : null}
 
           {!accepted ? (
             <div className="mt-2 border-l-2 border-fail/50 pl-3">
@@ -106,7 +109,7 @@ function FailingGroup({ card }: { card: FixCardData }) {
       <button
         onClick={() => setOpen((v) => !v)}
         className="text-left text-fg-dim hover:text-fg"
-        title="Show the case ids in this failure group"
+        title="Show the task ids in this failure group"
       >
         <span className="text-fg-mute">group</span> {card.failing_group.tag}{" "}
         <span className="text-fg-mute">×{card.failing_group.count}</span>{" "}
@@ -131,10 +134,17 @@ function BeforeAfter({ card }: { card: FixCardData }) {
     tone?: "train" | "holdout";
   }[] = [
     {
-      label: "train mean",
-      before: withSpread(card.before.train_mean, card.before.train_std),
-      after: withSpread(card.after.train_mean, card.after.train_std),
-      change: delta(card.before.train_mean, card.after.train_mean),
+      label: "pass@1",
+      before: withSpread(card.before.pass_at_1, card.before.pass_at_1_std),
+      after: withSpread(card.after.pass_at_1, card.after.pass_at_1_std),
+      change: delta(card.before.pass_at_1, card.after.pass_at_1),
+      tone: "train",
+    },
+    {
+      label: "pass^k",
+      before: pct(card.before.pass_pow_k),
+      after: pct(card.after.pass_pow_k),
+      change: delta(card.before.pass_pow_k, card.after.pass_pow_k),
       tone: "train",
     },
     {
@@ -144,9 +154,16 @@ function BeforeAfter({ card }: { card: FixCardData }) {
       change: delta(card.before.group_pass, card.after.group_pass),
     },
     {
-      label: "holdout mean",
+      label: "holdout pass@1",
       before: DASH,
-      after: withSpread(card.after.holdout_mean, card.after.holdout_std),
+      after: withSpread(card.after.holdout_pass_at_1, card.after.holdout_pass_at_1_std),
+      change: DASH,
+      tone: "holdout",
+    },
+    {
+      label: "holdout pass^k",
+      before: DASH,
+      after: pct(card.after.holdout_pass_pow_k),
       change: DASH,
       tone: "holdout",
     },
@@ -155,6 +172,12 @@ function BeforeAfter({ card }: { card: FixCardData }) {
       before: usd(card.before.cost_per_run),
       after: usd(card.after.cost_per_run),
       change: delta(card.before.cost_per_run, card.after.cost_per_run, 1000, 1),
+    },
+    {
+      label: "tool calls/task",
+      before: num(card.before.tool_calls_per_task, 1),
+      after: num(card.after.tool_calls_per_task, 1),
+      change: delta(card.before.tool_calls_per_task, card.after.tool_calls_per_task, 1, 1),
     },
   ];
 

@@ -91,7 +91,7 @@ export default function AgentsPage() {
         )}
         {(agents.data?.length ?? 0) > 0 ? (
           <p className="mt-2 text-[10px] text-fg-mute">
-            Pass rates are the latest recorded run of the current version, mean ± std over repeats.
+            Pass rates are the latest recorded run of the current version, mean ± std over trials.
             A dash means that split has not been run.
           </p>
         ) : null}
@@ -159,7 +159,7 @@ function NewAgentForm({
         <div className="md:col-span-2">
           <Field
             label="Goal"
-            hint="One sentence. The architect reads this alongside the evaluator README and five sample train cases."
+            hint="One sentence. The architect reads this alongside the evaluator README and five sample train tasks."
           >
             <textarea
               required

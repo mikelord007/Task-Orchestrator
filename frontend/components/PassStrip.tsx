@@ -1,7 +1,7 @@
 /**
- * One mark per repeat, in repeat order. Reading three marks left to right tells
+ * One mark per trial, in trial order. Reading three marks left to right tells
  * you the difference between "passes" and "passes sometimes", which is the
- * whole reason repeats exist.
+ * whole reason trials exist.
  */
 export default function PassStrip({ passed }: { passed: boolean[] }) {
   if (passed.length === 0) return <span className="text-fg-mute">—</span>;
@@ -12,10 +12,10 @@ export default function PassStrip({ passed }: { passed: boolean[] }) {
       className="inline-flex items-center gap-1"
       title={
         stable
-          ? "Passed in every repeat (stable)"
+          ? "Passed in every trial (stable)"
           : flaky
-            ? "Passed in some repeats only (flaky, excluded from the stable set)"
-            : "Failed in every repeat"
+            ? "Passed in some trials only (flaky, excluded from the stable set)"
+            : "Failed in every trial"
       }
     >
       {passed.map((ok, i) => (

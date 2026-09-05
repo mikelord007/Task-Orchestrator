@@ -21,12 +21,13 @@ import type {
   MemoryRule,
   RunSummary,
   ToolNote,
+  ToolRef,
 } from "../types";
-import { makeRun, row } from "./derive";
+import { graduatedCount, isSaturated, flaggedTasks, makeRun, passPowKPoint, row, toRatePoint } from "./derive";
 
 export const AGENT_A = "gh-triage-01";
 export const AGENT_B = "ticket-triage-01";
-export const REPEATS = 3;
+export const TRIALS = 3;
 
 /* ------------------------------------------------------------- evaluators */
 
@@ -35,15 +36,12 @@ export const EVALUATORS: Evaluator[] = [
     evaluator_id: "github_triage",
     domain: "github_triage",
     description:
-      "Given an open issue from Untrivial-ai/agent-orchestrator, produce labels, component, assignee, duplicate_of and priority. Ground truth is what the maintainers actually applied. Split is temporal: train is the oldest 70% of closed issues, holdout the newest 30%.",
+      "Given an open issue from Untrivial-ai/agent-orchestrator, produce labels, component, assignee, duplicate_of and priority. Ground truth is what the maintainers actually applied on now-closed issues. Temporal split: train is the oldest 70%, holdout the newest 30% (this is literally applying context in later runs).",
     allowed_tools: [
-      "list_issues",
-      "get_issue",
-      "list_issue_comments",
-      "list_labels",
-      "search_issues",
-      "get_file",
-      "list_recent_commits",
+      "github_get_issue_context",
+      "github_search_similar_issues",
+      "github_get_label_taxonomy",
+      "github_find_component_owners",
     ],
     case_counts: { train: 42, holdout: 18 },
   },
@@ -51,7 +49,7 @@ export const EVALUATORS: Evaluator[] = [
     evaluator_id: "ticket_triage",
     domain: "ticket_triage",
     description:
-      "Given a support ticket, produce category, priority and needs_human. Hard cases are tagged: mixed language, sarcasm, several problems in one ticket, a p0 signal buried in the last line.",
+      "Given a support ticket, produce category, priority and needs_human. Hard tasks are tagged: mixed language, sarcasm, several problems in one ticket, a p0 signal buried in the last line.",
     allowed_tools: ["html_to_text", "regex_extract", "date_parse", "json_validate", "number_parse"],
     case_counts: { train: 35, holdout: 15 },
   },
@@ -70,6 +68,7 @@ const RULES_V3: MemoryRule[] = [
     misses: 1,
     created_version: 1,
     source: "reflection",
+    demoted: false,
   },
   {
     id: "r-002",
@@ -81,6 +80,7 @@ const RULES_V3: MemoryRule[] = [
     misses: 0,
     created_version: 1,
     source: "reflection",
+    demoted: false,
   },
   {
     id: "r-003",
@@ -92,6 +92,7 @@ const RULES_V3: MemoryRule[] = [
     misses: 2,
     created_version: 1,
     source: "reflection",
+    demoted: false,
   },
   {
     id: "r-004",
@@ -108,14 +109,15 @@ const RULES_V3: MemoryRule[] = [
   },
   {
     id: "r-005",
-    rule: "Before answering duplicate_of, search closed issues as well. Maintainers close the duplicate and keep the original open, so the original is invisible with the default state filter.",
-    scope_keywords: ["duplicate", "same as", "already reported", "search"],
+    rule: "When github_search_similar_issues returns no confident match, retry with keywords pulled from the traceback or error text rather than the issue title verbatim. Duplicates are often filed with different wording than the original and rank outside the default top 10.",
+    scope_keywords: ["duplicate", "same as", "already reported", "similar"],
     evidence_case_ids: ["gh-1948", "gh-2044", "gh-2103"],
     confidence: 0.8,
     hits: 4,
     misses: 0,
     created_version: 3,
     source: "reflection",
+    demoted: false,
   },
   {
     id: "r-006",
@@ -127,29 +129,30 @@ const RULES_V3: MemoryRule[] = [
     misses: 0,
     created_version: 3,
     source: "issue",
+    demoted: false,
   },
 ];
 
 const TOOL_NOTES_V3: ToolNote[] = [
   {
     id: "t-001",
-    tool: "list_issues",
-    note: "Paginates at 100 and defaults to state=open. Pass state=all when hunting duplicates or the closed original never appears.",
-    evidence: "12 of the 14 duplicate_of misses in v0 called list_issues with the default state.",
+    tool: "github_search_similar_issues",
+    note: "limit defaults to 10; a duplicate filed with different wording than the original often ranks outside the top 10. Retry with keywords from the traceback or error text, not the issue title verbatim, before concluding there is no duplicate.",
+    evidence: "12 of the 14 duplicate_of misses in v0 never retried the query after an empty top-10.",
     created_version: 1,
   },
   {
     id: "t-002",
-    tool: "list_labels",
-    note: "Returns a description for every label. Read it rather than inferring from the name: area:tui is described as terminal rendering, which is wider than the name suggests.",
-    evidence: "Label descriptions were fetched in 3 of 42 v0 cases and in all of them the label set was correct.",
+    tool: "github_get_label_taxonomy",
+    note: "Each label carries a description and two example titles. Read the description rather than inferring from the name: area:tui is described as terminal rendering, which is wider than the name suggests.",
+    evidence: "The label taxonomy was fetched in 3 of 42 v0 tasks and in all three the label set was correct.",
     created_version: 1,
   },
   {
     id: "t-003",
-    tool: "get_file",
-    note: "Returns raw file contents and cannot list a directory. Read CODEOWNERS once and reuse it instead of calling get_file per candidate path.",
-    evidence: "v1 averaged 4.1 get_file calls per case, v3 averages 1.0 for the same component accuracy.",
+    tool: "github_find_component_owners",
+    note: "Takes multiple paths or keywords in one call. Batch every candidate path into a single call instead of calling it once per path.",
+    evidence: "v1 averaged 4.1 component-owner calls per task; v3 averages 1.0 with no drop in component match rate.",
     created_version: 3,
   },
 ];
@@ -159,32 +162,28 @@ const MEMORY_V3 = {
   tool_notes: TOOL_NOTES_V3,
   episodes: [
     {
-      id: "e-004",
-      text: "v3 train: duplicate_of resolved on all three duplicate cases once closed issues were searched; r-004 injected 6 times for 1 hit and was demoted.",
-      created_version: 3,
+      version: 3,
       run_id: "run-a-t3",
-      ts: "2026-09-06T09:41:00Z",
+      one_line_reflection:
+        "v3 train: duplicate_of resolved on all three duplicate tasks once closed issues were searched; r-004 injected 6 times for 1 hit and was demoted.",
     },
     {
-      id: "e-003",
-      text: "v2 train: the deepest-path instruction fixed the component group but broke two enhancement cases that cite a file only as an example.",
-      created_version: 2,
+      version: 2,
       run_id: "run-a-t2",
-      ts: "2026-09-06T08:12:00Z",
+      one_line_reflection:
+        "v2 train: the deepest-path instruction fixed the component group but broke two enhancement tasks that cite a file only as an example.",
     },
     {
-      id: "e-002",
-      text: "v1 train: platform:windows now applied on all five Windows reports; component still wrong whenever the body names more than one file.",
-      created_version: 1,
+      version: 1,
       run_id: "run-a-t1",
-      ts: "2026-09-06T06:55:00Z",
+      one_line_reflection:
+        "v1 train: platform:windows now applied on all five Windows reports; component still wrong whenever the body names more than one file.",
     },
     {
-      id: "e-001",
-      text: "v0 train: 9.2 tool calls per case, most of them repeated list_issues searches that returned the same page.",
-      created_version: 0,
+      version: 0,
       run_id: "run-a-t0",
-      ts: "2026-09-06T05:30:00Z",
+      one_line_reflection:
+        "v0 train: 9.2 tool calls per task, most of them repeated search calls that returned the same page.",
     },
   ],
 };
@@ -216,20 +215,23 @@ return exactly this object and nothing else:
 
 # Method
 
-1. Read the issue body and every comment before calling any other tool.
-2. Fetch the label list once. Use the description field, not the label name, to
-   decide whether a label applies.
-3. If the body names a file path or contains a traceback, map the path to a
-   component. Read CODEOWNERS once; do not call get_file per candidate path.
-4. Before answering duplicate_of, search with state=all. The original of a
-   duplicate is usually already closed.
+1. Call github_get_issue_context once and read the whole thing before calling
+   any other tool.
+2. Fetch the label taxonomy once. Use the description field, not the label
+   name, to decide whether a label applies.
+3. If the body names a file path or contains a traceback, call
+   github_find_component_owners with every candidate path in one call to map
+   it to a component.
+4. Before answering duplicate_of, call github_search_similar_issues. If it
+   returns no confident match, retry once with keywords from the traceback or
+   error text rather than the issue title verbatim.
 5. Priority comes from impact and from what the reporter is blocked on, never
    from who opened the issue.
 
 # Output
 
-Emit the object as the final message. Do not explain your reasoning, do not
-restate the issue, and do not report on your own accuracy.`;
+Emit the object as the final message. Do not explain your reasoning and do
+not restate the issue.`;
 
 const PROMPT_V0 = `# Role
 
@@ -242,41 +244,26 @@ apply.
 Use the tools available to you to gather whatever context you need, then answer
 with a JSON object.`;
 
-const TOOLS_A = [
+const TOOLS_A: ToolRef[] = [
   {
-    name: "list_issues",
+    name: "github_get_issue_context",
     description:
-      "List issues in the repository, newest first. Returns number, title, state, labels, author and creation date for each. Paginates at 100; pass state=all to include closed issues. Does not return issue bodies or comments.",
+      "Return one issue's title, body, author, comments, linked PRs/commits and the files they touched, in a single call. response_format=concise (default) trims comment bodies to the mapping decision; response_format=detailed keeps ids for follow-up calls. For the issue under evaluation this hides labels, assignees, milestone, state and closed_at, and hides its own comments and linked PRs/commits.",
   },
   {
-    name: "get_issue",
+    name: "github_search_similar_issues",
     description:
-      "Return one issue in full: title, body, author, state, labels, assignees and timestamps. Use it once you have a candidate number from list_issues or search_issues.",
+      "Search issues (state=all, limit=10 by default) and return candidates: title, labels, state and a two-line summary each. Use it before answering duplicate_of. If the top 10 has no confident match, retry with keywords from the traceback or error text rather than the issue title verbatim. Never returns the issue you are triaging.",
   },
   {
-    name: "list_issue_comments",
+    name: "github_get_label_taxonomy",
     description:
-      "Return every comment on one issue in order, with author and timestamp. Maintainer conventions are usually stated here rather than in the body.",
+      "Return every label with its description, usage count and two example issue titles (never the issue under evaluation). Most of the contextual logic this task needs lives in the description, not the name.",
   },
   {
-    name: "list_labels",
+    name: "github_find_component_owners",
     description:
-      "Return every label in the repository with its colour and description. Use the description to decide whether a label applies. Does not tell you which labels are currently on an issue.",
-  },
-  {
-    name: "search_issues",
-    description:
-      "Search issues by GitHub search syntax and return matching numbers and titles. Use it to look for an earlier report of the same problem. Ranking is GitHub's, so read more than the first result.",
-  },
-  {
-    name: "get_file",
-    description:
-      "Return the raw contents of one file at the default branch. Use it for CODEOWNERS or a module docstring. It cannot list a directory and it does not search.",
-  },
-  {
-    name: "list_recent_commits",
-    description:
-      "Return recent commits, optionally filtered to a path, with message, author and date. Use it to find who last touched the code a report points at.",
+      "Given one or more file paths or keywords, return the components, labels and maintainers associated with them from recent commits and past assignments. Accepts a list, so batch every candidate path into one call rather than calling it per path.",
   },
 ];
 
@@ -313,7 +300,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-t0",
     version: 0,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T05:10:00Z",
     finished_ts: "2026-09-06T05:29:00Z",
     cases: [
@@ -335,7 +322,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-h0",
     version: 0,
     split: "holdout",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T05:31:00Z",
     finished_ts: "2026-09-06T05:40:00Z",
     cases: [
@@ -351,7 +338,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-t1",
     version: 1,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T06:41:00Z",
     finished_ts: "2026-09-06T06:57:00Z",
     cases: [
@@ -373,7 +360,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-h1",
     version: 1,
     split: "holdout",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T06:58:00Z",
     finished_ts: "2026-09-06T07:06:00Z",
     cases: [
@@ -390,7 +377,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-t2",
     version: 2,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T07:58:00Z",
     finished_ts: "2026-09-06T08:11:00Z",
     cases: [
@@ -412,7 +399,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-t3",
     version: 3,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T09:22:00Z",
     finished_ts: "2026-09-06T09:34:00Z",
     cases: [
@@ -434,7 +421,7 @@ const RUNS_A: RunSummary[] = [
     run_id: "run-a-h3",
     version: 3,
     split: "holdout",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T09:35:00Z",
     finished_ts: "2026-09-06T09:42:00Z",
     cases: [
@@ -453,7 +440,7 @@ const RUNS_B: RunSummary[] = [
     run_id: "run-b-t0",
     version: 0,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T10:20:00Z",
     finished_ts: "2026-09-06T10:27:00Z",
     cases: [
@@ -469,7 +456,7 @@ const RUNS_B: RunSummary[] = [
     run_id: "run-b-t2",
     version: 2,
     split: "train",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T11:44:00Z",
     finished_ts: "2026-09-06T11:50:00Z",
     cases: [
@@ -485,7 +472,7 @@ const RUNS_B: RunSummary[] = [
     run_id: "run-b-h2",
     version: 2,
     split: "holdout",
-    repeats: REPEATS,
+    trials: TRIALS,
     started_ts: "2026-09-06T11:51:00Z",
     finished_ts: "2026-09-06T11:55:00Z",
     cases: [
@@ -503,7 +490,7 @@ function latest(agentId: string, split: "train" | "holdout", version: number) {
   const found = RUNS[agentId]
     .filter((r) => r.split === split && r.version === version)
     .slice(-1)[0];
-  return found ? found.pass_rate : null;
+  return found ? found.pass_at_1 : null;
 }
 
 export const AGENTS: AgentSummary[] = [
@@ -541,6 +528,7 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
             misses: 1,
             created_version: 1,
             source: "reflection",
+            demoted: false,
           },
           {
             id: "rb-002",
@@ -552,6 +540,7 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
             misses: 1,
             created_version: 2,
             source: "reflection",
+            demoted: false,
           },
         ],
         tool_notes: [
@@ -564,7 +553,12 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
           },
         ],
         episodes: [
-          { id: "eb-001", text: "v2 train: deadline rule carried both buried-p0 cases; the remaining failure is a mixed-language ticket.", created_version: 2, run_id: "run-b-t2" },
+          {
+            version: 2,
+            run_id: "run-b-t2",
+            one_line_reflection:
+              "v2 train: deadline rule carried both buried-p0 tasks; the remaining failure is a mixed-language ticket.",
+          },
         ],
       },
       applied_lessons: ["l-001", "l-003"],
@@ -590,11 +584,18 @@ export function agentDetail(agentId: string, version?: number): AgentDetail {
 
 /* -------------------------------------------------------------- fix cards */
 
-const trainPR = (v: number) => RUNS_A.find((r) => r.split === "train" && r.version === v)!.pass_rate;
-const holdoutPR = (v: number) =>
-  RUNS_A.find((r) => r.split === "holdout" && r.version === v)?.pass_rate ?? null;
-const trainCost = (v: number) =>
-  RUNS_A.find((r) => r.split === "train" && r.version === v)!.total_cost_usd;
+const trainRunA = (v: number) => RUNS_A.find((r) => r.split === "train" && r.version === v)!;
+const holdoutRunA = (v: number) => RUNS_A.find((r) => r.split === "holdout" && r.version === v);
+const trainPR = (v: number) => trainRunA(v).pass_at_1;
+const holdoutPR = (v: number) => holdoutRunA(v)?.pass_at_1 ?? null;
+const trainCost = (v: number) => trainRunA(v).total_cost_usd;
+const toolCallsPerTask = (v: number) => {
+  const run = trainRunA(v);
+  return round2(run.cases.reduce((acc, c) => acc + c.tool_calls, 0) / run.cases.length);
+};
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 export const FIXES: Record<string, FixCard[]> = {
   [AGENT_A]: [
@@ -611,28 +612,34 @@ export const FIXES: Record<string, FixCard[]> = {
         case_ids: ["gh-1948", "gh-2044", "gh-2103"],
       },
       hypothesis:
-        "duplicate_of comes back null on every duplicate case because list_issues defaults to state=open and the original of a duplicate is already closed. The agent is answering about issues it was never shown.",
+        "duplicate_of comes back null on every duplicate task because the true duplicate is filed with different wording and ranks outside github_search_similar_issues' default top 10, and the agent never retries the query.",
       diagnosis:
-        "Every duplicate case failed because the search only ever saw open issues. Reflection read the transcript, found the default state parameter in the tool returns, and proposed a tool note plus a rule that cites it. The same version demoted r-004, which had scored 1 hit against 5 misses over six injections.",
+        "Every duplicate task failed because the search's first query never surfaced the original. Reflection read the transcript, saw the top-10 candidates it was shown, and proposed a tool note plus a rule that retries with keywords from the traceback. The same version demoted r-004, which had scored 1 hit against 5 misses over six injections.",
       diff_summary: "+2 rules, +1 tool note, 1 rule demoted",
       files_touched: [
         "agents/gh-triage-01/v3/memory/rules.jsonl",
         "agents/gh-triage-01/v3/memory/tool_notes.jsonl",
       ],
       diff_url: "/agents/gh-triage-01/fixes/3/diff",
+      metric_signal: "duplicate_of misses: 3 of 3 duplicate-tagged tasks, none retried github_search_similar_issues after an empty top-10.",
       before: {
-        train_mean: trainPR(1).mean,
-        train_std: trainPR(1).std,
+        pass_at_1: trainPR(1).mean,
+        pass_at_1_std: trainPR(1).std,
+        pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.111,
         cost_per_run: trainCost(1),
+        tool_calls_per_task: toolCallsPerTask(1),
       },
       after: {
-        train_mean: trainPR(3).mean,
-        train_std: trainPR(3).std,
+        pass_at_1: trainPR(3).mean,
+        pass_at_1_std: trainPR(3).std,
+        pass_pow_k: trainRunA(3).pass_pow_k,
         group_pass: 0.778,
-        holdout_mean: holdoutPR(3)!.mean,
-        holdout_std: holdoutPR(3)!.std,
         cost_per_run: trainCost(3),
+        tool_calls_per_task: toolCallsPerTask(3),
+        holdout_pass_at_1: holdoutPR(3)!.mean,
+        holdout_pass_at_1_std: holdoutPR(3)!.std,
+        holdout_pass_pow_k: holdoutRunA(3)!.pass_pow_k,
       },
       memory_entries: [
         {
@@ -661,7 +668,7 @@ export const FIXES: Record<string, FixCard[]> = {
           id: "t-003",
           kind: "tool_note",
           change: "added",
-          tool: "get_file",
+          tool: "github_find_component_owners",
           note: TOOL_NOTES_V3[2].note,
           evidence: TOOL_NOTES_V3[2].evidence,
           created_version: 3,
@@ -699,18 +706,23 @@ export const FIXES: Record<string, FixCard[]> = {
       diff_url: "/agents/gh-triage-01/fixes/2/diff",
       regressed_case_ids: ["gh-1758", "gh-2011"],
       before: {
-        train_mean: trainPR(1).mean,
-        train_std: trainPR(1).std,
+        pass_at_1: trainPR(1).mean,
+        pass_at_1_std: trainPR(1).std,
+        pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.083,
         cost_per_run: trainCost(1),
+        tool_calls_per_task: toolCallsPerTask(1),
       },
       after: {
-        train_mean: trainPR(2).mean,
-        train_std: trainPR(2).std,
+        pass_at_1: trainPR(2).mean,
+        pass_at_1_std: trainPR(2).std,
+        pass_pow_k: trainRunA(2).pass_pow_k,
         group_pass: 0.25,
-        holdout_mean: null,
-        holdout_std: null,
         cost_per_run: trainCost(2),
+        tool_calls_per_task: toolCallsPerTask(2),
+        holdout_pass_at_1: null,
+        holdout_pass_at_1_std: null,
+        holdout_pass_pow_k: null,
       },
     },
     {
@@ -728,26 +740,32 @@ export const FIXES: Record<string, FixCard[]> = {
       hypothesis:
         "v0 never proposes platform:windows. The maintainers apply it to every ConPTY or PowerShell rendering report, and five of the eight label misses in the train set are that one label.",
       diagnosis:
-        "Label F1 falls below threshold on Windows terminal reports because the agent never proposes platform:windows, a label whose description it had already fetched and ignored. Reflection wrote four rules and one tool note from the issue bodies and the label descriptions in its own transcript. Each rule carries the case ids it was derived from.",
+        "Label F1 falls below threshold on Windows terminal reports because the agent never proposes platform:windows, a label whose description it had already fetched and ignored. Reflection wrote four rules and one tool note from the issue bodies and the label descriptions in its own transcript. Each rule carries the task ids it was derived from.",
       diff_summary: "+4 rules, +2 tool notes",
       files_touched: [
         "agents/gh-triage-01/v1/memory/rules.jsonl",
         "agents/gh-triage-01/v1/memory/tool_notes.jsonl",
       ],
       diff_url: "/agents/gh-triage-01/fixes/1/diff",
+      metric_signal: "0 of 5 platform:windows misses recovered; the label description had already been fetched and ignored.",
       before: {
-        train_mean: trainPR(0).mean,
-        train_std: trainPR(0).std,
+        pass_at_1: trainPR(0).mean,
+        pass_at_1_std: trainPR(0).std,
+        pass_pow_k: trainRunA(0).pass_pow_k,
         group_pass: 0.0,
         cost_per_run: trainCost(0),
+        tool_calls_per_task: toolCallsPerTask(0),
       },
       after: {
-        train_mean: trainPR(1).mean,
-        train_std: trainPR(1).std,
+        pass_at_1: trainPR(1).mean,
+        pass_at_1_std: trainPR(1).std,
+        pass_pow_k: trainRunA(1).pass_pow_k,
         group_pass: 0.6,
-        holdout_mean: holdoutPR(1)!.mean,
-        holdout_std: holdoutPR(1)!.std,
         cost_per_run: trainCost(1),
+        tool_calls_per_task: toolCallsPerTask(1),
+        holdout_pass_at_1: holdoutPR(1)!.mean,
+        holdout_pass_at_1_std: holdoutPR(1)!.std,
+        holdout_pass_pow_k: holdoutRunA(1)!.pass_pow_k,
       },
       memory_entries: [
         ...RULES_V3.filter((r) => r.created_version === 1).map(
@@ -797,14 +815,25 @@ export const FIXES: Record<string, FixCard[]> = {
       diff_summary: "+1 rule",
       files_touched: ["agents/ticket-triage-01/v2/memory/rules.jsonl"],
       diff_url: "/agents/ticket-triage-01/fixes/2/diff",
-      before: { train_mean: 0.5, train_std: 0.068, group_pass: 0.0, cost_per_run: 0.048 },
+      metric_signal: "2 of 2 sarcasm-tagged tickets graded p0 with needs_human true.",
+      before: {
+        pass_at_1: 0.5,
+        pass_at_1_std: 0.068,
+        pass_pow_k: 0.0,
+        group_pass: 0.0,
+        cost_per_run: 0.048,
+        tool_calls_per_task: 2.33,
+      },
       after: {
-        train_mean: RUNS_B[1].pass_rate.mean,
-        train_std: RUNS_B[1].pass_rate.std,
+        pass_at_1: RUNS_B[1].pass_at_1.mean,
+        pass_at_1_std: RUNS_B[1].pass_at_1.std,
+        pass_pow_k: RUNS_B[1].pass_pow_k,
         group_pass: 0.833,
-        holdout_mean: RUNS_B[2].pass_rate.mean,
-        holdout_std: RUNS_B[2].pass_rate.std,
         cost_per_run: RUNS_B[1].total_cost_usd,
+        tool_calls_per_task: 2.0,
+        holdout_pass_at_1: RUNS_B[2].pass_at_1.mean,
+        holdout_pass_at_1_std: RUNS_B[2].pass_at_1.std,
+        holdout_pass_pow_k: RUNS_B[2].pass_pow_k,
       },
       memory_entries: [
         {
@@ -836,8 +865,8 @@ export const DIFFS: Record<string, string> = {
 --- a/agents/gh-triage-01/v0/memory/tool_notes.jsonl
 +++ b/agents/gh-triage-01/v1/memory/tool_notes.jsonl
 @@ -0,0 +1,2 @@
-+{"id":"t-001","tool":"list_issues","note":"Paginates at 100 and defaults to state=open. Pass state=all when hunting duplicates.","evidence":"12 of 14 duplicate_of misses used the default state.","created_version":1}
-+{"id":"t-002","tool":"list_labels","note":"Returns a description per label. Read it rather than inferring from the name.","evidence":"Label descriptions were fetched in 3 of 42 v0 cases; all 3 had correct label sets.","created_version":1}
++{"id":"t-001","tool":"github_search_similar_issues","note":"limit defaults to 10; a duplicate filed with different wording often ranks outside it. Retry with keywords from the traceback, not the issue title.","evidence":"12 of 14 duplicate_of misses never retried after an empty top-10.","created_version":1}
++{"id":"t-002","tool":"github_get_label_taxonomy","note":"Returns a description per label. Read it rather than inferring from the name.","evidence":"The label taxonomy was fetched in 3 of 42 v0 tasks; all 3 had correct label sets.","created_version":1}
 `,
   [`${AGENT_A}:2`]: `--- a/agents/gh-triage-01/v1/prompt.md
 +++ b/agents/gh-triage-01/v2/prompt.md
@@ -850,19 +879,19 @@ export const DIFFS: Record<string, string> = {
 +   Do not weigh the paths mentioned in prose above the ones in the traceback.
 +   The deepest frame decides the component on its own.
 
- 4. Before answering duplicate_of, search with state=all.
+ 4. Before answering duplicate_of, call github_search_similar_issues.
 `,
   [`${AGENT_A}:3`]: `--- a/agents/gh-triage-01/v1/memory/rules.jsonl
 +++ b/agents/gh-triage-01/v3/memory/rules.jsonl
 @@ -1,4 +1,6 @@
--{"id":"r-004","rule":"An issue opened by a maintainer is priority p1.","confidence":0.44,"hits":0,"misses":0,"created_version":1,"source":"reflection"}
+-{"id":"r-004","rule":"An issue opened by a maintainer is priority p1.","confidence":0.44,"hits":0,"misses":0,"created_version":1,"source":"reflection","demoted":false}
 +{"id":"r-004","rule":"An issue opened by a maintainer is priority p1.","confidence":0.31,"hits":1,"misses":5,"created_version":1,"source":"reflection","demoted":true,"demoted_version":3}
-+{"id":"r-005","rule":"Before answering duplicate_of, search closed issues as well; the original of a duplicate is usually already closed.","scope_keywords":["duplicate","same as","already reported"],"evidence_case_ids":["gh-1948","gh-2044","gh-2103"],"confidence":0.8,"hits":0,"misses":0,"created_version":3,"source":"reflection"}
-+{"id":"r-006","rule":"A traceback containing agent_loop.py belongs to component runtime, not session.","scope_keywords":["traceback","agent_loop","runtime"],"evidence_case_ids":["gh-2204"],"confidence":0.79,"hits":0,"misses":0,"created_version":3,"source":"issue"}
++{"id":"r-005","rule":"When github_search_similar_issues returns no confident match, retry with keywords from the traceback rather than the issue title.","scope_keywords":["duplicate","same as","already reported"],"evidence_case_ids":["gh-1948","gh-2044","gh-2103"],"confidence":0.8,"hits":0,"misses":0,"created_version":3,"source":"reflection","demoted":false}
++{"id":"r-006","rule":"A traceback containing agent_loop.py belongs to component runtime, not session.","scope_keywords":["traceback","agent_loop","runtime"],"evidence_case_ids":["gh-2204"],"confidence":0.79,"hits":0,"misses":0,"created_version":3,"source":"issue","demoted":false}
 --- a/agents/gh-triage-01/v1/memory/tool_notes.jsonl
 +++ b/agents/gh-triage-01/v3/memory/tool_notes.jsonl
 @@ -2,3 +2,4 @@
-+{"id":"t-003","tool":"get_file","note":"Returns raw file contents and cannot list a directory. Read CODEOWNERS once and reuse it.","evidence":"v1 averaged 4.1 get_file calls per case; v3 averages 1.0.","created_version":3}
++{"id":"t-003","tool":"github_find_component_owners","note":"Takes multiple paths in one call. Batch every candidate path instead of calling it per path.","evidence":"v1 averaged 4.1 calls per task; v3 averages 1.0.","created_version":3}
 `,
   [`${AGENT_B}:2`]: `--- a/agents/ticket-triage-01/v1/memory/rules.jsonl
 +++ b/agents/ticket-triage-01/v2/memory/rules.jsonl
@@ -1047,8 +1076,8 @@ export const ISSUES: Issue[] = [
   {
     issue_id: "iss-004",
     agent_id: AGENT_A,
-    title: "component_mismatch:tui_vs_session on 3 cases",
-    body: "Opened automatically after run-a-t3. Three train cases share the failure signature component_mismatch:tui_vs_session. All three name two file paths in the body.",
+    title: "component_mismatch:tui_vs_session on 3 tasks",
+    body: "Opened automatically after run-a-t3. Three train tasks share the failure signature component_mismatch:tui_vs_session. All three name two file paths in the body.",
     source: "auto",
     status: "open",
     failure_signature: "component_mismatch:tui_vs_session",
@@ -1059,7 +1088,7 @@ export const ISSUES: Issue[] = [
     issue_id: "iss-003",
     agent_id: AGENT_A,
     title: "Crash reports with an agent_loop.py traceback are routed to session",
-    body: "Reported by hand. When a traceback passes through session/manager.py before reaching agent_loop.py, the agent names session as the component. We own agent_loop.py under runtime and the crash always belongs there. This has happened on at least gh-2204 and on two issues that are not in the case set yet.",
+    body: "Reported by hand. When a traceback passes through session/manager.py before reaching agent_loop.py, the agent names session as the component. We own agent_loop.py under runtime and the crash always belongs there. This has happened on at least gh-2204 and on two issues that are not in the task set yet.",
     source: "human",
     status: "fixed",
     created_ts: "2026-09-06T08:40:00Z",
@@ -1070,7 +1099,7 @@ export const ISSUES: Issue[] = [
     issue_id: "iss-002",
     agent_id: AGENT_A,
     title: "drift:loop on gh-1948",
-    body: "Opened automatically after run-a-t0. One case aborted with failure_signature drift:loop: search_issues was called four times with identical arguments before the token budget ran out.",
+    body: "Opened automatically after run-a-t0. One task aborted with failure_signature drift:loop: github_search_similar_issues was called four times with identical arguments before the token budget ran out.",
     source: "auto",
     status: "open",
     failure_signature: "drift:loop",
@@ -1128,7 +1157,7 @@ export const PLAYBOOK: Lesson[] = [
   {
     id: "l-003",
     lever: "prompt",
-    trigger: "A prompt rewrite fixes the target group and regresses cases outside it.",
+    trigger: "A prompt rewrite fixes the target group and regresses tasks outside it.",
     lesson:
       "Scope a prompt edit to the failing group's precondition. An unconditional instruction inherits every case the group does not cover, and the gate will find them.",
     domain_tags: ["prompt", "generalization"],
@@ -1138,7 +1167,7 @@ export const PLAYBOOK: Lesson[] = [
   {
     id: "l-004",
     lever: "orchestration",
-    trigger: "Tool calls per case stay high after accuracy has stopped improving.",
+    trigger: "Tool calls per task stay high after pass@1 has stopped improving.",
     lesson:
       "Split gathering from deciding. A cheap model can collect the context a strong model then rules on, and the call count drops before the cost does.",
     domain_tags: ["cost", "orchestration"],
@@ -1150,15 +1179,12 @@ export const PLAYBOOK: Lesson[] = [
 /* --------------------------------------------------------------- insights */
 
 function insightsA(): Insights {
-  const passRates = RUNS_A.map((r) => ({
-    version: r.version,
-    split: r.split,
-    ...r.pass_rate,
-  }));
+  const trainRuns = RUNS_A.filter((r) => r.split === "train").sort((a, b) => a.version - b.version);
   return {
     agent_id: AGENT_A,
-    repeats: REPEATS,
-    pass_rate_by_version: passRates,
+    trials: TRIALS,
+    pass_at_1_by_version: RUNS_A.map((r) => toRatePoint(r, r.pass_at_1)),
+    pass_pow_k_by_version: RUNS_A.map((r) => passPowKPoint(r)),
     cost_by_version: RUNS_A.map((r) => ({
       version: r.version,
       split: r.split,
@@ -1203,7 +1229,7 @@ function insightsA(): Insights {
         lever: "prompt",
         to_version: 2,
         label: "v2 rejected",
-        diagnosis: "Deepest-path instruction regressed two stably-passing cases.",
+        diagnosis: "Deepest-path instruction regressed two stably-passing tasks.",
       },
       {
         version: 3,
@@ -1214,26 +1240,31 @@ function insightsA(): Insights {
         diagnosis: "state=all tool note plus two rules; r-004 demoted at 1 hit / 5 misses.",
       },
     ],
-    memory_growth_by_version: [
+    memory_by_version: [
       { version: 0, rules: 0, tool_notes: 0, mean_confidence: null, demotions: 0 },
       { version: 1, rules: 4, tool_notes: 2, mean_confidence: 0.705, demotions: 0 },
       { version: 2, rules: 4, tool_notes: 2, mean_confidence: 0.705, demotions: 0 },
       { version: 3, rules: 5, tool_notes: 3, mean_confidence: 0.82, demotions: 1 },
     ],
-    tool_efficiency_by_version: [
-      { version: 0, split: "train", tool_calls_per_case: 10.0, tool_errors_per_case: 1.17, tokens_per_case: 11840, latency_ms_per_case: 13908 },
-      { version: 1, split: "train", tool_calls_per_case: 7.25, tool_errors_per_case: 0.42, tokens_per_case: 9120, latency_ms_per_case: 10508 },
-      { version: 2, split: "train", tool_calls_per_case: 7.5, tool_errors_per_case: 0.33, tokens_per_case: 9260, latency_ms_per_case: 10858 },
-      { version: 3, split: "train", tool_calls_per_case: 4.25, tool_errors_per_case: 0.08, tokens_per_case: 6810, latency_ms_per_case: 7233 },
+    tool_stats_by_version: [
+      { version: 0, split: "train", calls: 10.0, errors: 1.17, redundant: 3.4, tool_tokens: 11840, latency_ms: 13908 },
+      { version: 1, split: "train", calls: 7.25, errors: 0.42, redundant: 1.1, tool_tokens: 9120, latency_ms: 10508 },
+      { version: 2, split: "train", calls: 7.5, errors: 0.33, redundant: 1.0, tool_tokens: 9260, latency_ms: 10858 },
+      { version: 3, split: "train", calls: 4.25, errors: 0.08, redundant: 0.2, tool_tokens: 6810, latency_ms: 7233 },
     ],
+    graduated_count: graduatedCount(trainRuns),
+    saturated: isSaturated(trainRuns),
+    flagged_tasks: flaggedTasks(trainRuns),
   };
 }
 
 function insightsB(): Insights {
+  const trainRuns = RUNS_B.filter((r) => r.split === "train").sort((a, b) => a.version - b.version);
   return {
     agent_id: AGENT_B,
-    repeats: REPEATS,
-    pass_rate_by_version: RUNS_B.map((r) => ({ version: r.version, split: r.split, ...r.pass_rate })),
+    trials: TRIALS,
+    pass_at_1_by_version: RUNS_B.map((r) => toRatePoint(r, r.pass_at_1)),
+    pass_pow_k_by_version: RUNS_B.map((r) => passPowKPoint(r)),
     cost_by_version: RUNS_B.map((r) => ({
       version: r.version,
       split: r.split,
@@ -1261,15 +1292,18 @@ function insightsB(): Insights {
         diagnosis: "Tone separated from impact; sarcastic tickets no longer graded p0.",
       },
     ],
-    memory_growth_by_version: [
+    memory_by_version: [
       { version: 0, rules: 0, tool_notes: 0, mean_confidence: null, demotions: 0 },
       { version: 1, rules: 1, tool_notes: 1, mean_confidence: 0.83, demotions: 0 },
       { version: 2, rules: 2, tool_notes: 1, mean_confidence: 0.8, demotions: 0 },
     ],
-    tool_efficiency_by_version: [
-      { version: 0, split: "train", tool_calls_per_case: 2.33, tool_errors_per_case: 0.17, tokens_per_case: 3400, latency_ms_per_case: 3067 },
-      { version: 2, split: "train", tool_calls_per_case: 2.0, tool_errors_per_case: 0.0, tokens_per_case: 2900, latency_ms_per_case: 2500 },
+    tool_stats_by_version: [
+      { version: 0, split: "train", calls: 2.33, errors: 0.17, redundant: 0.5, tool_tokens: 3400, latency_ms: 3067 },
+      { version: 2, split: "train", calls: 2.0, errors: 0.0, redundant: 0.0, tool_tokens: 2900, latency_ms: 2500 },
     ],
+    graduated_count: graduatedCount(trainRuns),
+    saturated: isSaturated(trainRuns),
+    flagged_tasks: flaggedTasks(trainRuns),
   };
 }
 
@@ -1284,13 +1318,13 @@ export const COMPARE_DOMAINS: InsightsCompare = {
       agent_id: AGENT_A,
       name: BASE_A.name,
       domain: BASE_A.domain,
-      pass_rate_by_version: INSIGHTS[AGENT_A].pass_rate_by_version,
+      pass_at_1_by_version: INSIGHTS[AGENT_A].pass_at_1_by_version,
     },
     {
       agent_id: AGENT_B,
       name: BASE_B.name,
       domain: BASE_B.domain,
-      pass_rate_by_version: INSIGHTS[AGENT_B].pass_rate_by_version,
+      pass_at_1_by_version: INSIGHTS[AGENT_B].pass_at_1_by_version,
     },
   ],
   ablation: {
@@ -1311,9 +1345,9 @@ export const COMPARE_DOMAINS: InsightsCompare = {
 
 export const EVENTS: LedgerEvent[] = [
   { id: 1, ts: "2026-09-06T05:02:00Z", kind: "agent_created", agent_id: AGENT_A, agent_version: 0, payload: { goal: BASE_A.goal, domain: "github_triage", evaluator_id: "github_triage", orchestration: "single", applied_lessons: [] } },
-  { id: 2, ts: "2026-09-06T05:10:00Z", kind: "run_started", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", case_count: 12, repeats: REPEATS } },
-  { id: 3, ts: "2026-09-06T05:21:00Z", kind: "drift_detected", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { case_id: "gh-1948", repeat: 0, step: 9, kind: "loop", evidence: "search_issues called 4x with identical args", action: "abort", tokens_at_detection: 15800 } },
-  { id: 4, ts: "2026-09-06T05:29:00Z", kind: "run_finished", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", repeats: REPEATS, ...RUNS_A[0].pass_rate } },
+  { id: 2, ts: "2026-09-06T05:10:00Z", kind: "run_started", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", case_count: 12, trials: TRIALS } },
+  { id: 3, ts: "2026-09-06T05:21:00Z", kind: "drift_detected", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { case_id: "gh-1948", trial: 0, step: 9, kind: "loop", evidence: "github_search_similar_issues called 4x with identical args", action: "abort", tokens_at_detection: 15800 } },
+  { id: 4, ts: "2026-09-06T05:29:00Z", kind: "run_finished", agent_id: AGENT_A, agent_version: 0, run_id: "run-a-t0", payload: { split: "train", trials: TRIALS, pass_at_1: RUNS_A[0].pass_at_1.mean, pass_pow_k: RUNS_A[0].pass_pow_k } },
   { id: 5, ts: "2026-09-06T06:20:00Z", kind: "memory_written", agent_id: AGENT_A, agent_version: 1, payload: { entry_id: "r-001", kind: "rule", source: "reflection", evidence_case_ids: ["gh-1731", "gh-1802", "gh-1877"], version: 1 } },
   { id: 6, ts: "2026-09-06T06:57:00Z", kind: "fix_accepted", agent_id: AGENT_A, agent_version: 1, lever: "memory", payload: { to_version: 1 } },
   { id: 7, ts: "2026-09-06T08:11:00Z", kind: "fix_rejected", agent_id: AGENT_A, agent_version: 2, lever: "prompt", payload: { to_version: 2, reason: "regression", regressed_case_ids: ["gh-1758", "gh-2011"] } },

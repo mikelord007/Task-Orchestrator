@@ -81,7 +81,7 @@ export function LeverChip({ lever }: { lever: Lever }) {
 
 export function DriftBadge({ kind }: { kind: DriftKind }) {
   return (
-    <Pill tone="drift" title={`Drift watchdog fired on at least one repeat: ${kind}`}>
+    <Pill tone="drift" title={`Drift watchdog fired on at least one trial: ${kind}`}>
       drift:{kind}
     </Pill>
   );

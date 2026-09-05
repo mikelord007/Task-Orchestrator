@@ -16,7 +16,7 @@ export default function MemoryTab({ memory }: { memory: AgentMemory }) {
         <SectionHead
           title="Rules"
           count={rules.length}
-          note={`${active} injected, ${rules.length - active} demoted. The runtime injects the top 12 by keyword overlap with the case.`}
+          note={`${active} injected, ${rules.length - active} demoted. The runtime injects the top 12 by keyword overlap with the task.`}
         />
         {rules.length === 0 ? (
           <Empty>
@@ -69,7 +69,7 @@ export default function MemoryTab({ memory }: { memory: AgentMemory }) {
         <SectionHead
           title="Tool notes"
           count={tool_notes.length}
-          note="Injected on every case, not filtered by keyword. These are what the agent learned about the tools themselves."
+          note="Injected on every task, not filtered by keyword. These are what the agent learned about the tools themselves."
         />
         {tool_notes.length === 0 ? (
           <Empty>
@@ -107,11 +107,9 @@ export default function MemoryTab({ memory }: { memory: AgentMemory }) {
         ) : (
           <ul>
             {episodes.map((ep) => (
-              <li key={ep.id} className="flex gap-3 border-b border-line-soft py-1.5">
-                <span className="shrink-0 text-[11px] tabular-nums text-fg-mute">
-                  v{ep.created_version ?? "—"}
-                </span>
-                <span className="prose-h text-[12px] text-fg-dim">{ep.text}</span>
+              <li key={ep.run_id} className="flex gap-3 border-b border-line-soft py-1.5">
+                <span className="shrink-0 text-[11px] tabular-nums text-fg-mute">v{ep.version}</span>
+                <span className="prose-h text-[12px] text-fg-dim">{ep.one_line_reflection}</span>
               </li>
             ))}
           </ul>

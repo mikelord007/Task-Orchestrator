@@ -54,17 +54,17 @@ function Compare() {
       </div>
 
       <PageHeader
-        title="Compare one case across versions"
+        title="Compare one task across versions"
         subtitle="The same input, graded against the same expected answer, at v0 and at the current version. Fields matching the expected answer are green, fields differing are red."
       />
 
       <div className="mt-3 border-b border-line pb-3">
-        <div className="text-[11px] text-fg-mute">case</div>
+        <div className="text-[11px] text-fg-mute">task</div>
         {runs.loading ? (
-          <p className="text-[12px] text-fg-mute">Loading cases…</p>
+          <p className="text-[12px] text-fg-mute">Loading tasks…</p>
         ) : cases.length === 0 ? (
           <Empty>
-            No cases to compare. Run a split on this agent first; the picker lists every case that
+            No tasks to compare. Run a split on this agent first; the picker lists every task that
             appears in a recorded run.
           </Empty>
         ) : (
@@ -88,7 +88,7 @@ function Compare() {
       </div>
 
       {!caseId ? (
-        <Empty>Pick a case above. This page is deep-linkable as ?case_id=&lt;id&gt;.</Empty>
+        <Empty>Pick a task above. This page is deep-linkable as ?case_id=&lt;id&gt;.</Empty>
       ) : result.loading ? (
         <p className="py-4 text-[12px] text-fg-mute">Loading {caseId}…</p>
       ) : result.error ? (
@@ -154,7 +154,7 @@ function Column({
 
       {output === null ? (
         <Empty>
-          Not recorded for this version. A comparison needs a case result at this version; run the
+          Not recorded for this version. A comparison needs a task result at this version; run the
           split it belongs to.
         </Empty>
       ) : (

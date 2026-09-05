@@ -1,25 +1,45 @@
 /**
  * Wire types for the Task Orchestrator REST API.
  *
- * Source of truth: PLAN.md section 4.5, plus the additions frozen by the
- * orchestrator in sections 0.2-0.4 (compare endpoint, runs endpoint, jobs
- * endpoint, memory growth + tool efficiency insight series, memory fix cards,
- * text-only issues).
+ * Source of truth: PLAN_ADDENDUM.md section A (and the W5 entry in
+ * addendum-deltas.md), which supersedes the pre-addendum PLAN.md section 4.5.
  *
- * contracts/api.md does not exist on this branch yet (Phase 0 had not merged
- * when this workstream started). When it lands these types are reconciled
- * against it; mismatches are reported, not silently changed.
+ * Terminology (addendum J): a `case` in the JSON is called a **task** in prose
+ * and UI; a `repeat` is a **trial**; `score.py` is the **grader**. Field names
+ * below keep the contract's wire names (`case_id`, `passed_by_trial`, ...)
+ * even where the UI says "task".
+ *
+ * contracts/ does not exist on this branch yet (Phase 0 had not merged when
+ * this workstream started). When it lands these types are reconciled against
+ * it; mismatches are reported, not silently changed.
  */
 
 /* ------------------------------------------------------------------ common */
 
 export type Split = "train" | "holdout";
-export type Lever = "prompt" | "tools" | "memory" | "orchestration" | "routing";
+export type Lever = "prompt" | "tools" | "memory" | "orchestration" | "routing" | "grader";
 export type Orchestration = "single" | "planner_worker" | "generate_critic";
 export type DriftKind = "loop" | "budget" | "off_task" | "step_limit";
 
-/** A pass rate is never a bare number: it always carries its spread. */
-export interface PassRate {
+/**
+ * pass@1 = mean per-trial pass rate over tasks. pass^k (k = trials) = fraction
+ * of tasks that passed every trial (the stable pass set). Never call either
+ * one "accuracy". mean/std/min/max are computed over the trial-level pass
+ * rates; trials/task_count say what produced them.
+ */
+export interface RateStat {
+  mean: number;
+  std: number;
+  min: number;
+  max: number;
+  trials?: number;
+  task_count?: number;
+}
+
+/** One point on a pass@1 / pass^k chart. */
+export interface RatePoint {
+  version: number;
+  split: Split;
   mean: number;
   std: number;
   min: number;
@@ -30,7 +50,7 @@ export type Json = Record<string, unknown>;
 
 /* ------------------------------------------------------------------ memory */
 
-/** agents/<id>/v<N>/memory/rules.jsonl (PLAN.md 0.2) */
+/** agents/<id>/v<N>/memory/rules.jsonl (addendum section E) */
 export interface MemoryRule {
   id: string;
   rule: string;
@@ -42,7 +62,7 @@ export interface MemoryRule {
   created_version: number;
   source: "reflection" | "issue";
   /** Demoted rules stay on disk but are no longer injected. */
-  demoted?: boolean;
+  demoted: boolean;
   demoted_version?: number;
 }
 
@@ -55,13 +75,15 @@ export interface ToolNote {
   created_version: number;
 }
 
-/** agents/<id>/v<N>/memory/episodes.jsonl - one line per run. */
+/**
+ * agents/<id>/v<N>/memory/episodes.jsonl - one line of reflection per run.
+ * Contract shape is exactly {version, run_id, one_line_reflection}; there is
+ * no separate id field, so the UI keys episodes on run_id.
+ */
 export interface Episode {
-  id: string;
-  text: string;
-  created_version?: number;
-  run_id?: string;
-  ts?: string;
+  version: number;
+  run_id: string;
+  one_line_reflection: string;
 }
 
 export interface AgentMemory {
@@ -82,7 +104,7 @@ export interface MemoryEntryChange {
   /** kind=tool_note */
   tool?: string;
   note?: string;
-  /** kind=episode, or any free-text form */
+  /** kind=episode, or any free-text note on a change */
   text?: string;
   evidence?: string;
   evidence_case_ids?: string[];
@@ -107,8 +129,8 @@ export interface AgentSummary {
   current_version: number;
   created_ts: string;
   /** Latest recorded run per split for the current version; null when never run. */
-  latest_train: PassRate | null;
-  latest_holdout: PassRate | null;
+  latest_train: RateStat | null;
+  latest_holdout: RateStat | null;
 }
 
 /**
@@ -153,16 +175,17 @@ export interface Evaluator {
   description: string;
   /** The tools an agent for this evaluator is allowed to use. */
   allowed_tools: string[];
+  /** Task counts (contract field name stays case_counts). */
   case_counts: { train: number; holdout: number };
 }
 
 /* -------------------------------------------------------------------- runs */
 
-/** One case inside a run, aggregated over its repeats. */
+/** One task's row inside a run, aggregated over its trials. */
 export interface CaseRow {
   case_id: string;
-  /** One entry per repeat, in repeat order. */
-  passed_by_repeat: boolean[];
+  /** One entry per trial, in trial order. */
+  passed_by_trial: boolean[];
   score: number;
   cost_usd: number;
   latency_ms: number;
@@ -171,7 +194,7 @@ export interface CaseRow {
   rules_injected: string[];
   transcript_path: string;
   trace_url?: string;
-  /** Set when any repeat of this case tripped the drift watchdog. */
+  /** Set when any trial of this task tripped the drift watchdog. */
   drift_kind?: DriftKind;
 }
 
@@ -180,8 +203,10 @@ export interface RunSummary {
   run_id: string;
   version: number;
   split: Split;
-  repeats: number;
-  pass_rate: PassRate;
+  trials: number;
+  pass_at_1: RateStat;
+  /** Fraction of this run's tasks that passed every trial. */
+  pass_pow_k: number;
   total_cost_usd: number;
   p50_latency_ms: number;
   p95_latency_ms: number;
@@ -230,16 +255,20 @@ export interface FailingGroup {
   case_ids: string[];
 }
 
-export interface FixBefore {
-  train_mean: number | null;
-  train_std: number | null;
+/** fix_accepted / fix_rejected metric names, addendum section A. */
+export interface FixMetrics {
+  pass_at_1: number | null;
+  pass_at_1_std?: number | null;
+  pass_pow_k: number | null;
   group_pass: number | null;
   cost_per_run: number | null;
+  tool_calls_per_task: number | null;
 }
 
-export interface FixAfter extends FixBefore {
-  holdout_mean: number | null;
-  holdout_std: number | null;
+export interface FixAfterMetrics extends FixMetrics {
+  holdout_pass_at_1: number | null;
+  holdout_pass_at_1_std?: number | null;
+  holdout_pass_pow_k: number | null;
 }
 
 /** GET /agents/{id}/fixes */
@@ -251,11 +280,16 @@ export interface FixCard {
   failing_group: FailingGroup;
   hypothesis: string;
   diagnosis: string;
+  /**
+   * Tools-lever diagnoses cite the tracked-metric signal that motivated the
+   * change, e.g. "4.1 redundant calls/task" or "3 invalid-parameter errors".
+   */
+  metric_signal?: string;
   diff_summary: string;
   files_touched: string[];
   diff_url: string;
-  before: FixBefore;
-  after: FixAfter;
+  before: FixMetrics;
+  after: FixAfterMetrics;
   /** Only on rejected cards. */
   regressed_case_ids?: string[];
   reason?: "regression" | "no_gain" | "error";
@@ -303,21 +337,21 @@ export interface Issue {
   created_ts: string;
   fixed_version?: number;
   linked_case_ids: string[];
+  /** e.g. ["grader-bug"] from the "Grader disagreed?" path. */
+  tags?: string[];
 }
 
-/** Issues are text-only: screenshot upload was dropped in PLAN.md 0.4. */
+/** Issues are text-only: screenshot upload was dropped. */
 export interface CreateIssueRequest {
   agent_id: string;
   title: string;
   body: string;
+  tags?: string[];
+  /** The task this issue was filed from, when filed from a run row. */
+  case_id?: string;
 }
 
 /* ---------------------------------------------------------------- insights */
-
-export interface PassRatePoint extends PassRate {
-  version: number;
-  split: Split;
-}
 
 export interface CostPoint {
   version: number;
@@ -333,8 +367,8 @@ export interface LatencyPoint {
   p95_latency_ms: number;
 }
 
-/** PLAN.md 0.3: memory growth. */
-export interface MemoryGrowthPoint {
+/** memory_by_version: rules + tool notes count and mean confidence per version. */
+export interface MemoryByVersionPoint {
   version: number;
   rules: number;
   tool_notes: number;
@@ -342,14 +376,19 @@ export interface MemoryGrowthPoint {
   demotions: number;
 }
 
-/** PLAN.md 0.3: tool-usage efficiency. All of these are expected to fall. */
-export interface ToolEfficiencyPoint {
+/**
+ * tool_stats_by_version (addendum section K): calls, errors, redundant calls
+ * (same tool + identical normalized args within one trial), tool-response
+ * tokens and latency, per task. All expected to fall as fixes land.
+ */
+export interface ToolStatsByVersionPoint {
   version: number;
   split: Split;
-  tool_calls_per_case: number;
-  tool_errors_per_case: number;
-  tokens_per_case: number;
-  latency_ms_per_case: number;
+  calls: number;
+  errors: number;
+  redundant: number;
+  tool_tokens: number;
+  latency_ms: number;
 }
 
 export interface DriftStats {
@@ -357,6 +396,13 @@ export interface DriftStats {
   tokens_saved: number;
   cases_recovered_by_nudge: number;
   count_by_version?: { version: number; count: number }[];
+}
+
+/** A task stuck at 0% across the last 3 versions ("usually a broken task"). */
+export interface FlaggedTask {
+  case_id: string;
+  versions_at_zero: number[];
+  tag?: string;
 }
 
 export interface Marker {
@@ -373,8 +419,9 @@ export interface Marker {
 /** GET /insights/{agent_id} */
 export interface Insights {
   agent_id: string;
-  repeats: number;
-  pass_rate_by_version: PassRatePoint[];
+  trials: number;
+  pass_at_1_by_version: RatePoint[];
+  pass_pow_k_by_version: RatePoint[];
   cost_by_version: CostPoint[];
   latency_by_version: LatencyPoint[];
   fixes_by_lever: Partial<Record<Lever, number>>;
@@ -383,14 +430,19 @@ export interface Insights {
   lessons_count: number;
   drift: DriftStats;
   markers: Marker[];
-  memory_growth_by_version: MemoryGrowthPoint[];
-  tool_efficiency_by_version: ToolEfficiencyPoint[];
+  memory_by_version: MemoryByVersionPoint[];
+  tool_stats_by_version: ToolStatsByVersionPoint[];
+  /** Tasks newly in the stable pass set this version that were not last version. */
+  graduated_count: number;
+  /** Train pass@1 >= 95% for two consecutive versions. */
+  saturated: boolean;
+  flagged_tasks: FlaggedTask[];
 }
 
 export interface AblationReport {
   domain: string;
-  playbook_off: { agent_id: string; holdout: PassRate };
-  playbook_on: { agent_id: string; holdout: PassRate };
+  playbook_off: { agent_id: string; holdout: RateStat };
+  playbook_on: { agent_id: string; holdout: RateStat };
   applied_lesson_ids: string[];
 }
 
@@ -400,7 +452,7 @@ export interface InsightsCompare {
     agent_id: string;
     name: string;
     domain: string;
-    pass_rate_by_version: PassRatePoint[];
+    pass_at_1_by_version: RatePoint[];
   }[];
   /** reports/ablation.json, when it exists. */
   ablation: AblationReport | null;

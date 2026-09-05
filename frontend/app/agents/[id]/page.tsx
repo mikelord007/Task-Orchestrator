@@ -79,10 +79,10 @@ function AgentDetail() {
   const shownVersion = a.version;
   const latestTrain =
     runs.data?.filter((r) => r.split === "train" && r.version === a.current_version).slice(-1)[0]
-      ?.pass_rate ?? a.latest_train;
+      ?.pass_at_1 ?? a.latest_train;
   const latestHoldout =
     runs.data?.filter((r) => r.split === "holdout" && r.version === a.current_version).slice(-1)[0]
-      ?.pass_rate ?? a.latest_holdout;
+      ?.pass_at_1 ?? a.latest_holdout;
 
   const counts: Record<Tab, number | null> = {
     prompt: null,
@@ -110,8 +110,8 @@ function AgentDetail() {
         subtitle={<span className="prose-h block">{a.goal}</span>}
         right={
           <div className="flex flex-wrap items-start gap-6">
-            <Stat label={`train (v${a.current_version})`} rate={latestTrain} tone="train" />
-            <Stat label={`holdout (v${a.current_version})`} rate={latestHoldout} tone="holdout" />
+            <Stat label={`train pass@1 (v${a.current_version})`} rate={latestTrain} tone="train" />
+            <Stat label={`holdout pass@1 (v${a.current_version})`} rate={latestHoldout} tone="holdout" />
           </div>
         }
       />
@@ -140,7 +140,7 @@ function AgentDetail() {
             href={`/agents/${agentId}/compare`}
             className="ml-2 text-fg-mute hover:text-train hover:underline"
           >
-            compare a case
+            compare a task
           </Link>
           <Link href={`/insights?agent=${agentId}`} className="text-fg-mute hover:text-train hover:underline">
             insights

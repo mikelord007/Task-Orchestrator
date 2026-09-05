@@ -193,8 +193,9 @@ export async function getInsights(agentId: string): Promise<Insights> {
   if (found) return delay(clone(found));
   return delay<Insights>({
     agent_id: agentId,
-    repeats: data.REPEATS,
-    pass_rate_by_version: [],
+    trials: data.TRIALS,
+    pass_at_1_by_version: [],
+    pass_pow_k_by_version: [],
     cost_by_version: [],
     latency_by_version: [],
     fixes_by_lever: {},
@@ -203,8 +204,11 @@ export async function getInsights(agentId: string): Promise<Insights> {
     lessons_count: 0,
     drift: { count_by_kind: {}, tokens_saved: 0, cases_recovered_by_nudge: 0 },
     markers: [],
-    memory_growth_by_version: [],
-    tool_efficiency_by_version: [],
+    memory_by_version: [],
+    tool_stats_by_version: [],
+    graduated_count: 0,
+    saturated: false,
+    flagged_tasks: [],
   });
 }
 
