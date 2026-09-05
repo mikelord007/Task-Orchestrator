@@ -1,3 +1,25 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
 .pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# Data produced at runtime
+runs/*
+!runs/.gitkeep
+reports/*
+!reports/.gitkeep
+fixtures/github_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo

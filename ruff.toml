@@ -1,0 +1,13 @@
+# Single ruff config for every Python path in the repo (backend/, contracts/,
+# scripts/, agent packages). Keep it here so `ruff check .` from the repo root
+# and from backend/ behave identically.
+line-length = 100
+target-version = "py311"
+extend-exclude = ["frontend", "*.md", "runs", "reports"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[lint.per-file-ignores]
+# Tool modules must use the contract's parameter name: run(input: dict) -> str.
+"**/tools/*.py" = ["A002"]
