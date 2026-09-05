@@ -1,0 +1,304 @@
+"""Build the `github_triage` evaluator from real closed issues on a GitHub repo.
+
+Run once, commit the outputs. Nothing in the eval path imports this module; the
+evaluator itself is fully offline and reads only the committed fixtures.
+
+    python scripts/build_github_cases.py --repo Untrivial-ai/agent-orchestrator
+
+Auth: `GITHUB_TOKEN` if set, otherwise the token from an authenticated `gh` CLI.
+
+Outputs
+-------
+fixtures/github_triage/issues/<number>.json   raw issue + comments snapshot
+evaluators/github_triage/cases.jsonl          the evaluator cases
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SNAPSHOT_DIR = REPO_ROOT / "fixtures" / "github_triage" / "issues"
+CASES_PATH = REPO_ROOT / "evaluators" / "github_triage" / "cases.jsonl"
+LIST_CACHE = REPO_ROOT / "fixtures" / "github_triage" / "_closed_issues_raw.json"
+
+API = "https://api.github.com"
+COMPONENT_RE = re.compile(r"^comp/")
+PRIORITY_RE = re.compile(r"^P[0-9]+$")
+
+# `duplicate of #12`, `dup of #12`, `closing as duplicate of #12`
+DUPLICATE_RE = re.compile(
+    r"(?:clos(?:ing|ed)\s+as\s+)?\bdup(?:licate)?\s+of\s+#(\d+)\b",
+    re.IGNORECASE,
+)
+
+MIN_BODY_CHARS = 80
+TARGET_CASES = 60
+MIN_COMPONENTS = 4
+TRAIN_FRACTION = 0.7
+
+WINDOWS_RE = re.compile(r"\b(windows|conpty|powershell|win32|winpty)\b", re.IGNORECASE)
+SHORT_BODY = 300
+LONG_BODY = 3000
+
+
+# --------------------------------------------------------------------------- auth
+
+
+def _token() -> str:
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env
+        raise SystemExit("No GITHUB_TOKEN and `gh auth token` failed; authenticate first.") from exc
+    return out.stdout.strip()
+
+
+def _get(path: str, token: str) -> Any:
+    url = path if path.startswith("http") else f"{API}{path}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "task-orchestrator-build-github-cases",
+        },
+    )
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in (403, 429) and attempt < 4:
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise
+        except urllib.error.URLError:
+            if attempt < 4:
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError(f"exhausted retries for {url}")
+
+
+# ----------------------------------------------------------------------- fetching
+
+
+def fetch_closed_issues(repo: str, token: str, max_pages: int = 40) -> list[dict]:
+    """All closed issues (PRs excluded), newest first."""
+    issues: list[dict] = []
+    for page in range(1, max_pages + 1):
+        batch = _get(
+            f"/repos/{repo}/issues?state=closed&per_page=100&sort=created"
+            f"&direction=desc&page={page}",
+            token,
+        )
+        if not batch:
+            break
+        issues.extend(i for i in batch if "pull_request" not in i)
+        print(f"  page {page}: {len(batch)} items, {len(issues)} issues so far")
+        if len(batch) < 100:
+            break
+    return issues
+
+
+def label_names(issue: dict) -> list[str]:
+    return [
+        lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in issue.get("labels", []) or []
+    ]
+
+
+def components(names: list[str]) -> list[str]:
+    return sorted(n for n in names if COMPONENT_RE.match(n))
+
+
+def priority(names: list[str]) -> str:
+    prios = sorted(n for n in names if PRIORITY_RE.match(n))
+    return prios[0] if prios else "none"
+
+
+def plain_labels(names: list[str]) -> list[str]:
+    return sorted(n for n in names if not COMPONENT_RE.match(n) and not PRIORITY_RE.match(n))
+
+
+# ------------------------------------------------------------------------ picking
+
+
+def select(issues: list[dict]) -> list[dict]:
+    """The newest `TARGET_CASES` eligible issues, widened to >= MIN_COMPONENTS."""
+    eligible = [
+        i
+        for i in issues
+        if components(label_names(i)) and len((i.get("body") or "").strip()) >= MIN_BODY_CHARS
+    ]
+    eligible.sort(key=lambda i: i["created_at"], reverse=True)
+
+    chosen = eligible[:TARGET_CASES]
+    seen = {c for i in chosen for c in components(label_names(i))}
+    if len(seen) < MIN_COMPONENTS:
+        # Reach further back for the newest issue of each missing component, and
+        # drop an already well-represented one so the count stays at TARGET_CASES.
+        for issue in eligible[TARGET_CASES:]:
+            missing = set(components(label_names(issue))) - seen
+            if not missing:
+                continue
+            counts: dict[str, int] = {}
+            for candidate in chosen:
+                for comp in components(label_names(candidate)):
+                    counts[comp] = counts.get(comp, 0) + 1
+            for idx in range(len(chosen) - 1, -1, -1):
+                if all(counts[c] > 1 for c in components(label_names(chosen[idx]))):
+                    chosen.pop(idx)
+                    break
+            else:
+                continue
+            chosen.append(issue)
+            seen |= missing
+            if len(seen) >= MIN_COMPONENTS:
+                break
+    chosen.sort(key=lambda i: i["created_at"])
+    return chosen
+
+
+def parse_duplicate_of(comments: list[dict]) -> int | None:
+    for comment in comments:
+        match = DUPLICATE_RE.search(comment.get("body") or "")
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def build_tags(issue: dict, expected: dict) -> list[str]:
+    body = issue.get("body") or ""
+    tags = [f"comp:{c}" for c in expected["component"]]
+    tags.append(f"prio:{expected['priority']}")
+    if len(expected["component"]) > 1:
+        tags.append("multi-component")
+    if expected["priority"] == "none":
+        tags.append("no-priority")
+    if expected["duplicate_of"] is not None:
+        tags.append("duplicate")
+    if expected["assignee"]:
+        tags.append("assigned")
+    if WINDOWS_RE.search(body) or WINDOWS_RE.search(issue.get("title") or ""):
+        tags.append("windows")
+    if len(body) < SHORT_BODY:
+        tags.append("short-body")
+    if len(body) > LONG_BODY:
+        tags.append("long-body")
+    return tags
+
+
+def build_case(repo: str, issue: dict, comments: list[dict]) -> dict:
+    names = label_names(issue)
+    expected = {
+        "labels": plain_labels(names),
+        "component": components(names),
+        "priority": priority(names),
+        "assignee": (issue.get("assignee") or {}).get("login"),
+        "duplicate_of": parse_duplicate_of(comments),
+    }
+    return {
+        "id": f"gh-{issue['number']}",
+        "split": "train",  # rewritten by the temporal split below
+        "input": {
+            "issue_number": issue["number"],
+            "title": issue["title"],
+            "body": issue.get("body") or "",
+            "author": (issue.get("user") or {}).get("login"),
+            "created_at": issue["created_at"],
+            "repo": repo,
+        },
+        "expected": expected,
+        "tags": build_tags(issue, expected),
+    }
+
+
+def apply_temporal_split(cases: list[dict]) -> list[dict]:
+    """Oldest 70% -> train, newest 30% -> holdout."""
+    cases = sorted(cases, key=lambda c: (c["input"]["created_at"], c["input"]["issue_number"]))
+    cut = round(len(cases) * TRAIN_FRACTION)
+    for idx, case in enumerate(cases):
+        case["split"] = "train" if idx < cut else "holdout"
+    return cases
+
+
+# --------------------------------------------------------------------------- main
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the github_triage evaluator.")
+    parser.add_argument("--repo", default="Untrivial-ai/agent-orchestrator")
+    parser.add_argument(
+        "--refresh-list",
+        action="store_true",
+        help="Re-fetch the closed-issue index instead of using the cached snapshot.",
+    )
+    args = parser.parse_args(argv)
+
+    token = _token()
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if LIST_CACHE.exists() and not args.refresh_list:
+        print(f"Using cached issue index {LIST_CACHE}")
+        issues = json.loads(LIST_CACHE.read_text(encoding="utf-8"))
+    else:
+        print(f"Fetching closed issues from {args.repo} ...")
+        issues = fetch_closed_issues(args.repo, token)
+        LIST_CACHE.write_text(json.dumps(issues), encoding="utf-8")
+    print(f"{len(issues)} closed issues (PRs excluded)")
+
+    chosen = select(issues)
+    print(f"{len(chosen)} cases selected")
+
+    cases = []
+    for issue in chosen:
+        number = issue["number"]
+        snapshot_path = SNAPSHOT_DIR / f"{number}.json"
+        if snapshot_path.exists():
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        else:
+            full = _get(f"/repos/{args.repo}/issues/{number}", token)
+            comments = (
+                _get(f"/repos/{args.repo}/issues/{number}/comments?per_page=100", token)
+                if full.get("comments")
+                else []
+            )
+            snapshot = {"repo": args.repo, "issue": full, "comments": comments}
+            snapshot_path.write_text(
+                json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print(f"  snapshot {number} ({len(comments)} comments)")
+        cases.append(build_case(args.repo, snapshot["issue"], snapshot["comments"]))
+
+    cases = apply_temporal_split(cases)
+    CASES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CASES_PATH.open("w", encoding="utf-8", newline="\n") as fh:
+        for case in cases:
+            fh.write(json.dumps(case, sort_keys=True) + "\n")
+
+    train = sum(1 for c in cases if c["split"] == "train")
+    comps: dict[str, int] = {}
+    for case in cases:
+        for comp in case["expected"]["component"]:
+            comps[comp] = comps.get(comp, 0) + 1
+    print(f"Wrote {CASES_PATH} ({train} train / {len(cases) - train} holdout)")
+    print(f"Components: {comps}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
