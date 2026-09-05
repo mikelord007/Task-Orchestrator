@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "id": "tk-008",
+  "input": {
+    "body": "Urgente. La aplicacion se cierra sola cada vez que exportamos el reporte diario, and this has been happening on every machine in the office since the update this morning. Nadie puede generar reportes. We have no workaround at all, todo el equipo esta detenido. Somos clientes enterprise, necesitamos ayuda ya.",
+    "customer_tier": "enterprise",
+    "subject": "Aplicacion se cierra al exportar - production down",
+    "ticket_id": "tk-008"
+  },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
+  "split": "train",
+  "tags": [
+    "cat:bug",
+    "mixed-language",
+    "needs-human",
+    "prio:p0",
+    "tier:enterprise"
+  ]
+}

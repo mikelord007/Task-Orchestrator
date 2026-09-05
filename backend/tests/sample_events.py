@@ -11,6 +11,7 @@ VALID_PAYLOADS: dict[str, dict] = {
         "tools": ["list_issues", "get_issue"],
         "evaluator_id": "github_triage",
         "orchestration": "single",
+        "orchestration_reason": "One call with tools is enough for this task.",
         "applied_lessons": [],
     },
     "run_started": {"split": "train", "case_count": 42, "trials": 3},

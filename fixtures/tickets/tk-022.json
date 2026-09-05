@@ -1,0 +1,27 @@
+{
+  "expected": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "id": "tk-022",
+  "input": {
+    "body": "Done with this. The export button is in a stupid place, I have to click twice to get to it, and nobody has ever listened to a word I have said about the layout. Everything still works, I just cannot stand using it. Send me whoever handles renewals because we are not signing again.",
+    "customer_tier": "enterprise",
+    "subject": "Cancel our contract",
+    "ticket_id": "tk-022"
+  },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p2"
+  },
+  "split": "train",
+  "tags": [
+    "angry-low-priority",
+    "cat:feature",
+    "needs-human",
+    "prio:p2",
+    "tier:enterprise"
+  ]
+}

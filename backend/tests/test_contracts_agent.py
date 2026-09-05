@@ -24,6 +24,7 @@ def test_toy_package_loads(toy_agent_path: Path):
     assert pkg.config.name == "toy_agent"
     assert pkg.version == 0
     assert pkg.config.orchestration == Orchestration.single.value
+    assert pkg.config.orchestration_reason is None  # optional, absent in this fixture
     assert pkg.config.routing == {"worker": "cheap"}
     assert "toy agent" in pkg.prompt
 

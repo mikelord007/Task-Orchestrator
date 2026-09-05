@@ -94,6 +94,7 @@ class AgentConfig(BaseModel):
     model_cheap: str
     tools: list[str] = Field(default_factory=list)
     orchestration: Orchestration = Orchestration.single
+    orchestration_reason: str | None = None
     routing: dict[str, Literal["strong", "cheap"]] = Field(default_factory=dict)
 
 
