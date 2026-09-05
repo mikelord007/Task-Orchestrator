@@ -11,6 +11,11 @@
     "subject": "Thanks for the report improvements",
     "ticket_id": "tk-039"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:other",

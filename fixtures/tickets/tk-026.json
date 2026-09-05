@@ -11,6 +11,11 @@
     "subject": "Where can I find the Parquet import guide?",
     "ticket_id": "tk-026"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:other",

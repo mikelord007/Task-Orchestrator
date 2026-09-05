@@ -11,6 +11,11 @@
     "subject": "Question about the reporting filters",
     "ticket_id": "tk-016"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "buried-p0",

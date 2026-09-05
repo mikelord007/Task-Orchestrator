@@ -11,6 +11,11 @@
     "subject": "Cannot sign in after password reset",
     "ticket_id": "tk-035"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "train",
   "tags": [
     "cat:account",

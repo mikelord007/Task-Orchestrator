@@ -11,6 +11,11 @@
     "subject": "Thanks for the quick fix last week",
     "ticket_id": "tk-018"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "holdout",
   "tags": [
     "buried-p0",

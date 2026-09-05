@@ -11,6 +11,11 @@
     "subject": "Feedback after our first month",
     "ticket_id": "tk-019"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "holdout",
   "tags": [
     "buried-p0",

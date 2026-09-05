@@ -11,6 +11,11 @@
     "subject": "Three things",
     "ticket_id": "tk-011"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "buried-p0",

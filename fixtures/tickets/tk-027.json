@@ -11,6 +11,11 @@
     "subject": "Typo in the dashboard confirmation dialog",
     "ticket_id": "tk-027"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

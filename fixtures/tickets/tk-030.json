@@ -11,6 +11,11 @@
     "subject": "How do I switch from monthly to annual billing?",
     "ticket_id": "tk-030"
   },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:billing",

@@ -11,6 +11,11 @@
     "subject": "Feature request: export contact to CSV",
     "ticket_id": "tk-033"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:feature",

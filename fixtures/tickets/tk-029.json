@@ -11,6 +11,11 @@
     "subject": "contact view will not load at all",
     "ticket_id": "tk-029"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

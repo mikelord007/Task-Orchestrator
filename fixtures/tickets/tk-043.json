@@ -11,6 +11,11 @@
     "subject": "All payments failing since 3 March",
     "ticket_id": "tk-043"
   },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "holdout",
   "tags": [
     "cat:billing",

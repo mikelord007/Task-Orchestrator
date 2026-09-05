@@ -11,6 +11,11 @@
     "subject": "Aplicacion se cierra al exportar - production down",
     "ticket_id": "tk-008"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

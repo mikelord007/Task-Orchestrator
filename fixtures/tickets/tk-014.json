@@ -11,6 +11,11 @@
     "subject": "Several problems since Tuesday",
     "ticket_id": "tk-014"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "holdout",
   "tags": [
     "cat:account",

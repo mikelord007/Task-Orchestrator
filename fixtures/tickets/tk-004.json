@@ -11,6 +11,11 @@
     "subject": "Wonderful colour choice on the delete button",
     "ticket_id": "tk-004"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:feature",

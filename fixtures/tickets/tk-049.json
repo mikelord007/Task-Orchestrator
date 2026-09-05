@@ -11,6 +11,11 @@
     "subject": "Any plans for a workspace API?",
     "ticket_id": "tk-049"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "holdout",
   "tags": [
     "cat:feature",

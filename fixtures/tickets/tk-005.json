@@ -11,6 +11,11 @@
     "subject": "Superb documentation, no notes",
     "ticket_id": "tk-005"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "holdout",
   "tags": [
     "cat:other",

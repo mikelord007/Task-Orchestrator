@@ -11,6 +11,11 @@
     "subject": "Escalating this immediately",
     "ticket_id": "tk-024"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "holdout",
   "tags": [
     "angry-low-priority",

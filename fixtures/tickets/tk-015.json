@@ -11,6 +11,11 @@
     "subject": "Two small things and one not so small",
     "ticket_id": "tk-015"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "buried-p0",

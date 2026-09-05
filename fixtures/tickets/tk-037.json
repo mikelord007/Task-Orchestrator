@@ -11,6 +11,11 @@
     "subject": "Invoice INV-40139 does not match our seat count",
     "ticket_id": "tk-037"
   },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": false,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:billing",

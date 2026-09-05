@@ -11,6 +11,11 @@
     "subject": "Cancel our contract",
     "ticket_id": "tk-022"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "angry-low-priority",

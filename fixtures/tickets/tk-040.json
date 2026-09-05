@@ -11,6 +11,11 @@
     "subject": "Bulk edit for project records",
     "ticket_id": "tk-040"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:feature",

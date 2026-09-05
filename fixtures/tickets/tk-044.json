@@ -11,6 +11,11 @@
     "subject": "Where can I find the XLSX import guide?",
     "ticket_id": "tk-044"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "holdout",
   "tags": [
     "cat:other",

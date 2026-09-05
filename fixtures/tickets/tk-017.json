@@ -11,6 +11,11 @@
     "subject": "Minor UI polish suggestions",
     "ticket_id": "tk-017"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "buried-p0",

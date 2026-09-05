@@ -54,6 +54,7 @@ def _write_evaluator(
                 "split": "train" if i < 7 else "holdout",
                 "input": {"q": f"question {i}"},
                 "expected": {"answer": f"a{i}"},
+                "reference_output": {"answer": f"a{i}"},
                 "tags": ["easy"],
             }
             for i in range(10)
@@ -120,6 +121,7 @@ def test_duplicate_ids_are_rejected(tmp_path):
             "split": "train" if i < 7 else "holdout",
             "input": {},
             "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
             "tags": [],
         }
         for i in range(10)
@@ -136,6 +138,7 @@ def test_an_unknown_split_is_rejected(tmp_path, bad_split):
             "split": bad_split if i == 0 else ("train" if i < 7 else "holdout"),
             "input": {},
             "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
             "tags": [],
         }
         for i in range(10)
@@ -149,6 +152,7 @@ def test_an_unknown_split_is_rejected(tmp_path, bad_split):
     [
         ("input", "not a dict", "`input` must be an object"),
         ("expected", ["nope"], "`expected` must be an object"),
+        ("reference_output", "nope", "`reference_output` must be an object"),
         ("tags", "easy", "`tags` must be a list of strings"),
         ("tags", [1, 2], "`tags` must be a list of strings"),
         ("id", "", "missing a non-empty string `id`"),
@@ -161,6 +165,7 @@ def test_malformed_case_fields_are_rejected(tmp_path, field, value, message):
             "split": "train" if i < 7 else "holdout",
             "input": {},
             "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
             "tags": ["easy"],
         }
         for i in range(10)
@@ -187,7 +192,14 @@ def test_an_empty_cases_file_is_an_error(tmp_path):
 
 def test_an_empty_holdout_split_is_rejected(tmp_path):
     cases = [
-        {"id": f"c-{i}", "split": "train", "input": {}, "expected": {"answer": "a"}, "tags": []}
+        {
+            "id": f"c-{i}",
+            "split": "train",
+            "input": {},
+            "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
+            "tags": [],
+        }
         for i in range(10)
     ]
     _write_evaluator(tmp_path, cases=cases)
@@ -203,6 +215,7 @@ def test_a_tag_missing_from_train_is_rejected(tmp_path):
             "split": "train" if i < 7 else "holdout",
             "input": {},
             "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
             "tags": ["easy"] if i < 8 else ["hard"],
         }
         for i in range(10)
@@ -218,6 +231,7 @@ def test_a_single_case_tag_only_in_holdout_is_tolerated(tmp_path):
             "split": "train" if i < 7 else "holdout",
             "input": {},
             "expected": {"answer": "a"},
+            "reference_output": {"answer": "a"},
             "tags": ["easy"] if i < 9 else ["rare"],
         }
         for i in range(10)
@@ -267,7 +281,25 @@ def test_a_scorer_that_fails_its_own_ground_truth_is_rejected(tmp_path):
             '    return {"passed": False, "score": 0.0, "notes": "never"}\n'
         ),
     )
-    assert any("do not pass against their own `expected`" in e for e in _errors(tmp_path))
+    assert any("do not pass against their own `reference_output`" in e for e in _errors(tmp_path))
+
+
+def test_a_reference_output_that_disagrees_with_expected_is_rejected(tmp_path):
+    """`reference_output` is meant to be a winning answer; a wrong one is a broken task."""
+    cases = [
+        {
+            "id": "c-0",
+            "split": "train",
+            "input": {},
+            "expected": {"answer": "right"},
+            "reference_output": {"answer": "wrong"},
+            "tags": [],
+        }
+    ]
+    _write_evaluator(tmp_path, cases=cases)
+    errors = _errors(tmp_path)
+    assert any("do not pass against their own `reference_output`" in e for e in errors)
+    assert any("c-0" in e for e in errors)
 
 
 def test_an_always_empty_agent_that_passes_is_rejected(tmp_path):

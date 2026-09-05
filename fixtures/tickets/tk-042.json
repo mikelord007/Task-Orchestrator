@@ -11,6 +11,11 @@
     "subject": "Delete our account and all associated data",
     "ticket_id": "tk-042"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:account",

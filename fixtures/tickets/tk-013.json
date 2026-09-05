@@ -11,6 +11,11 @@
     "subject": "Bug + question + idea",
     "ticket_id": "tk-013"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

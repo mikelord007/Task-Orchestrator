@@ -11,6 +11,11 @@
     "subject": "Any plans for a contact API?",
     "ticket_id": "tk-031"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "cat:feature",

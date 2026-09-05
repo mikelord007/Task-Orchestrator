@@ -11,6 +11,11 @@
     "subject": "10/10 would lock myself out again",
     "ticket_id": "tk-003"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "train",
   "tags": [
     "cat:account",

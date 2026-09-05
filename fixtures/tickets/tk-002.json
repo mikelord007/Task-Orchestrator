@@ -11,6 +11,11 @@
     "subject": "Love the new pricing page, very transparent",
     "ticket_id": "tk-002"
   },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:billing",

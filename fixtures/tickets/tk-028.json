@@ -11,6 +11,11 @@
     "subject": "Wrong totals in the contact summary",
     "ticket_id": "tk-028"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

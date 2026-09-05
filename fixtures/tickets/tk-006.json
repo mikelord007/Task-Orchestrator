@@ -11,6 +11,11 @@
     "subject": "No puedo iniciar sesion desde ayer",
     "ticket_id": "tk-006"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": false,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:account",

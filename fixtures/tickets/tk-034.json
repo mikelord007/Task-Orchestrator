@@ -11,6 +11,11 @@
     "subject": "Error E-4021 when saving a board",
     "ticket_id": "tk-034"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": false,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:bug",

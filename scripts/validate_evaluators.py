@@ -5,17 +5,19 @@
 Exits non-zero if anything is wrong. Checks, per evaluator directory:
 
 1. **Layout** - `README.md`, `cases.jsonl` and `score.py` all exist.
-2. **Case schema** - every line is a JSON object with a non-empty string `id`
+2. **Task schema** - every line is a JSON object with a non-empty string `id`
    (unique within the evaluator), `split` in {`train`, `holdout`}, a dict `input`,
-   a dict `expected`, and a list of string `tags`.
+   a dict `expected`, a dict `reference_output`, and a list of string `tags`.
 3. **Split balance** - both splits are non-empty, the train share is inside
    `SPLIT_TOLERANCE` of 70%, and every tag that appears at all appears in `train`.
    Counts per split and per tag are reported either way.
 4. **Scorer** - `score.py` imports, exposes `score`, takes exactly two positional
    arguments, and returns `{passed: bool, score: float in [0,1], notes: str}`.
-5. **Ground truth is reachable** - scoring each case's `expected` against itself
-   passes with score 1.0. A case no correct answer can pass is a broken case.
-6. **An always-empty agent scores ~0** - feeding `{}` as `actual` to every case
+5. **Ground truth is reachable** - every task's `reference_output` passes the
+   grader with score 1.0 (PLAN_ADDENDUM §A/§F). A task no correct answer can pass
+   is a broken task, and their rule is that a task stuck at 0% is usually broken
+   rather than too hard - this catches that before a run does.
+6. **An always-empty agent scores ~0** - feeding `{}` as `actual` to every task
    must never pass and must have a mean score below `EMPTY_MEAN_MAX`.
 
 Stdlib only. No network.
@@ -108,6 +110,8 @@ def load_cases(cases_path: Path, name: str, report: Report) -> list[dict]:
             report.fail(where, "`input` must be an object")
         if not isinstance(case.get("expected"), dict):
             report.fail(where, "`expected` must be an object")
+        if not isinstance(case.get("reference_output"), dict):
+            report.fail(where, "`reference_output` must be an object")
         tags = case.get("tags")
         if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
             report.fail(where, "`tags` must be a list of strings")
@@ -208,19 +212,22 @@ def check_result_shape(result: object, where: str, report: Report) -> bool:
 def check_scoring(scorer, cases: list[dict], name: str, report: Report) -> None:
     empty_scores: list[float] = []
     empty_passes: list[str] = []
-    self_failures: list[str] = []
+    unreachable: list[str] = []
 
     for case in cases:
         expected = case.get("expected")
-        if not isinstance(expected, dict):
-            continue
+        reference_output = case.get("reference_output")
+        if not isinstance(expected, dict) or not isinstance(reference_output, dict):
+            continue  # already reported by the schema pass
         case_id = case.get("id", "?")
 
-        self_result = scorer(expected, dict(expected))
-        if not check_result_shape(self_result, f"{name} case {case_id}", report):
+        # PLAN_ADDENDUM §A/§F: reference_output must be a winning answer. A task
+        # no correct answer can pass is a broken task, not an incapable agent.
+        reference_result = scorer(expected, reference_output)
+        if not check_result_shape(reference_result, f"{name} task {case_id}", report):
             return
-        if not self_result["passed"] or float(self_result["score"]) < 1.0:
-            self_failures.append(case_id)
+        if not reference_result["passed"]:
+            unreachable.append(case_id)
 
         empty_result = scorer(expected, {})
         if not check_result_shape(empty_result, f"{name} case {case_id} (empty actual)", report):
@@ -229,11 +236,11 @@ def check_scoring(scorer, cases: list[dict], name: str, report: Report) -> None:
         if empty_result["passed"]:
             empty_passes.append(case_id)
 
-    if self_failures:
+    if unreachable:
         report.fail(
             name,
-            f"{len(self_failures)} case(s) do not pass against their own `expected`:"
-            f" {self_failures[:5]}",
+            f"{len(unreachable)} task(s) do not pass against their own `reference_output`:"
+            f" {unreachable[:5]}",
         )
 
     if empty_scores:

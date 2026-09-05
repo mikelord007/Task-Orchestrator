@@ -11,6 +11,11 @@
     "subject": "Please add 20 more seats",
     "ticket_id": "tk-050"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": false,
+    "priority": "p3"
+  },
   "split": "holdout",
   "tags": [
     "cat:account",

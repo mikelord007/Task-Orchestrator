@@ -11,6 +11,11 @@
     "subject": "This is a joke of a product",
     "ticket_id": "tk-021"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "angry-low-priority",

@@ -659,6 +659,8 @@ def build_all() -> list[dict]:
                     "customer_tier": case["customer_tier"],
                 },
                 "expected": case["expected"],
+                # PLAN_ADDENDUM §A: a concrete output that passes the grader.
+                "reference_output": dict(case["expected"]),
                 "tags": derived_tags(case),
             }
         )

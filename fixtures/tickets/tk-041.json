@@ -11,6 +11,11 @@
     "subject": "SSO login loop for our whole organisation",
     "ticket_id": "tk-041"
   },
+  "reference_output": {
+    "category": "account",
+    "needs_human": true,
+    "priority": "p0"
+  },
   "split": "train",
   "tags": [
     "cat:account",

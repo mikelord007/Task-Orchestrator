@@ -11,6 +11,11 @@
     "subject": "dashboard view will not load at all",
     "ticket_id": "tk-047"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "holdout",
   "tags": [
     "cat:bug",

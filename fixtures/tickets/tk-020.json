@@ -11,6 +11,11 @@
     "subject": "ABSOLUTELY UNACCEPTABLE",
     "ticket_id": "tk-020"
   },
+  "reference_output": {
+    "category": "feature",
+    "needs_human": true,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "angry-low-priority",

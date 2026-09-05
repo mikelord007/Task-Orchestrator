@@ -51,6 +51,23 @@ WINDOWS_RE = re.compile(r"\b(windows|conpty|powershell|win32|winpty)\b", re.IGNO
 SHORT_BODY = 300
 LONG_BODY = 3000
 
+# `negative:*` cases (PLAN_ADDENDUM §F / addendum-deltas W4): issues where the
+# correct answer is "nothing here", to catch an agent that invents a priority
+# because the schema has a slot for one. The addendum's illustrative examples
+# (comp-only-labelled issues; issues discussed as similar-but-not-duplicate) do
+# not occur anywhere in this repo's 1304 closed issues -- every comp/*-labelled
+# issue here also carries a type label, and no comment thread discusses another
+# issue as similar without either confirming or ignoring the resemblance. The
+# real analogue that *is* present and still graded: issues whose language reads
+# as urgent while the maintainers set no priority at all. `NEGATIVE_TARGET`
+# caps a genuinely larger pool (~24 candidates) down to the addendum's "~8".
+URGENCY_RE = re.compile(
+    r"\b(urgent|crash(?:es|ed|ing)?|broken|fails?|failing|failure|blocker|"
+    r"blocking|critical|severe|regression|outage|hang(?:s|ing)?|freeze)\b",
+    re.IGNORECASE,
+)
+NEGATIVE_TARGET = 8
+
 
 # --------------------------------------------------------------------------- auth
 
@@ -199,7 +216,37 @@ def build_tags(issue: dict, expected: dict) -> list[str]:
         tags.append("short-body")
     if len(body) > LONG_BODY:
         tags.append("long-body")
-    return tags
+    return sorted(dict.fromkeys(tags))
+
+
+def is_negative_candidate(case: dict) -> bool:
+    """Urgent-sounding language, but the maintainers set no priority at all.
+
+    See the `NEGATIVE_TARGET` comment above: this is the real, present analogue
+    of the addendum's "nothing here" negative-case examples, which do not occur
+    in this corpus at all.
+    """
+    if case["expected"]["priority"] != "none":
+        return False
+    text = f"{case['input']['title'] or ''} {case['input']['body'] or ''}"
+    return bool(URGENCY_RE.search(text))
+
+
+def apply_negative_tags(cases: list[dict]) -> list[dict]:
+    """Tag the `NEGATIVE_TARGET` oldest qualifying cases `negative:no_priority`.
+
+    Capped and taken oldest-first (rather than every qualifying case) so the tag
+    marks a deliberate, reproducible highlight set per the addendum's "~8" target
+    instead of the ~24 cases that would otherwise qualify -- tagging all of them
+    would just be relabelling the `no-priority` tag under a new name.
+    """
+    candidates = sorted(
+        (c for c in cases if is_negative_candidate(c)),
+        key=lambda c: c["input"]["created_at"],
+    )
+    for case in candidates[:NEGATIVE_TARGET]:
+        case["tags"] = sorted(set(case["tags"]) | {"negative:no_priority"})
+    return cases
 
 
 def build_case(repo: str, issue: dict, comments: list[dict]) -> dict:
@@ -223,6 +270,11 @@ def build_case(repo: str, issue: dict, comments: list[dict]) -> dict:
             "repo": repo,
         },
         "expected": expected,
+        # PLAN_ADDENDUM §A: a concrete output that passes the grader. Every field
+        # of `expected` here is part of the answer, so the two coincide; the field
+        # exists so the validator can prove the task is winnable without knowing
+        # which parts of `expected` a given domain treats as metadata.
+        "reference_output": dict(expected),
         "tags": build_tags(issue, expected),
     }
 
@@ -256,7 +308,7 @@ def cases_from_snapshots(snapshot_dir: Path = SNAPSHOT_DIR) -> list[dict]:
     """
     snapshots = load_snapshots(snapshot_dir)
     cases = [build_case(s["repo"], s["issue"], s["comments"]) for s in snapshots]
-    return apply_temporal_split(cases)
+    return apply_negative_tags(apply_temporal_split(cases))
 
 
 def write_cases(cases: list[dict], cases_path: Path = CASES_PATH) -> None:
@@ -323,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  snapshot {number} ({len(comments)} comments)")
         cases.append(build_case(args.repo, snapshot["issue"], snapshot["comments"]))
 
-    cases = apply_temporal_split(cases)
+    cases = apply_negative_tags(apply_temporal_split(cases))
     write_cases(cases)
 
     train = sum(1 for c in cases if c["split"] == "train")

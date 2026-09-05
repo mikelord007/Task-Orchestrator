@@ -11,6 +11,11 @@
     "subject": "Why is this so hard",
     "ticket_id": "tk-023"
   },
+  "reference_output": {
+    "category": "other",
+    "needs_human": true,
+    "priority": "p3"
+  },
   "split": "train",
   "tags": [
     "angry-low-priority",

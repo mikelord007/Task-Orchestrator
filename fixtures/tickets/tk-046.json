@@ -11,6 +11,11 @@
     "subject": "Wrong totals in the workspace summary",
     "ticket_id": "tk-046"
   },
+  "reference_output": {
+    "category": "bug",
+    "needs_human": true,
+    "priority": "p1"
+  },
   "split": "holdout",
   "tags": [
     "cat:bug",

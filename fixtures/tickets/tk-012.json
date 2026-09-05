@@ -11,6 +11,11 @@
     "subject": "Couple of issues from onboarding",
     "ticket_id": "tk-012"
   },
+  "reference_output": {
+    "category": "billing",
+    "needs_human": true,
+    "priority": "p2"
+  },
   "split": "train",
   "tags": [
     "cat:billing",

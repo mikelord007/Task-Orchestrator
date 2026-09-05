@@ -138,6 +138,62 @@ def test_body_length_tags_are_mutually_exclusive():
     assert "long-body" not in mid_tags and "short-body" not in mid_tags
 
 
+# ------------------------------------------------------------------------ negatives
+
+
+def test_reference_output_is_a_copy_of_expected():
+    case = builder.build_case("o/r", _issue(), [])
+    assert case["reference_output"] == case["expected"]
+    assert case["reference_output"] is not case["expected"]
+
+
+def test_negative_candidate_requires_both_no_priority_and_urgent_language():
+    urgent_no_prio = {
+        "id": "gh-1",
+        "input": {"title": "App crashes on launch", "body": "x"},
+        "expected": {"priority": "none"},
+    }
+    urgent_with_prio = {
+        "id": "gh-2",
+        "input": {"title": "App crashes on launch", "body": "x"},
+        "expected": {"priority": "P1"},
+    }
+    calm_no_prio = {
+        "id": "gh-3",
+        "input": {"title": "Question about the docs", "body": "x"},
+        "expected": {"priority": "none"},
+    }
+    assert builder.is_negative_candidate(urgent_no_prio) is True
+    assert builder.is_negative_candidate(urgent_with_prio) is False
+    assert builder.is_negative_candidate(calm_no_prio) is False
+
+
+def test_apply_negative_tags_caps_at_the_target_oldest_first():
+    cases = [
+        {
+            "id": f"gh-{i}",
+            "input": {
+                "title": "critical bug",
+                "body": "x",
+                "created_at": f"2026-08-{i + 1:02d}T00:00:00Z",
+            },
+            "expected": {"priority": "none"},
+            "tags": [],
+        }
+        for i in range(builder.NEGATIVE_TARGET + 5)
+    ]
+    tagged = builder.apply_negative_tags(cases)
+    negative_ids = {c["id"] for c in tagged if "negative:no_priority" in c["tags"]}
+    assert len(negative_ids) == builder.NEGATIVE_TARGET
+    assert negative_ids == {f"gh-{i}" for i in range(builder.NEGATIVE_TARGET)}
+
+
+def test_the_committed_corpus_has_the_target_number_of_negatives():
+    cases = [json.loads(line) for line in CASES_PATH.read_text(encoding="utf-8").splitlines()]
+    negatives = [c for c in cases if any(t.startswith("negative:") for t in c["tags"])]
+    assert len(negatives) == builder.NEGATIVE_TARGET
+
+
 # ------------------------------------------------------------------ temporal split
 
 
