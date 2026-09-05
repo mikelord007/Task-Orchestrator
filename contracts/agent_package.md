@@ -31,8 +31,10 @@ version: 0
 domain: github_triage
 model_strong: gpt-4o
 model_cheap: gpt-4o-mini
-tools: [list_issues, get_issue]
+tools: [github_get_issue_context, github_get_label_taxonomy]
 orchestration: single          # single | planner_worker
+orchestration_reason: One call with tools is enough for this task; there is
+  no separate planning phase worth the extra call.
 routing:                       # step name -> strong | cheap
   planner: strong
   worker: cheap
@@ -40,6 +42,9 @@ routing:                       # step name -> strong | cheap
 
 - `orchestration` is `single` or `planner_worker`. **`generate_critic` is
   dropped** per §0.4 — do not add it back without a contract change.
+- `orchestration_reason` is the architect's one-paragraph justification for its
+  `orchestration` choice (W3 brief step 2). Optional and defaults to `null` —
+  older packages and hand-written fixtures need not set it.
 - `routing` keys are free-form step names owned by the orchestration mode; only
   the value domain (`strong` / `cheap`) is fixed by the contract. An empty map
   means "use `model_strong` for every step".
