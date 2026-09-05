@@ -1,0 +1,31 @@
+{
+  "request": {
+    "tool": "github_list_recent_commits",
+    "args": {
+      "repo": "acme/widgets",
+      "per_page": 30
+    }
+  },
+  "response": {
+    "repo": "acme/widgets",
+    "path": null,
+    "count": 2,
+    "commits": [
+      {
+        "sha": "aa11bb22cc33",
+        "message": "terminal: guard against zero-width resize",
+        "author": "Dana",
+        "date": "2024-03-01T09:00:00Z",
+        "html_url": "https://github.com/acme/widgets/commit/aa11bb22cc33"
+      },
+      {
+        "sha": "dd44ee55ff66",
+        "message": "docs: describe --json",
+        "author": "Sam",
+        "date": "2024-02-15T09:00:00Z",
+        "html_url": "https://github.com/acme/widgets/commit/dd44ee55ff66"
+      }
+    ]
+  },
+  "fetched_at": "2026-09-05T19:10:18.348423+00:00"
+}

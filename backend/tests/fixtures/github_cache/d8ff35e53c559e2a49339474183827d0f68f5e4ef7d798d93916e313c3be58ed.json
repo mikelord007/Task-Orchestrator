@@ -1,0 +1,33 @@
+{
+  "request": {
+    "tool": "github_get_issue",
+    "args": {
+      "repo": "acme/widgets",
+      "number": 101
+    }
+  },
+  "response": {
+    "number": 101,
+    "title": "Terminal output garbled on Windows when resizing",
+    "body": "Running the CLI in Windows Terminal, resizing the window corrupts the output buffer. Repro: start `widget watch`, drag the window edge.",
+    "labels": [
+      "bug",
+      "platform:windows",
+      "component:terminal"
+    ],
+    "state": "closed",
+    "state_reason": "completed",
+    "assignee": "dana",
+    "assignees": [
+      "dana"
+    ],
+    "milestone": null,
+    "author": "reporter",
+    "comments": 2,
+    "created_at": "2024-01-12T09:00:00Z",
+    "updated_at": "2024-01-20T17:30:00Z",
+    "closed_at": "2024-01-20T17:30:00Z",
+    "html_url": "https://github.com/acme/widgets/issues/101"
+  },
+  "fetched_at": "2026-09-05T19:10:18.345309+00:00"
+}

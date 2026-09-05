@@ -1,0 +1,33 @@
+{
+  "request": {
+    "tool": "github_get_issue",
+    "args": {
+      "repo": "acme/widgets",
+      "number": 202
+    }
+  },
+  "response": {
+    "number": 202,
+    "title": "Window resize breaks the progress bar on Windows Terminal",
+    "body": "The progress bar repaints over itself after a resize. Windows 11, Windows Terminal 1.19.",
+    "labels": [
+      "bug",
+      "platform:windows",
+      "component:terminal"
+    ],
+    "state": "closed",
+    "state_reason": "completed",
+    "assignee": "dana",
+    "assignees": [
+      "dana"
+    ],
+    "milestone": "1.5",
+    "author": "reporter",
+    "comments": 3,
+    "created_at": "2024-03-03T08:20:00Z",
+    "updated_at": "2024-03-11T12:00:00Z",
+    "closed_at": "2024-03-11T12:00:00Z",
+    "html_url": "https://github.com/acme/widgets/issues/202"
+  },
+  "fetched_at": "2026-09-05T19:10:18.345740+00:00"
+}
