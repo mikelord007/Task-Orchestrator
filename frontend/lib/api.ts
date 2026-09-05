@@ -171,7 +171,7 @@ export type Insights = {
   };
   markers: Marker[];
   /** §0.3 — memory growth per version. */
-  memory_growth: {
+  memory_growth_by_version: {
     version: number;
     rules: number;
     tool_notes: number;
@@ -179,7 +179,7 @@ export type Insights = {
     demotions: number;
   }[];
   /** §0.3 — cost/speed story: all four are expected to fall. */
-  tool_efficiency: {
+  tool_efficiency_by_version: {
     version: number;
     tool_calls_per_case: number;
     tool_errors_per_case: number;
@@ -471,7 +471,7 @@ export const mocks = {
     lessons_count: 0,
     drift: { count_by_kind: {}, tokens_saved: 0, cases_recovered_by_nudge: 0 },
     markers: [],
-    memory_growth: [],
-    tool_efficiency: [],
+    memory_growth_by_version: [],
+    tool_efficiency_by_version: [],
   }),
 };

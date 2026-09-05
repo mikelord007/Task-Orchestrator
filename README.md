@@ -56,9 +56,10 @@ reports/      generated reports, e.g. ablation.json (gitignored)
 ```
 
 Start with `contracts/` — `events.py` (the ledger), `agent.py` +
-`agent_package.md` (what an agent version is), `evaluator.md`, `playbook.md`,
-`api.md`. They are frozen after Phase 0: a change needs an issue labelled
-`contract-change`.
+`agent_package.md` (what an agent version is), `transcript.py` +
+`transcript.md` (what the runtime observes, and the `current_case` context var
+tools read), `evaluator.md`, `playbook.md`, `api.md`. They are frozen after
+Phase 0: a change needs an issue labelled `contract-change`.
 
 ## Environment variables
 

@@ -89,8 +89,8 @@ Insights      = {pass_rate_by_version: VersionPoint[],
                  lessons_count: number,
                  drift: {count_by_kind: {[kind]: number}, tokens_saved, cases_recovered_by_nudge},
                  markers: Marker[],
-                 memory_growth: {version, rules, tool_notes, mean_confidence, demotions}[],   // §0.3
-                 tool_efficiency: {version, tool_calls_per_case, tool_errors_per_case,
+                 memory_growth_by_version: {version, rules, tool_notes, mean_confidence, demotions}[],   // §0.3
+                 tool_efficiency_by_version: {version, tool_calls_per_case, tool_errors_per_case,
                                    tokens_per_case, latency_ms_per_case}[]}                   // §0.3
 Job           = {job_id, agent_id, kind, status: queued|running|done|error,
                  attempts, max_attempts, current_step?, result?, error?, created_ts, updated_ts}
@@ -98,7 +98,7 @@ Issue         = {id, agent_id, title, body, source: human|auto, status: open|clo
                  failure_signature?, linked_case_ids[], fixed_version?, created_ts}
 ```
 
-`memory_growth` and `tool_efficiency` are the two charts §0.3 adds to Insights;
+`memory_growth_by_version` and `tool_efficiency_by_version` are the two charts §0.3 adds to Insights;
 they are part of the `GET /insights/{agent_id}` response, not new endpoints.
 
 ## Conventions
