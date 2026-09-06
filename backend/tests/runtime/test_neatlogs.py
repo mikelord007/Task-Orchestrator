@@ -241,9 +241,7 @@ def test_mask_omits_content_redacts_pii_and_credentials_and_bounds_values(monkey
     assert len(value) <= 2_048
 
 
-def test_span_failures_do_not_repeat_work_or_lose_local_transcript(
-    monkeypatch, tmp_path, caplog
-):
+def test_span_failures_do_not_repeat_work_or_lose_local_transcript(monkeypatch, tmp_path, caplog):
     class BrokenManager:
         def __enter__(self):
             raise RuntimeError("contains a secret that must not be logged")

@@ -219,9 +219,7 @@ def _improve(
                 from_version=version,
                 candidate_version=next_candidate,
                 lever=(
-                    diagnosis.lever
-                    if diagnosis.lever in {"memory", "prompt", "tools"}
-                    else "other"
+                    diagnosis.lever if diagnosis.lever in {"memory", "prompt", "tools"} else "other"
                 ),
             ):
                 try:
@@ -237,9 +235,7 @@ def _improve(
                         complete=complete,
                         emit=emit,
                         issue_id=this_issue_id,
-                        proposals=proposals_by_signature.get(
-                            diagnosis.failing_group.signature, []
-                        ),
+                        proposals=proposals_by_signature.get(diagnosis.failing_group.signature, []),
                     )
                 except PatchError:
                     avoid_lever = diagnosis.lever

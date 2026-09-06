@@ -164,9 +164,7 @@ def initialize(*, tracer_provider: Any | None = None, disable_export: bool = Fal
                     tags=["backend"],
                     sample_rate=_bounded_float("NEATLOGS_SAMPLE_RATE", 1.0, 0.0, 1.0),
                     batch_size=_bounded_int("NEATLOGS_BATCH_SIZE", 32, 1, 100),
-                    flush_interval=_bounded_float(
-                        "NEATLOGS_FLUSH_INTERVAL_S", 10.0, 1.0, 60.0
-                    ),
+                    flush_interval=_bounded_float("NEATLOGS_FLUSH_INTERVAL_S", 10.0, 1.0, 60.0),
                     mask=telemetry_mask,
                     capture_logs=False,
                     register_shutdown_handlers=False,
