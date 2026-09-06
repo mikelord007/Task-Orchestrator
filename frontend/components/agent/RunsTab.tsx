@@ -111,8 +111,8 @@ function RunBlock({
           </div>
           <p className="mt-3 text-[11px] leading-5 text-fg-mute">
             {run.tasks.length} {run.tasks.length === 1 ? "task" : "tasks"} · {run.trials}{" "}
-            {run.trials === 1 ? "trial" : "trials"} · started {shortTs(run.started_ts)} · finished{" "}
-            {shortTs(run.finished_ts)}
+            {run.trials === 1 ? "trial" : "trials"} · started{" "}
+            {shortTs(run.started_ts ?? undefined)} · finished {shortTs(run.finished_ts ?? undefined)}
           </p>
           <details className="mt-2 text-[10px] text-fg-mute">
             <summary className="w-fit cursor-pointer hover:text-fg-dim">Run details</summary>
