@@ -1,0 +1,103 @@
+{
+  "_provenance": {
+    "field_sources": {
+      "ablation": "reports/ablation.json JSON fields copied without recomputation",
+      "ao": "BUILD_LOG.md Sessions table; derived from the table, never AO runtime",
+      "domain_a.agent_and_versions": "reports/summary.md Domain A agent line",
+      "domain_a.fixes": "reports/summary.md Domain A fix-cards line",
+      "domain_a.holdout": "reports/summary.md Domain A holdout line",
+      "domain_a.tool_calls_per_task": "reports/summary.md Domain A train tool-calls line",
+      "domain_a.trials": "reports/summary.md evaluation-method line"
+    },
+    "limitations": [
+      "The summary's highest evaluated version is not necessarily the accepted current version.",
+      "With zero accepted fixes, current remains the baseline; reported_end values are rejected-candidate evidence.",
+      "The local Domain A agent id does not establish that the agent exists in production.",
+      "The ablation enabled the playbook but applied_lesson_ids is empty, so it is not evidence of with-lessons versus without-lessons performance.",
+      "BUILD_LOG.md does not establish measured elapsed build duration. PLAN.md describes a 30-hour hackathon format, not a computed duration."
+    ],
+    "semantics": {
+      "ao_sessions": "unique worker session ids in BUILD_LOG.md Sessions table",
+      "pass_at_1_std": "std across per-trial task pass rates",
+      "pass_pow_k": "fraction of tasks passing all k trials",
+      "prs": "unique PR ids in BUILD_LOG.md Sessions table"
+    },
+    "sources": {
+      "ablation": {
+        "available": true,
+        "path": "reports/ablation.json",
+        "sha256": "3049cab6258231bf6dc0f44873952609b12fe47fac8c9fc33e62c1a7317513dc"
+      },
+      "build_log": {
+        "available": true,
+        "path": "BUILD_LOG.md",
+        "sha256": "5d4557d548dc5f9c70ea0d4b58e1ded879575c9290348be7e8476cbb8927d3f4"
+      },
+      "summary": {
+        "available": true,
+        "path": "reports/summary.md",
+        "sha256": "8394b7ca15c862f599d36281c6443ec4df7fafd7fc279f9dc0468c66e2981bb6"
+      }
+    },
+    "units": {
+      "pass_rates": "fraction_0_to_1",
+      "tool_calls_per_task": "calls_per_task"
+    }
+  },
+  "ablation": {
+    "applied_lesson_ids": [],
+    "domain": "ticket_triage",
+    "playbook_off": {
+      "pass_at_1": 0.35714285714285715,
+      "pass_pow_k": 0.07142857142857142,
+      "std": 0.0
+    },
+    "playbook_on": {
+      "pass_at_1": 0.5476190476190476,
+      "pass_pow_k": 0.2857142857142857,
+      "std": 0.08908708063747482
+    },
+    "trials": 3
+  },
+  "ao": {
+    "prs": 17,
+    "sessions": 11
+  },
+  "chart": null,
+  "domain_a": {
+    "agent_id": "github-triage-itrs75",
+    "baseline_version": 0,
+    "current_version": 0,
+    "domain": "github_triage",
+    "fixes": {
+      "accepted": 0,
+      "rejected": 3
+    },
+    "holdout": {
+      "pass_at_1": {
+        "after": {
+          "mean": 0.37,
+          "std": 0.026
+        },
+        "before": {
+          "mean": 0.37,
+          "std": 0.026
+        }
+      },
+      "pass_pow_k": {
+        "after": 0.056,
+        "before": 0.056,
+        "k": 3
+      }
+    },
+    "reported_end_version": 3,
+    "tool_calls_per_task": {
+      "after": 4.86,
+      "before": 4.86,
+      "reported_end": 4.56,
+      "split": "train"
+    },
+    "trials": 3
+  },
+  "schema_version": 1
+}
