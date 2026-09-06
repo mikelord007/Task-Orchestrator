@@ -34,6 +34,10 @@ fmt:
 seed:
 	@echo "seed: not implemented yet (W3 architect + W4 evaluators)"
 
-## Placeholder: W12 wires the demo script (PLAN.md 0.6).
+## Full evidence pipeline: preflight -> domain-a -> domain-b -> summary
+## (scripts/demo_run.py). Needs the backend already running in another
+## terminal (`make backend`) and a populated .env (LLM + GitHub creds, see
+## .env.example). Idempotent: pass AGENT_ID=<id> to reuse an existing
+## Domain A agent instead of creating a new one.
 demo:
-	@echo "demo: not implemented yet (W12) -- see DEMO.md"
+	$(BACKEND) python scripts/demo_run.py demo $(if $(AGENT_ID),--agent-id $(AGENT_ID),)
