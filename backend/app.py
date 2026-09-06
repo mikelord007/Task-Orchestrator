@@ -80,6 +80,10 @@ def _register_routers(app: FastAPI) -> None:
 async def _lifespan(app: FastAPI):
     if _require_api_auth() and not _api_auth_token():
         raise RuntimeError("REQUIRE_API_AUTH is enabled but API_AUTH_TOKEN is empty")
+    from backend.demo_limits import enabled as demo_limits_enabled
+
+    if demo_limits_enabled() and (not _require_api_auth() or not _api_auth_token()):
+        raise RuntimeError("PUBLIC_DEMO_LIMITS requires bearer authentication")
     conn = init_db()
     try:
         from backend.runtime.jobs import mark_incomplete_jobs_interrupted
@@ -131,6 +135,27 @@ def create_app() -> FastAPI:
                     status_code=401,
                     content={"detail": "authentication required"},
                     headers={"WWW-Authenticate": "Bearer"},
+                )
+        from backend.demo_limits import DemoLimitExceeded, consume_action, enabled
+
+        model_action = None
+        if request.method == "POST":
+            if request.url.path == "/agents":
+                model_action = "create"
+            elif request.url.path.startswith("/agents/") and request.url.path.endswith("/run"):
+                model_action = "run"
+            elif request.url.path.startswith("/agents/") and request.url.path.endswith("/improve"):
+                model_action = "improve"
+        if model_action and enabled():
+            forwarded = request.headers.get("x-demo-client-ip", "").split(",", 1)[0].strip()
+            client_address = forwarded or (request.client.host if request.client else "unknown")
+            try:
+                consume_action(model_action, client_address)
+            except DemoLimitExceeded as exc:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": str(exc)},
+                    headers={"Retry-After": str(exc.retry_after)},
                 )
         return await call_next(request)
 

@@ -250,7 +250,14 @@ def post_agent_run(agent_id: str, body: RunRequest) -> dict[str, str]:
 
     if not resolve_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"no such agent: {agent_id}")
-    return {"run_id": start_run(agent_id, body.split)}
+    from backend.demo_limits import DemoLimitExceeded
+
+    try:
+        return {"run_id": start_run(agent_id, body.split)}
+    except DemoLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429, detail=str(exc), headers={"Retry-After": str(exc.retry_after)}
+        ) from exc
 
 
 @router.get("/agents/{agent_id}/runs")

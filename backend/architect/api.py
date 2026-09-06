@@ -124,21 +124,31 @@ def _agent_summary(row, latest_stats: dict[tuple[str, int, str], dict]) -> dict:
 
 @router.post("/agents")
 def create_agent(body: CreateAgentRequest) -> dict:
+    from backend.demo_limits import DemoLimitExceeded, claim_workflow_slot
+    from backend.llm import LLMError
+
     try:
-        result = generate(
-            goal=body.goal,
-            domain=body.domain,
-            tools=body.tools,
-            evaluator_id=body.evaluator_id,
-            use_playbook=body.use_playbook,
-            agents_root=agents_root(),
-            evaluators_root=evaluators_root(),
-            playbook_path=playbook_path(),
-        )
+        with claim_workflow_slot():
+            result = generate(
+                goal=body.goal,
+                domain=body.domain,
+                tools=body.tools,
+                evaluator_id=body.evaluator_id,
+                use_playbook=body.use_playbook,
+                agents_root=agents_root(),
+                evaluators_root=evaluators_root(),
+                playbook_path=playbook_path(),
+            )
     except EvaluatorNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ArchitectStepError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DemoLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429, detail=str(exc), headers={"Retry-After": str(exc.retry_after)}
+        ) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"agent_id": result.agent_id, "version": result.version}
 
 

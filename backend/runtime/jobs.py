@@ -276,16 +276,26 @@ def run_in_background(
     """
     import threading
 
-    job_id = store.create(agent_id, kind, job_id=job_id)
+    from backend.demo_limits import claim_workflow_slot
+
+    slot = claim_workflow_slot()
+    try:
+        job_id = store.create(agent_id, kind, job_id=job_id)
+    except Exception:
+        slot.release()
+        raise
 
     def target() -> None:
-        store.mark_running(job_id)
         try:
-            result = work(lambda done, total: store.mark_progress(job_id, done, total))
-        except Exception as exc:  # noqa: BLE001 - a failed job is reported, not raised
-            store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
-            return
-        store.mark_done(job_id, result)
+            store.mark_running(job_id)
+            try:
+                result = work(lambda done, total: store.mark_progress(job_id, done, total))
+            except Exception as exc:  # noqa: BLE001 - a failed job is reported, not raised
+                store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+                return
+            store.mark_done(job_id, result)
+        finally:
+            slot.release()
 
     threading.Thread(target=target, daemon=True).start()
     return job_id
