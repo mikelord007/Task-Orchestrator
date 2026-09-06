@@ -127,10 +127,21 @@ def failing_v0(workspace: Workspace) -> Workspace:
         (
             "memory",
             None,
-            ["memory/rules.jsonl", "memory/tool_notes.jsonl", "memory/episodes.jsonl"],
+            [
+                "memory/rules.jsonl",
+                "memory/tool_notes.jsonl",
+                "memory/episodes.jsonl",
+                "agent.yaml",
+            ],
         ),
-        ("prompt", None, ["prompt.md"]),
-        ("tools", "invalid-parameter errors 30% of lookup_ticket calls", ["tools/lookup.py"]),
+        ("prompt", None, ["prompt.md", "agent.yaml"]),
+        (
+            "tools",
+            "lookup_ticket: 1.0 calls on every failing trial and no answer after it",
+            ["tools/lookup.py", "agent.yaml"],
+        ),
+        # The orchestration lever edits `agent.yaml` itself, so the version
+        # bump rides inside that one diff rather than being appended twice.
         ("orchestration", None, ["agent.yaml"]),
     ],
 )
@@ -268,6 +279,25 @@ def test_memory_lever_appends_valid_jsonl_and_emits_memory_written(failing_v0: W
     assert llm.call_count == 1
 
 
+def test_the_episode_is_attributed_to_the_run_that_supplied_the_transcripts(
+    failing_v0: Workspace,
+):
+    """An episode whose `run_id` matches no `run_started`/`case_result`/
+    `run_finished` cannot be traced back to the evidence it came from. It is
+    the id of the train run reflection actually read, not a fresh uuid."""
+    from backend.ledger.query import case_results, runs
+
+    candidate, _llm = run_patch(failing_v0, make_diagnosis("memory"))
+    episodes = read_jsonl(failing_v0.package_dir(candidate) / "memory" / "episodes.jsonl")
+    run_id = episodes[0]["run_id"]
+
+    known = {run.run_id for run in runs(failing_v0.conn, failing_v0.agent_id)}
+    assert run_id in known, f"episode cites {run_id!r}, which is not a run in the ledger"
+    assert not run_id.startswith("reflect_")
+    # And it is the run whose transcripts the reflection call was shown.
+    assert {str(e.get("case_id")) for e in case_results(failing_v0.conn, run_id)} >= {"t1"}
+
+
 def test_a_memory_fix_from_an_issue_is_sourced_to_that_issue(failing_v0: Workspace):
     candidate, _llm = run_patch(failing_v0, make_diagnosis("memory"), issue_id="iss_7")
 
@@ -285,10 +315,14 @@ def test_memory_diff_shows_the_appended_jsonl_lines(failing_v0: Workspace):
     assert "--- a/memory/tool_notes.jsonl" in diff
     assert "--- a/memory/episodes.jsonl" in diff
     assert "A duplicated invoice charge" in diff
-    # Only additions: memory is append-only, nothing is rewritten.
+
+    # Only additions in the memory hunks: memory is append-only, nothing is
+    # rewritten. (The trailing `agent.yaml` hunk does rewrite one line -- the
+    # version bump -- so the check stops where that hunk starts.)
+    memory_part = diff.split("--- a/agent.yaml")[0]
     body = [
         line
-        for line in diff.splitlines()
+        for line in memory_part.splitlines()
         if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
     ]
     assert body and all(line.startswith("+") for line in body)
@@ -301,12 +335,80 @@ def test_memory_falls_back_to_prompt_when_reflection_proposes_nothing(failing_v0
 
     proposed = failing_v0.only("fix_proposed")
     assert proposed["lever"] == "prompt"
-    assert proposed["files_touched"] == ["prompt.md"]
+    assert proposed["files_touched"] == ["prompt.md", "agent.yaml"]
     assert "fell back to" in proposed["diff_summary"]
     assert failing_v0.payloads("memory_written") == []
     assert "## Lesson" in (failing_v0.package_dir(candidate) / "prompt.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_memory_written_reports_each_entrys_own_evidence_not_the_whole_group(
+    failing_v0: Workspace,
+):
+    """A tool note supported only by t1 must not be recorded as supported by
+    t1 *and* t2. `memory_written` is append-only: the provenance it claims is
+    the provenance forever."""
+    proposals = reflection_answer(
+        rules=[
+            {
+                "rule": "Duplicate invoice charges are billing at p1.",
+                "scope_keywords": ["invoice"],
+                "evidence_case_ids": ["t1"],
+            }
+        ],
+        tool_notes=[
+            {
+                "tool": "lookup_ticket",
+                "note": "It takes the bare ticket id.",
+                "evidence": "t2 passed the case id and got an error back",
+            }
+        ],
+    )
+    candidate, _llm = run_patch(
+        failing_v0,
+        make_diagnosis("memory", case_ids=["t1", "t2"], count=6),
+        answers=[proposals],
+    )
+
+    written = failing_v0.payloads("memory_written")
+    by_kind = {w["kind"]: w for w in written}
+    assert by_kind["rule"]["evidence_case_ids"] == ["t1"]
+    assert by_kind["tool_note"]["evidence_case_ids"] == ["t2"]
+    # The episode summarizes the group, so it legitimately cites all of it.
+    assert by_kind["episode"]["evidence_case_ids"] == ["t1", "t2"]
+    assert candidate == 1
+
+
+def test_an_overlapping_case_id_does_not_borrow_another_cases_evidence(
+    workspace: Workspace,
+):
+    """Group `{t1, t2}`, evidence naming `t10`. Substring matching would
+    record the note as evidenced by `t1`; whole-token matching drops it,
+    because `t10` is not in the group."""
+    workspace.seed_run(
+        0,
+        {"t1": [False] * 3, "t2": [False] * 3, "t10": [False] * 3},
+        signatures={"t1": "wrong_output", "t2": "wrong_output", "t10": "other"},
+    )
+    proposals = reflection_answer(
+        tool_notes=[
+            {
+                "tool": "lookup_ticket",
+                "note": "It takes the bare ticket id.",
+                "evidence": "t10 called the tool incorrectly",
+            }
+        ]
+    )
+    run_patch(
+        workspace,
+        make_diagnosis("memory", case_ids=["t1", "t2"], count=6),
+        answers=[proposals],
+    )
+
+    # Nothing survived reflection's filter, so the attempt fell back to prompt.
+    assert workspace.only("fix_proposed")["lever"] == "prompt"
+    assert workspace.payloads("memory_written") == []
 
 
 # -- tools lever --------------------------------------------------------
@@ -408,5 +510,55 @@ def test_orchestration_lever_flips_the_mode_and_records_why(failing_v0: Workspac
 
 
 def test_an_unknown_lever_is_refused(failing_v0: Workspace):
-    with pytest.raises(PatchError, match="cannot apply lever"):
+    with pytest.raises(PatchError, match="unknown lever"):
         run_patch(failing_v0, make_diagnosis("vibes"))
+
+
+# -- the patch boundary validates too -----------------------------------
+
+
+def test_patch_refuses_a_tools_diagnosis_with_no_metric_signal(failing_v0: Workspace):
+    """`diagnose` coerces an invalid answer down to `prompt`, but a caller
+    reaching `patch()` directly must not be able to bypass section K."""
+    with pytest.raises(PatchError, match="no metric_signal"):
+        run_patch(failing_v0, make_diagnosis("tools", metric_signal=None))
+    assert failing_v0.payloads("fix_proposed") == []
+    assert not failing_v0.package_dir(1).exists()
+
+
+def test_patch_refuses_a_metric_signal_that_contradicts_the_observation(
+    failing_v0: Workspace,
+):
+    diagnosis = make_diagnosis(
+        "tools", metric_signal="lookup_ticket: invalid-parameter errors on 30% of calls"
+    )
+    diagnosis.observed_tool_usage = {
+        "lookup_ticket": {"calls": 3.0, "errors": 0.0, "redundant": 0.0}
+    }
+    with pytest.raises(PatchError, match="errors=0"):
+        run_patch(failing_v0, diagnosis)
+
+
+def test_patch_refuses_a_drift_group_diagnosed_as_memory(failing_v0: Workspace):
+    with pytest.raises(PatchError, match="must resolve to"):
+        run_patch(failing_v0, make_diagnosis("memory", signature="drift:loop"))
+
+
+def test_a_tools_fix_records_the_observation_next_to_the_claim(failing_v0: Workspace):
+    """Section 0: the ledger holds the harness's measurement alongside the
+    model's sentence about it, so the card can be checked later."""
+    diagnosis = make_diagnosis("tools", metric_signal="lookup_ticket: 1.0 calls/failing trial")
+    diagnosis.observed_tool_usage = {
+        "lookup_ticket": {"calls": 1.0, "errors": 0.0, "redundant": 0.0}
+    }
+    run_patch(failing_v0, diagnosis)
+
+    proposed = failing_v0.only("fix_proposed")
+    assert proposed["extra"] == {
+        "observed_tool_usage": {"lookup_ticket": {"calls": 1.0, "errors": 0.0, "redundant": 0.0}}
+    }
+
+
+def test_the_other_levers_carry_no_observation(failing_v0: Workspace):
+    run_patch(failing_v0, make_diagnosis("prompt"))
+    assert failing_v0.only("fix_proposed")["extra"] == {}

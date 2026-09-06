@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from backend.improver.reflect import MAX_RULES, MAX_TOOL_NOTES, reflect
+from backend.improver.reflect import MAX_RULES, MAX_TOOL_NOTES, cited_case_ids, reflect
 from backend.tests.improver.conftest import JsonLLM, Workspace, reflection_answer
 from contracts.events import FailingGroup
 
@@ -132,6 +132,38 @@ def test_the_prompt_shows_the_harness_recorded_evidence_for_the_group(
     assert "Expected output:" in text and "Agent's final output:" in text
 
 
+def test_the_prompt_carries_the_graders_verdict_not_only_its_notes(
+    failing_v0: Workspace,
+):
+    """The brief requires the grader verdict: `passed` and `score` as well as
+    the notes. Reflection must be able to tell a near-miss from a total miss."""
+    _proposals, llm = run_reflect(failing_v0, [ONE_RULE])
+    text = llm.prompt_text(0)
+
+    assert "Grader verdict: FAILED at score 0.00" in text
+    assert "category mismatch: got bug, want billing" in text
+
+
+def test_a_narrow_failure_and_a_total_one_do_not_look_identical(workspace: Workspace):
+    """Same notes, different scores. Without the score in the prompt these
+    two tasks are indistinguishable and invite one over-broad rule."""
+    workspace.seed_run(
+        0,
+        {"t1": [False] * 3, "t2": [False] * 3},
+        notes={"t1": "priority mismatch", "t2": "priority mismatch"},
+        scores={"t1": 0.79},
+    )
+    _proposals, llm = run_reflect(
+        workspace,
+        [ONE_RULE],
+        group=FailingGroup(signature="wrong_output", tag=None, case_ids=["t1", "t2"], count=6),
+    )
+    text = llm.prompt_text(0)
+
+    assert "FAILED at score 0.79" in text
+    assert "FAILED at score 0.00" in text
+
+
 def test_a_group_with_no_readable_transcripts_makes_no_llm_call(workspace: Workspace):
     """Reflecting on nothing would invite the model to invent a lesson. Cost
     nothing and propose nothing instead."""
@@ -216,6 +248,47 @@ def test_a_tool_note_must_point_at_a_case_in_the_group(failing_v0: Workspace):
     assert proposals[0].kind == "tool_note"
     assert proposals[0].note == "It does not classify the ticket for you."
     assert proposals[0].evidence_case_ids == ["t2"]
+
+
+def test_an_id_is_only_cited_when_the_evidence_names_it_whole(failing_v0: Workspace):
+    """`t1` does not appear inside `t10`. Substring matching would record a
+    note about a case the model never mentioned as evidenced by `t1` -- false
+    provenance on an append-only row."""
+    answer = reflection_answer(
+        tool_notes=[
+            {
+                "tool": "lookup_ticket",
+                "note": "It takes the bare ticket id.",
+                "evidence": "t10 called the tool incorrectly",
+            }
+        ]
+    )
+    proposals, _llm = run_reflect(failing_v0, [answer])
+    assert proposals == []
+
+
+def test_cited_case_ids_matches_whole_tokens_only():
+    group = {"t1", "t2"}
+    assert cited_case_ids("t10 called the tool incorrectly", group) == set()
+    assert cited_case_ids("t1 called the tool incorrectly", group) == {"t1"}
+    assert cited_case_ids("seen on t1 and t2, but not t10", group) == {"t1", "t2"}
+    # Punctuation is a boundary; an id glued to a word is not the id.
+    assert cited_case_ids("(t1), t2.", group) == {"t1", "t2"}
+    assert cited_case_ids("case_t1 is unrelated", group) == set()
+
+
+def test_a_rules_evidence_list_is_matched_exactly_too(failing_v0: Workspace):
+    answer = reflection_answer(
+        rules=[
+            {
+                "rule": "Everything is p0.",
+                "scope_keywords": [],
+                "evidence_case_ids": ["t10", "t100"],
+            }
+        ]
+    )
+    proposals, _llm = run_reflect(failing_v0, [answer])
+    assert proposals == []
 
 
 def test_an_incomplete_tool_note_is_dropped(failing_v0: Workspace):

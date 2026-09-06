@@ -21,7 +21,7 @@ import pytest
 from backend.improver.improve import improve
 from backend.tests.improver.conftest import (
     FakeRunEval,
-    JsonLLM,
+    PipelineLLM,
     Workspace,
     diagnosis_answer,
     reflection_answer,
@@ -114,14 +114,15 @@ def two_group_v0(workspace: Workspace) -> Workspace:
 
 def run_improve(
     workspace: Workspace,
-    answers: list[Any],
+    diagnoses: Any,
     run_eval: LoopRunEval,
     *,
+    reflection: Any = REFLECTION,
     max_attempts: int = 3,
     issue_id: str | None = None,
     progress: Any = None,
 ):
-    llm = JsonLLM(answers)
+    llm = PipelineLLM(reflection=reflection, diagnosis=diagnoses)
     result = improve(
         workspace.agent_id,
         max_attempts=max_attempts,
@@ -151,9 +152,7 @@ REJECT_THEN_ACCEPT = {
 
 def test_a_rejected_fix_is_followed_by_one_on_a_different_lever(two_group_v0: Workspace):
     run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
-    result, llm = run_improve(
-        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval
-    )
+    result, llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
 
     assert [(a.attempt, a.lever, a.accepted, a.reason) for a in result.attempts] == [
         (1, "memory", False, "regression"),
@@ -166,15 +165,16 @@ def test_a_rejected_fix_is_followed_by_one_on_a_different_lever(two_group_v0: Wo
 
     # Each attempt targeted a different group, in ranked order.
     assert [a.failing_group_signature for a in result.attempts] == ["wrong_output", "drift:loop"]
-    # One diagnosis call per group, plus one reflection for the memory lever.
-    assert llm.call_count == 3
+    # Reflection first, on every group, then one diagnosis per group -- and
+    # `patch` reuses those proposals rather than reflecting a second time.
+    assert llm.steps == ["reflect", "reflect", "diagnose", "diagnose"]
 
 
 def test_both_candidates_stay_on_disk_with_their_diffs(two_group_v0: Workspace):
     """Section B: a rejected candidate is evidence, not garbage. Its slot is
     never reused either -- v2 is a fresh directory, not a rewritten v1."""
     run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
-    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval)
+    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
 
     for version in (1, 2):
         package = two_group_v0.package_dir(version)
@@ -192,7 +192,7 @@ def test_both_candidates_stay_on_disk_with_their_diffs(two_group_v0: Workspace):
 def test_the_ledger_tells_the_whole_story_of_the_loop(two_group_v0: Workspace):
     """What `GET /agents/{id}/fixes` assembles a card per attempt from."""
     run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
-    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval)
+    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
 
     assert len(two_group_v0.payloads("fix_proposed")) == 2
     rejected = two_group_v0.only("fix_rejected")
@@ -207,13 +207,85 @@ def test_the_ledger_tells_the_whole_story_of_the_loop(two_group_v0: Workspace):
     assert accepted["holdout_pass_at_1_after"] == 1.0
     # The memory attempt really did write memory before being rejected.
     assert [m["kind"] for m in two_group_v0.payloads("memory_written")] == ["rule", "episode"]
+    # The tools fix carried its observation onto the ledger next to the claim.
+    tools_fix = two_group_v0.payloads("fix_proposed")[1]
+    assert tools_fix["metric_signal"]
+    assert tools_fix["extra"]["observed_tool_usage"]["lookup_ticket"]["redundant"] == 3.0
 
 
 def test_holdout_is_measured_only_for_the_accepted_candidate(two_group_v0: Workspace):
     run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
-    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval)
+    run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
 
     assert run_eval.keys == [(1, "train"), (2, "train"), (2, "holdout")]
+
+
+# -- reflection is the first step, always -------------------------------
+
+
+def test_reflection_runs_on_every_group_before_anything_is_diagnosed(
+    two_group_v0: Workspace,
+):
+    """Section E's pipeline is reflect -> diagnose -> patch -> gate. The
+    agent's own reading of each failure is on the table *before* the analyst
+    picks a lever, not fetched afterwards if the analyst happened to say
+    `memory`."""
+    run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
+    _result, llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
+
+    assert llm.steps[:2] == ["reflect", "reflect"]
+    assert llm.steps.count("reflect") == 2  # one per top group
+    assert llm.steps.index("reflect") < llm.steps.index("diagnose")
+
+
+def test_reflection_happens_even_when_no_diagnosis_chooses_memory(
+    two_group_v0: Workspace,
+):
+    """The regression the old order allowed: with every diagnosis coming back
+    `tools`/`prompt`/`orchestration`, `reflect()` was never called at all and
+    the demo's first step silently did not happen."""
+    run_eval = LoopRunEval(
+        two_group_v0,
+        {
+            (1, "train"): {"t1": [True] * 3, "t2": [False, False, True], "t3": [True] * 3},
+            (1, "holdout"): {"t4": [True] * 3},
+        },
+    )
+    _result, llm = run_improve(
+        two_group_v0, [TOOLS_DIAGNOSIS, diagnosis_answer(lever="prompt")], run_eval
+    )
+
+    assert "memory" not in [d for d in llm.steps]  # sanity: no memory lever ran
+    assert llm.steps.count("reflect") == 2
+    assert llm.prompts_for("reflect"), "reflection produced no prompt"
+
+
+def test_the_analyst_is_shown_what_reflection_proposed(two_group_v0: Workspace):
+    """Making reflection first is only worth it if its proposals reach the
+    diagnosis call."""
+    run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
+    _result, llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
+
+    first_diagnosis = llm.prompts_for("diagnose")[0]
+    text = "\n".join(str(m.get("content") or "") for m in first_diagnosis)
+    assert "Reflection already proposed" in text
+    assert "A duplicated invoice charge is billing at p1." in text
+    assert "from t1" in text  # the proposal's own evidence, cited
+
+
+def test_patch_reuses_the_proposals_instead_of_reflecting_twice(two_group_v0: Workspace):
+    """One STRONG reflection call per group per iteration, not two."""
+    run_eval = LoopRunEval(
+        two_group_v0,
+        {
+            (1, "train"): {"t1": [True] * 3, "t2": [False, False, True], "t3": [True] * 3},
+            (1, "holdout"): {"t4": [True] * 3},
+        },
+    )
+    _result, llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
+
+    assert llm.steps == ["reflect", "reflect", "diagnose", "diagnose"]
+    assert [m["kind"] for m in two_group_v0.payloads("memory_written")] == ["rule", "episode"]
 
 
 # -- nothing is accepted ------------------------------------------------
@@ -229,9 +301,7 @@ def test_every_attempt_rejected_leaves_the_current_version_alone(two_group_v0: W
             (2, "train"): {"t1": [False] * 3, "t2": [True] * 3, "t3": [True, False, True]},
         },
     )
-    result, _llm = run_improve(
-        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval
-    )
+    result, _llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval)
 
     assert [a.accepted for a in result.attempts] == [False, False]
     assert [a.reason for a in result.attempts] == ["regression", "regression"]
@@ -248,7 +318,7 @@ def test_max_attempts_caps_the_loop(two_group_v0: Workspace):
         {(1, "train"): {"t1": [True] * 3, "t2": [False] * 3, "t3": [False] * 3}},
     )
     result, _llm = run_improve(
-        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval, max_attempts=1
+        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval, max_attempts=1
     )
 
     assert len(result.attempts) == 1
@@ -266,7 +336,7 @@ def test_the_loop_stops_when_it_runs_out_of_diagnoses(two_group_v0: Workspace):
         },
     )
     result, _llm = run_improve(
-        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], run_eval, max_attempts=3
+        two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], run_eval, max_attempts=3
     )
     assert len(result.attempts) == 2
 
@@ -296,7 +366,7 @@ def test_improve_runs_a_baseline_when_the_version_has_no_train_run(workspace: Wo
             (1, "holdout"): {"t4": [True] * 3},
         },
     )
-    result, _llm = run_improve(workspace, [MEMORY_DIAGNOSIS, REFLECTION], run_eval)
+    result, _llm = run_improve(workspace, [MEMORY_DIAGNOSIS], run_eval)
 
     assert run_eval.keys[0] == (0, "train")
     assert [a.accepted for a in result.attempts] == [True]
@@ -353,7 +423,7 @@ def test_an_issue_only_stamps_the_attempts_it_actually_explains(two_group_v0: Wo
     )
     run_improve(
         two_group_v0,
-        [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION],
+        [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS],
         run_eval,
         issue_id="iss_other",
     )
@@ -366,7 +436,7 @@ def test_progress_is_reported_once_per_attempt(two_group_v0: Workspace):
     run_eval = LoopRunEval(two_group_v0, REJECT_THEN_ACCEPT)
     run_improve(
         two_group_v0,
-        [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION],
+        [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS],
         run_eval,
         progress=lambda done, total: seen.append((done, total)),
     )
@@ -394,7 +464,7 @@ def test_a_second_iteration_diagnoses_the_version_that_was_just_installed(
             (1, "holdout"): {"t4": [True] * 3},
         },
     )
-    result, _llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS, REFLECTION], first)
+    result, _llm = run_improve(two_group_v0, [MEMORY_DIAGNOSIS, TOOLS_DIAGNOSIS], first)
     assert result.current_version == 1
 
     second = LoopRunEval(

@@ -28,6 +28,8 @@ from backend.improver.diagnose import (
     Diagnosis,
     DiagnosisValidationError,
     diagnose,
+    metric_signal_problem,
+    observed_tool_usage,
     validate_diagnosis,
 )
 from backend.tests.improver.conftest import JsonLLM, Workspace, diagnosis_answer
@@ -43,7 +45,13 @@ def group(signature: str = "wrong_output", **kwargs: Any) -> FailingGroup:
     )
 
 
-def make(lever: str, *, signature: str = "wrong_output", metric_signal: str | None = None):
+def make(
+    lever: str,
+    *,
+    signature: str = "wrong_output",
+    metric_signal: str | None = None,
+    observed: dict[str, dict[str, float]] | None = None,
+):
     return Diagnosis(
         failing_group=group(signature),
         hypothesis="h",
@@ -51,6 +59,7 @@ def make(lever: str, *, signature: str = "wrong_output", metric_signal: str | No
         lever=lever,
         proposed_change="c",
         metric_signal=metric_signal,
+        observed_tool_usage=observed or {},
     )
 
 
@@ -176,14 +185,165 @@ def test_a_tools_answer_with_no_metric_signal_is_forced_to_prompt(workspace: Wor
     assert "no metric_signal" in result[0].diagnosis
 
 
-def test_a_metric_signal_survives_onto_a_valid_tools_diagnosis(workspace: Workspace):
+# -- metric_signal must be about what the harness observed -------------
+
+
+def test_a_grounded_metric_signal_survives_onto_a_tools_diagnosis(workspace: Workspace):
+    """It names a tool the group actually called and claims nothing the
+    harness did not record, so it is a citation rather than a sentence."""
+    workspace.seed_run(0, {"t1": [False] * 3, "t2": [True] * 3})
+    result, _llm = run_diagnose(
+        workspace,
+        [
+            diagnosis_answer(
+                lever="tools",
+                metric_signal="lookup_ticket: 1.0 calls per failing trial and no answer after it",
+            )
+        ],
+    )
+    assert result[0].lever == "tools"
+    assert result[0].metric_signal.startswith("lookup_ticket")
+    # The observation the claim was checked against travels with the diagnosis.
+    assert result[0].observed_tool_usage == {
+        "lookup_ticket": {"calls": 1.0, "errors": 0.0, "redundant": 0.0}
+    }
+
+
+def test_a_metric_signal_naming_no_observed_tool_is_refused(workspace: Workspace):
+    """The review's case: the fixture records zero tool errors, the model
+    says "invalid-parameter errors 30%". Unchecked, that invented number is
+    appended permanently to `fix_proposed`."""
     workspace.seed_run(0, {"t1": [False] * 3, "t2": [True] * 3})
     result, _llm = run_diagnose(
         workspace,
         [diagnosis_answer(lever="tools", metric_signal="invalid-parameter errors 30%")],
     )
+
+    assert result[0].lever == "prompt"
+    assert result[0].metric_signal is None
+    assert "names none of the tools observed" in result[0].diagnosis
+
+
+def test_a_metric_signal_naming_a_tool_the_group_never_called_is_refused(
+    workspace: Workspace,
+):
+    workspace.seed_run(0, {"t1": [False] * 3, "t2": [True] * 3})
+    result, _llm = run_diagnose(
+        workspace,
+        [
+            diagnosis_answer(
+                lever="tools",
+                metric_signal="github_search_similar_issues: 4.2 redundant calls/task",
+            )
+        ],
+    )
+
+    assert result[0].lever == "prompt"
+    assert "github_search_similar_issues" in result[0].diagnosis
+    assert "made no tool call" in result[0].diagnosis
+
+
+def test_an_error_claim_about_a_tool_that_never_errored_is_refused(workspace: Workspace):
+    """Naming a real tool is not enough: the *claim* has to be backed too."""
+    workspace.seed_run(0, {"t1": [False] * 3, "t2": [True] * 3}, tool_errors=0)
+    result, _llm = run_diagnose(
+        workspace,
+        [
+            diagnosis_answer(
+                lever="tools",
+                metric_signal="lookup_ticket: invalid-parameter errors on 30% of calls",
+            )
+        ],
+    )
+
+    assert result[0].lever == "prompt"
+    assert "errors=0" in result[0].diagnosis
+
+
+def test_the_same_error_claim_is_accepted_once_the_errors_are_real(workspace: Workspace):
+    workspace.seed_run(
+        0,
+        {"t1": [False] * 3, "t2": [True] * 3},
+        tools_called={"t1": ["lookup_ticket"]},
+        tool_errors=1,
+    )
+    result, _llm = run_diagnose(
+        workspace,
+        [
+            diagnosis_answer(
+                lever="tools",
+                metric_signal="lookup_ticket: invalid-parameter error on every call",
+            )
+        ],
+    )
+
     assert result[0].lever == "tools"
-    assert result[0].metric_signal == "invalid-parameter errors 30%"
+    assert result[0].observed_tool_usage["lookup_ticket"]["errors"] == 1.0
+
+
+def test_a_redundant_call_claim_is_checked_the_same_way(workspace: Workspace):
+    """t1 calls the same tool with the same args three times: two redundant."""
+    workspace.seed_run(
+        0,
+        {"t1": [False] * 3, "t2": [True] * 3},
+        tools_called={"t1": ["lookup_ticket"] * 3},
+    )
+    grounded, _llm = run_diagnose(
+        workspace,
+        [
+            diagnosis_answer(
+                lever="tools", metric_signal="lookup_ticket: 2 redundant calls per failing trial"
+            )
+        ],
+    )
+    assert grounded[0].lever == "tools"
+    assert grounded[0].observed_tool_usage["lookup_ticket"]["redundant"] == 2.0
+
+
+def test_a_signal_is_let_through_when_there_is_no_observation_to_check_it_against():
+    """No readable transcripts means no ground truth. Refusing every tools
+    fix for want of evidence would be its own kind of dishonesty -- the
+    signal stands, unchecked and visibly so."""
+    assert metric_signal_problem("redundant calls 4.2/task", {}) is None
+    validate_diagnosis(make("tools", metric_signal="redundant calls 4.2/task"))
+
+
+def test_observed_tool_usage_counts_calls_errors_and_redundancy_per_tool(
+    workspace: Workspace,
+):
+    """The ground truth itself: three identical `lookup_ticket` calls on the
+    failing trial, the last one erroring -- 3 calls, 2 redundant, 1 error."""
+    workspace.seed_run(
+        0,
+        {"t1": [False] * 3, "t2": [True] * 3},
+        tools_called={"t1": ["lookup_ticket"] * 3},
+        tool_errors=1,
+    )
+    observed = observed_tool_usage(
+        workspace.conn, workspace.agent_id, 0, group(case_ids=["t1"]), workspace.root
+    )
+    assert observed == {"lookup_ticket": {"calls": 3.0, "errors": 1.0, "redundant": 2.0}}
+
+
+def test_observed_tool_usage_is_empty_when_the_group_never_called_a_tool(
+    workspace: Workspace,
+):
+    workspace.seed_run(0, {"t1": [False] * 3}, tools_called={"t1": []})
+    assert (
+        observed_tool_usage(
+            workspace.conn, workspace.agent_id, 0, group(case_ids=["t1"]), workspace.root
+        )
+        == {}
+    )
+
+
+def test_metric_signal_problem_reports_what_is_wrong_not_just_that_it_is():
+    observed = {"lookup_ticket": {"calls": 3.0, "errors": 0.0, "redundant": 0.0}}
+    assert metric_signal_problem("lookup_ticket: 3 calls/task", observed) is None
+    assert "made no tool call" in (metric_signal_problem("get_issue: 3 calls", observed) or "")
+    assert "errors=0" in (
+        metric_signal_problem("lookup_ticket: 2 invalid-parameter errors", observed) or ""
+    )
 
 
 # -- ranking and grouping -----------------------------------------------

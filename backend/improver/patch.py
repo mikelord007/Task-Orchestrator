@@ -5,16 +5,20 @@
 `v<N+1>/` (or the next free candidate slot -- see `improve`, which allocates
 a fresh, never-reused integer per attempt so a rejected candidate's directory
 is never overwritten), applies the diagnosis's lever, writes
-`CHANGES.diff` (unified diff `v<N>` -> the candidate), and emits
-`fix_proposed` with the full section A payload.
+`CHANGES.diff` (unified diff `v<N>` -> the candidate, including the
+`agent.yaml` version bump every candidate gets), and emits `fix_proposed`
+with the full section A payload. The diagnosis is re-validated here, so the
+public entry point cannot apply a lever `diagnose` would have refused.
 
 Lever mechanics:
 
-* `memory` -- calls `reflect()` on the diagnosis's failing group and appends
-  the proposals to `memory/rules.jsonl` / `memory/tool_notes.jsonl`, plus one
-  `episodes.jsonl` line. If reflection yields nothing (no readable
-  transcripts, or the model proposed nothing usable), this falls back to the
-  `prompt` lever so the attempt still produces a real, gate-able change.
+* `memory` -- appends the reflection proposals `improve` already gathered
+  (or, for a direct caller, calls `reflect()` itself) to
+  `memory/rules.jsonl` / `memory/tool_notes.jsonl`, plus one
+  `episodes.jsonl` line attributed to the train run those proposals were
+  reflected from. If reflection yields nothing (no readable transcripts, or
+  the model proposed nothing usable), this falls back to the `prompt` lever
+  so the attempt still produces a real, gate-able change.
 * `tools` -- rewrites the target tool's `TOOL["description"]` in the
   package's own `tools/<name>.py` copy (never `backend/toolbox/`), per
   section K priority (1): "rewrite a tool's description or parameter names".
@@ -33,7 +37,6 @@ import json
 import pprint
 import shutil
 import sqlite3
-import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -41,9 +44,18 @@ from typing import Any
 import yaml
 
 from backend.architect.llm_client import CompleteFn
-from backend.improver.diagnose import Diagnosis
-from backend.improver.grouping import failing_case_trials, resolve_transcript_path
+from backend.improver.diagnose import (
+    Diagnosis,
+    DiagnosisValidationError,
+    validate_diagnosis,
+)
+from backend.improver.grouping import (
+    TRAIN_SPLIT,
+    failing_case_trials,
+    resolve_transcript_path,
+)
 from backend.improver.reflect import reflect
+from backend.ledger.query import latest_run
 from backend.runtime.package import DEFAULT_AGENTS_DIR
 from contracts.agent import Episode, MemoryRule, ToolNote, new_entry_id
 from contracts.events import Lever
@@ -115,6 +127,7 @@ def _apply_memory(
     issue_id: str | None,
     emit: Any,
     agent_id: str,
+    evidence_run_id: str,
 ) -> tuple[list[str], str, str]:
     mem_dir = package_dir / "memory"
     rules_path = mem_dir / "rules.jsonl"
@@ -126,7 +139,12 @@ def _apply_memory(
 
     new_rules: list[dict[str, Any]] = []
     new_notes: list[dict[str, Any]] = []
-    written: list[tuple[str, dict[str, Any]]] = []  # (kind, event payload extras)
+    # (kind, on-disk row, the case ids that entry is actually evidenced by).
+    # The third element is carried separately because `ToolNote` has no
+    # `evidence_case_ids` field -- its `evidence` is free text -- and the
+    # `memory_written` event must still report the ids the *proposal* was
+    # filtered down to, not the whole group's.
+    written: list[tuple[str, dict[str, Any], list[str]]] = []
 
     for proposal in proposals:
         if proposal.kind == "rule":
@@ -143,7 +161,7 @@ def _apply_memory(
                 demoted=False,
             ).model_dump(mode="json")
             new_rules.append(row)
-            written.append(("rule", row))
+            written.append(("rule", row, list(proposal.evidence_case_ids)))
         else:
             row = ToolNote(
                 id=new_entry_id("tool_note"),
@@ -153,7 +171,7 @@ def _apply_memory(
                 created_version=candidate_version,
             ).model_dump(mode="json")
             new_notes.append(row)
-            written.append(("tool_note", row))
+            written.append(("tool_note", row, list(proposal.evidence_case_ids)))
 
     if new_rules:
         _append_jsonl(rules_path, new_rules)
@@ -163,18 +181,19 @@ def _apply_memory(
     one_liner = (diagnosis.hypothesis or "Reflection produced new memory entries.").splitlines()[0][
         :280
     ]
+    # The run whose transcripts reflection actually read, not a fresh uuid:
+    # an episode attributed to a run with no `run_started`/`case_result`/
+    # `run_finished` events cannot be traced back to the evidence it came
+    # from, which is the whole point of recording it.
     episode_row = Episode(
         version=candidate_version,
-        run_id=f"reflect_{uuid.uuid4().hex[:8]}",
+        run_id=evidence_run_id,
         one_line_reflection=one_liner,
     ).model_dump(mode="json")
     _append_jsonl(episodes_path, [episode_row])
-    written.append(("episode", episode_row))
+    written.append(("episode", episode_row, list(diagnosis.failing_group.case_ids)))
 
-    for kind, row in written:
-        evidence = (
-            row.get("evidence_case_ids") if kind == "rule" else diagnosis.failing_group.case_ids
-        )
+    for kind, row, evidence_case_ids in written:
         emit(
             "memory_written",
             agent_id=agent_id,
@@ -184,7 +203,7 @@ def _apply_memory(
                 "entry_id": row["id"] if kind != "episode" else f"episode_{row['run_id']}",
                 "kind": kind,
                 "source": source,
-                "evidence_case_ids": list(evidence or []),
+                "evidence_case_ids": list(evidence_case_ids),
                 "version": candidate_version,
             },
         )
@@ -366,6 +385,7 @@ def patch(
     complete: CompleteFn | None = None,
     emit: Any | None = None,
     issue_id: str | None = None,
+    proposals: list[Any] | None = None,
 ) -> int:
     """Apply `diagnosis`'s lever, writing a new agent package version.
 
@@ -384,10 +404,20 @@ def patch(
         conn = init_db(db)
 
     try:
+        # The public entry point validates too. `diagnose` already coerces an
+        # invalid answer down to `prompt`, but a caller reaching `patch`
+        # directly must not be able to apply a tools lever whose
+        # `metric_signal` cites nothing the harness observed.
+        try:
+            validate_diagnosis(diagnosis)
+        except DiagnosisValidationError as exc:
+            raise PatchError(f"patch cannot apply this diagnosis: {exc}") from exc
+
         candidate = candidate_version if candidate_version is not None else version + 1
         src_dir = _package_dir(agents_dir, agent_id, version)
         dst_dir = _package_dir(agents_dir, agent_id, candidate)
         _copy_package(src_dir, dst_dir)
+        agent_yaml_before = _read(dst_dir / "agent.yaml")
         _bump_agent_yaml_version(dst_dir, candidate)
 
         lever = diagnosis.lever
@@ -396,21 +426,30 @@ def patch(
         diff_summary = ""
 
         if lever == Lever.memory.value:
-            proposals = reflect(
-                agent_id,
-                version,
-                diagnosis.failing_group,
-                conn=conn,
-                root=root,
-                model=model,
-                complete=complete,
-            )
-            if not proposals:
+            # `improve` reflects before it diagnoses and hands the proposals
+            # down; a direct caller gets one reflection call here instead.
+            if proposals is None:
+                proposals = reflect(
+                    agent_id,
+                    version,
+                    diagnosis.failing_group,
+                    conn=conn,
+                    root=root,
+                    model=model,
+                    complete=complete,
+                )
+            evidence_run = latest_run(conn, agent_id, version, TRAIN_SPLIT)
+            if not proposals or evidence_run is None:
                 lever = Lever.prompt.value
                 files_touched, diff_text, diff_summary = _apply_prompt(
                     package_dir=dst_dir, candidate_version=candidate, diagnosis=diagnosis
                 )
-                diff_summary = "memory: reflection produced nothing; fell back to " + diff_summary
+                why = (
+                    "reflection produced nothing"
+                    if not proposals
+                    else "no train run to attribute the episode to"
+                )
+                diff_summary = f"memory: {why}; fell back to " + diff_summary
             else:
                 files_touched, diff_text, diff_summary = _apply_memory(
                     package_dir=dst_dir,
@@ -420,6 +459,7 @@ def patch(
                     issue_id=issue_id,
                     emit=emit,
                     agent_id=agent_id,
+                    evidence_run_id=evidence_run.run_id,
                 )
         elif lever == Lever.tools.value:
             tool_name = _infer_target_tool(
@@ -449,6 +489,17 @@ def patch(
         else:
             raise PatchError(f"patch cannot apply lever {lever!r}")
 
+        # Every candidate gets its `agent.yaml` version bumped, and the fix
+        # card claims to show the whole v<N> -> candidate diff. Reporting the
+        # lever's edit but not this one would make the card quietly wrong on
+        # stage. (The orchestration lever already diffs `agent.yaml`; its
+        # `before` text is the pre-bump one, so the two never double up.)
+        agent_yaml_after = _read(dst_dir / "agent.yaml")
+        if "agent.yaml" not in files_touched and agent_yaml_after != agent_yaml_before:
+            files_touched.append("agent.yaml")
+            diff_text += _unified_diff(agent_yaml_before, agent_yaml_after, "agent.yaml")
+            diff_summary += f"; agent.yaml version -> {candidate}"
+
         diff_path = dst_dir / "CHANGES.diff"
         diff_path.write_text(diff_text or f"# {diff_summary}\n", encoding="utf-8")
         diff_path_str = str(diff_path).replace("\\", "/")
@@ -468,6 +519,14 @@ def patch(
             files_touched=files_touched,
             issue_id=issue_id,
             metric_signal=diagnosis.metric_signal if lever == Lever.tools.value else None,
+            # Ground truth next to the claim: whoever reads this card later can
+            # check `metric_signal` against what the harness actually recorded
+            # without re-deriving it from transcripts that may be long gone.
+            extra=(
+                {"observed_tool_usage": diagnosis.observed_tool_usage}
+                if lever == Lever.tools.value and diagnosis.observed_tool_usage
+                else {}
+            ),
         )
         return candidate
     finally:

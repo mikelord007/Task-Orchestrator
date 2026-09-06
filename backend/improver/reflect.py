@@ -4,7 +4,9 @@ sections E and 0).
 `reflect(agent_id, version, failure_group)` makes exactly one STRONG LLM call
 over harness-recorded evidence only: the group's transcripts (every request,
 response, tool call and tool return the runtime observed), the grader's
-verdict and score notes, and the evaluator's `expected` output. The prompt
+verdict -- `passed`, `score` and the notes -- and the evaluator's `expected`
+output. It is the first step of `improve`, run on every top failure group
+before anything is diagnosed. The prompt
 below contains, verbatim, the sentence PLAN_ADDENDUM.md section E mandates:
 the model is never asked whether it succeeded, and its output is a proposal
 -- accepted into memory only if `patch` writes it and `gate` later keeps the
@@ -13,12 +15,14 @@ version that holds it.
 Output is capped at 3 rule proposals + 2 tool-note proposals per group, and
 every rule's `evidence_case_ids` is filtered down to ids that are actually in
 `failure_group.case_ids` -- a rule cannot cite evidence from outside the
-group it was reflected from.
+group it was reflected from. Matching is by whole token, so a group holding
+`t1` does not silently claim `t10` as its evidence.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +39,15 @@ from backend.improver.json_llm import JsonCallError, complete_json
 from contracts.events import FailingGroup
 from contracts.transcript import Transcript, load_transcript
 
-__all__ = ["MANDATE", "MAX_RULES", "MAX_TOOL_NOTES", "Proposal", "reflect", "reflection_prompt"]
+__all__ = [
+    "MANDATE",
+    "MAX_RULES",
+    "MAX_TOOL_NOTES",
+    "Proposal",
+    "cited_case_ids",
+    "reflect",
+    "reflection_prompt",
+]
 
 #: PLAN_ADDENDUM.md section E's mandated sentence. Must appear verbatim.
 MANDATE = (
@@ -47,6 +59,11 @@ MAX_RULES = 3
 MAX_TOOL_NOTES = 2
 MAX_CASES_SHOWN = 5
 MAX_FIELD_CHARS = 700
+
+#: A case id as it appears inside free-text evidence. Ids are alphanumeric
+#: with `_`/`-`, and the surrounding characters must not be, so `t1` does not
+#: match inside `t10`.
+_ID_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 @dataclass
@@ -85,11 +102,24 @@ def _render_transcript_tools(transcript: Transcript) -> list[str]:
     return lines
 
 
-def _score_notes(transcript: Transcript) -> str:
+def _grader_verdict(transcript: Transcript) -> str:
+    """The grader's verdict on this trial, as the harness recorded it.
+
+    `backend/runtime/transcript.py` writes `result = {passed, score, notes,
+    ...}` onto every transcript. Reflection is shown all three: a task that
+    failed at 0.79 and one that failed at 0.0 can carry near-identical notes,
+    and proposing the same broad rule for both is exactly the mistake the
+    score is there to prevent.
+    """
     result = getattr(transcript, "result", None)
-    if isinstance(result, dict):
-        return str(result.get("notes") or "")
-    return ""
+    if not isinstance(result, dict):
+        return "(the harness recorded no grader verdict on this trial)"
+    passed = result.get("passed")
+    score = result.get("score")
+    verdict = "PASSED" if passed else "FAILED"
+    score_text = f"{float(score):.2f}" if isinstance(score, (int, float)) else "unknown"
+    notes = str(result.get("notes") or "").strip() or "(no notes)"
+    return f"{verdict} at score {score_text} -- {notes}"
 
 
 def _render_case_evidence(
@@ -99,7 +129,7 @@ def _render_case_evidence(
     lines.append(f"  Input: {_truncate(case_row.get('input'))}")
     lines.append(f"  Expected output: {_truncate(case_row.get('expected'))}")
     lines.append(f"  Agent's final output: {_truncate(transcript.final_output)}")
-    lines.append(f"  Grader notes: {_score_notes(transcript) or '(none)'}")
+    lines.append(f"  Grader verdict: {_grader_verdict(transcript)}")
     tool_lines = _render_transcript_tools(transcript)
     if tool_lines:
         lines.append("  Tool activity:")
@@ -161,6 +191,19 @@ def reflection_prompt(
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def cited_case_ids(evidence: str, group_case_ids: set[str]) -> set[str]:
+    """The group's case ids that `evidence` genuinely names.
+
+    Whole-token matching, not substring: with a group containing `t1`, the
+    sentence "t10 called the tool incorrectly" cites `t10`, not `t1`. A
+    substring test would record `t1` as the evidence for a note about a case
+    the model never mentioned -- false provenance on an append-only
+    `memory_written` row.
+    """
+    tokens = set(_ID_TOKEN.findall(evidence))
+    return tokens & group_case_ids
+
+
 def _valid_rule(entry: Any, group_case_ids: set[str]) -> Proposal | None:
     if not isinstance(entry, dict):
         return None
@@ -185,9 +228,9 @@ def _valid_tool_note(entry: Any, group_case_ids: set[str]) -> Proposal | None:
     # Evidence must actually mention a case from this group -- "each citing
     # evidence case ids from the group" applies to tool notes too, even
     # though ToolNote.evidence is free text rather than a list.
-    if not any(case_id in evidence for case_id in group_case_ids):
+    cited = sorted(cited_case_ids(evidence, group_case_ids))
+    if not cited:
         return None
-    cited = [case_id for case_id in group_case_ids if case_id in evidence]
     return Proposal(
         kind="tool_note", tool=tool, note=note, evidence=evidence, evidence_case_ids=cited
     )

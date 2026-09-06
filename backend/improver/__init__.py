@@ -8,10 +8,15 @@ itself.
 
 Pipeline, one attempt at a time (``improve``)::
 
-    diagnose(agent_id, version)      -> ranked list[Diagnosis] over train failures
-    reflect(agent_id, version, group) -> list[Proposal] (called by patch() for lever=memory)
+    reflect(agent_id, version, group) -> list[Proposal], for every top group
+    diagnose(agent_id, version)       -> ranked list[Diagnosis], shown those proposals
     patch(agent_id, version, diagnosis) -> candidate_version (exactly one lever)
     gate(agent_id, candidate_version) -> accepted: bool
+
+Reflection is the *first* step (section E), not a subroutine of the memory
+lever: the agent's own reading of each failure is on the table before the
+analyst picks a lever, so a round whose diagnoses all come back
+``tools``/``prompt`` still produces reflection.
 
 ``improve(agent_id, max_attempts=3, issue_id=None)`` loops the above.
 """

@@ -125,6 +125,7 @@ class Workspace:
         run_id: str | None = None,
         signatures: dict[str, str] | None = None,
         notes: dict[str, str] | None = None,
+        scores: dict[str, float] | None = None,
         tools_called: dict[str, list[str]] | None = None,
         default_tools: tuple[str, ...] = ("lookup_ticket",),
         cost_usd: float = 0.01,
@@ -147,6 +148,7 @@ class Workspace:
         self.run_ids.append(run_id)
         signatures = signatures or {}
         notes = notes or {}
+        scores = scores or {}
         tools_called = tools_called or {}
         final_output = final_output or {}
         case_ids = list(patterns)
@@ -212,7 +214,7 @@ class Workspace:
                     # the grader's verdict is on the transcript, and reflection reads it.
                     result={
                         "passed": passed,
-                        "score": 1.0 if passed else 0.0,
+                        "score": scores.get(case_id, 1.0 if passed else 0.0),
                         "notes": note,
                         "failure_signature": None
                         if passed
@@ -230,7 +232,7 @@ class Workspace:
                     case_id=case_id,
                     trial=trial,
                     passed=passed,
-                    score=1.0 if passed else 0.0,
+                    score=scores.get(case_id, 1.0 if passed else 0.0),
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     cost_usd=cost_usd,
@@ -482,16 +484,7 @@ class JsonLLM:
 
         self.prompts.append(messages)
         self.models.append(model)
-        index = len(self.prompts) - 1
-        if index < len(self.answers):
-            answer = self.answers[index]
-        elif self.repeat_last and self.answers:
-            answer = self.answers[-1]
-        else:
-            raise AssertionError(
-                f"JsonLLM ran out of scripted answers on call {index + 1} "
-                f"(scripted {len(self.answers)})"
-            )
+        answer = self.answer_for(messages, len(self.prompts) - 1)
         text = answer if isinstance(answer, str) else json.dumps(answer)
         with self._lock:
             llm_module.set_client(
@@ -502,6 +495,17 @@ class JsonLLM:
             finally:
                 llm_module.reset_client()
 
+    def answer_for(self, messages: list[dict[str, Any]], index: int) -> Any:
+        """Which scripted answer this call gets. Overridden by `PipelineLLM`."""
+        if index < len(self.answers):
+            return self.answers[index]
+        if self.repeat_last and self.answers:
+            return self.answers[-1]
+        raise AssertionError(
+            f"{type(self).__name__} ran out of scripted answers on call {index + 1} "
+            f"(scripted {len(self.answers)})"
+        )
+
     @property
     def call_count(self) -> int:
         return len(self.prompts)
@@ -509,6 +513,55 @@ class JsonLLM:
     def prompt_text(self, index: int = 0) -> str:
         """Every message of one call, concatenated -- for `in` assertions."""
         return "\n".join(str(m.get("content") or "") for m in self.prompts[index])
+
+
+class PipelineLLM(JsonLLM):
+    """A ``complete`` that answers by *which step asked*, not by call index.
+
+    ``improve`` runs reflection on every top group before it diagnoses any of
+    them (PLAN_ADDENDUM.md section E), so a positional script bakes the very
+    ordering the tests exist to check -- rewriting the list whenever the
+    pipeline moves would hide a regression rather than catch one. This
+    dispatches on the prompt each step builds and records the order it saw
+    them in, which is what `steps` asserts.
+    """
+
+    def __init__(self, *, reflection: Any = None, diagnosis: Any = None) -> None:
+        super().__init__([])
+        self._scripts = {
+            "reflect": self._as_list(reflection),
+            "diagnose": self._as_list(diagnosis),
+        }
+        self.steps: list[str] = []
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        if value is None:
+            return []
+        return list(value) if isinstance(value, list) else [value]
+
+    @staticmethod
+    def step_of(messages: list[dict[str, Any]]) -> str:
+        system = str((messages[0] if messages else {}).get("content") or "")
+        if "reflection step" in system:
+            return "reflect"
+        if "failure-analyst step" in system:
+            return "diagnose"
+        raise AssertionError(
+            f"PipelineLLM cannot tell which step built this prompt: {system[:120]}"
+        )
+
+    def answer_for(self, messages: list[dict[str, Any]], index: int) -> Any:
+        step = self.step_of(messages)
+        self.steps.append(step)
+        script = self._scripts[step]
+        position = self.steps.count(step) - 1
+        if not script:
+            raise AssertionError(f"PipelineLLM has no scripted {step!r} answer")
+        return script[position] if position < len(script) else script[-1]
+
+    def prompts_for(self, step: str) -> list[list[dict[str, Any]]]:
+        return [p for p, seen in zip(self.prompts, self.steps, strict=True) if seen == step]
 
 
 def reflection_answer(

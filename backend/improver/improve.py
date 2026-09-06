@@ -24,10 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from backend.architect.llm_client import CompleteFn
-from backend.improver.diagnose import Diagnosis, diagnose
+from backend.improver.diagnose import MAX_GROUPS, Diagnosis, diagnose
 from backend.improver.gate import RunEvalFn, gate
-from backend.improver.grouping import TRAIN_SPLIT
+from backend.improver.grouping import TRAIN_SPLIT, group_train_failures, resolve_evaluator_path
 from backend.improver.patch import PatchError, patch
+from backend.improver.reflect import Proposal, reflect
 from backend.ledger.query import agent_row, events, latest_run
 
 __all__ = ["AttemptOutcome", "ImproveResult", "improve"]
@@ -157,11 +158,36 @@ def improve(
         if latest_run(conn, agent_id, version, TRAIN_SPLIT) is None:
             run_eval(agent_id, version=version, split=TRAIN_SPLIT, trials=trials, **run_kwargs)
 
-        diagnoses = diagnose(
-            agent_id, version, conn=conn, root=root, model=model, complete=complete
-        )
+        # Reflection is the FIRST step (section E), not a subroutine of the
+        # memory lever. It runs on every top failure group before anything is
+        # diagnosed, so the agent's own reading of what went wrong is on the
+        # table whichever lever the analyst later picks -- and so a run whose
+        # diagnoses all come back `tools`/`prompt` still produces reflection.
+        groups = group_train_failures(
+            conn, agent_id, version, resolve_evaluator_path(conn, agent_id)
+        )[:MAX_GROUPS]
         result = ImproveResult(
             agent_id=agent_id, starting_version=version, current_version=version, issue_id=issue_id
+        )
+        if not groups:
+            return result
+
+        proposals_by_signature: dict[str, list[Proposal]] = {
+            group.signature: reflect(
+                agent_id, version, group, conn=conn, root=root, model=model, complete=complete
+            )
+            for group in groups
+        }
+
+        diagnoses = diagnose(
+            agent_id,
+            version,
+            conn=conn,
+            root=root,
+            model=model,
+            complete=complete,
+            groups=groups,
+            reflections=proposals_by_signature,
         )
         if not diagnoses:
             return result
@@ -198,6 +224,7 @@ def improve(
                     complete=complete,
                     emit=emit,
                     issue_id=this_issue_id,
+                    proposals=proposals_by_signature.get(diagnosis.failing_group.signature, []),
                 )
             except PatchError:
                 avoid_lever = diagnosis.lever
