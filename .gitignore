@@ -9,6 +9,11 @@ __pycache__/
 # Env
 .env
 .env.local
+deploy/gcp/backend.env
+deploy/gcp/.env
+deploy/gcp/data/
+deploy/gcp/*.tar
+deploy/gcp/*.tar.gz
 
 # Data produced at runtime
 runs/*

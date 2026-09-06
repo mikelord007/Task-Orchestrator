@@ -11,6 +11,7 @@ dependencies = [
     "openai>=1.55",
     "python-dotenv>=1.0",
     "httpx>=0.27",
+    "neatlogs>=1.4.21",
 ]
 
 [dependency-groups]

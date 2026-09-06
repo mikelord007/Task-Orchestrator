@@ -27,9 +27,58 @@ def test_startup_migrates_the_database(client: TestClient, db_file: Path):
     client.get("/healthz")
     conn = connect(db_file)
     try:
-        assert applied_migrations(conn) == [1, 2]
+        assert applied_migrations(conn) == [1, 2, 3]
     finally:
         conn.close()
+
+
+def test_bearer_auth_protects_api_but_not_healthz(db_file: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setenv("API_AUTH_TOKEN", "deployment-secret")
+
+    with TestClient(create_app()) as protected:
+        assert protected.get("/healthz").status_code == 200
+
+        assert protected.post("/healthz").status_code == 401
+
+        unauthorized = protected.get("/agents")
+        assert unauthorized.status_code == 401
+        assert unauthorized.headers["www-authenticate"] == "Bearer"
+
+        preflight = protected.options(
+            "/agents",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert preflight.status_code == 200
+
+        authorized = protected.get("/agents", headers={"Authorization": "Bearer deployment-secret"})
+        assert authorized.status_code == 200
+
+
+def test_required_auth_fails_closed_without_token(db_file: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setenv("REQUIRE_API_AUTH", "true")
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+
+    with pytest.raises(RuntimeError, match="API_AUTH_TOKEN is empty"):
+        with TestClient(create_app()):
+            pass
+
+
+def test_lifespan_initializes_and_shuts_down_tracing_once(db_file, monkeypatch):
+    from backend.runtime import neatlogs
+
+    calls: list[str] = []
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setattr(neatlogs, "initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(neatlogs, "shutdown", lambda: calls.append("shutdown"))
+    with TestClient(create_app()) as tracing_client:
+        assert tracing_client.get("/healthz").status_code == 200
+        assert tracing_client.get("/healthz").status_code == 200
+    assert calls == ["initialize", "shutdown"]
 
 
 def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

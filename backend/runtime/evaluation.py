@@ -220,6 +220,8 @@ def run_case(
     demoted_ids: set[str],
     model_strong: str,
     model_cheap: str,
+    split: str = "unknown",
+    evaluator_id: str | None = None,
 ) -> _CaseRun:
     """Run one (task, trial). Never raises; failures become graded failures.
 
@@ -257,12 +259,15 @@ def run_case(
     watchdog = DriftWatchdog(knobs, expected_keys=expected_keys)
 
     with neatlogs.trace_case(
-        f"{package.agent_id}/{case_id}.t{trial}",
-        run_id=run_id,
-        agent_id=package.agent_id,
+        run_id=neatlogs.safe_identifier(run_id, "run"),
+        agent_id=neatlogs.safe_identifier(package.agent_id, "agent"),
         agent_version=package.version,
-        case_id=case_id,
+        case_id=neatlogs.safe_identifier(case_id, "case"),
         trial=trial,
+        split=split if split in {"train", "holdout"} else "other",
+        evaluator_id=(
+            neatlogs.safe_identifier(evaluator_id, "evaluator") if evaluator_id else None
+        ),
     ) as trace:
         context = ModeContext(
             package=package,
@@ -406,7 +411,7 @@ def _hard_timeout_outcome(
 # -- the run ------------------------------------------------------------
 
 
-def run_eval(
+def _run_eval(
     agent_id: str,
     version: int | None = None,
     split: str = TRAIN_SPLIT,
@@ -447,6 +452,8 @@ def run_eval(
         if not evaluator_id:
             raise ValueError(f"no evaluator_id known for agent {agent_id}")
         evaluator_path = evaluator_dir(str(evaluator_id), evaluators_dir)
+    elif evaluator_id is None:
+        evaluator_id = Path(evaluator_path).name
     cases = load_cases(evaluator_path, split)
     scorer = load_scorer(evaluator_path)
 
@@ -496,6 +503,7 @@ def run_eval(
                 case,
                 trial,
                 pool.submit(
+                    neatlogs.copy_current_context().run,
                     run_case,
                     package=package,
                     case=case,
@@ -509,6 +517,8 @@ def run_eval(
                     demoted_ids=demoted_ids,
                     model_strong=model_strong,
                     model_cheap=model_cheap,
+                    split=split,
+                    evaluator_id=str(evaluator_id) if evaluator_id else None,
                 ),
             )
             for case, trial in tasks
@@ -628,6 +638,64 @@ def run_eval(
         read_events=read_events,
     )
     return summary
+
+
+def run_eval(
+    agent_id: str,
+    version: int | None = None,
+    split: str = TRAIN_SPLIT,
+    trials: int | None = None,
+    *,
+    package: LoadedPackage | None = None,
+    evaluator_id: str | None = None,
+    evaluator_path: Path | str | None = None,
+    knobs: Knobs | None = None,
+    complete: CompleteFn | None = None,
+    emit: EmitFn | None = None,
+    read_events: ReadEventsFn | None = None,
+    runs_dir: Path | str = DEFAULT_RUNS_DIR,
+    agents_dir: Path | str = DEFAULT_AGENTS_DIR,
+    evaluators_dir: Path | str = DEFAULT_EVALUATORS_DIR,
+    model_strong: str | None = None,
+    model_cheap: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
+    run_id: str | None = None,
+) -> RunSummary:
+    """Run an eval under one workflow span without capturing task content."""
+    run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
+    resolved_version = package.version if package is not None else version
+    evaluator_label = evaluator_id or (Path(evaluator_path).name if evaluator_path else None)
+    with neatlogs.workflow_span(
+        "task_orchestrator.eval",
+        agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+        agent_version=resolved_version,
+        run_id=neatlogs.safe_identifier(run_id, "run"),
+        split=split if split in {"train", "holdout"} else "other",
+        trials=trials,
+        evaluator_id=(
+            neatlogs.safe_identifier(evaluator_label, "evaluator") if evaluator_label else None
+        ),
+    ):
+        return _run_eval(
+            agent_id,
+            version=version,
+            split=split,
+            trials=trials,
+            package=package,
+            evaluator_id=evaluator_id,
+            evaluator_path=evaluator_path,
+            knobs=knobs,
+            complete=complete,
+            emit=emit,
+            read_events=read_events,
+            runs_dir=runs_dir,
+            agents_dir=agents_dir,
+            evaluators_dir=evaluators_dir,
+            model_strong=model_strong,
+            model_cheap=model_cheap,
+            progress=progress,
+            run_id=run_id,
+        )
 
 
 def _attach_event_id(transcript: Transcript, decision: DriftDecision, event_id: int | None) -> None:

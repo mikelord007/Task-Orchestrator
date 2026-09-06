@@ -1,0 +1,75 @@
+name: task-orchestrator
+
+services:
+  backend:
+    image: "task-orchestrator-backend:${IMAGE_TAG:-local}"
+    build:
+      context: ../..
+      dockerfile: deploy/gcp/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: "${BACKEND_ENV_FILE:-./backend.env}"
+        required: true
+    environment:
+      REQUIRE_API_AUTH: "true"
+      TO_DB_PATH: /app/runs/to.sqlite3
+      TO_AGENTS_ROOT: /app/agents
+      TO_PLAYBOOK_PATH: /app/playbook/lessons.jsonl
+      TASK_ORCHESTRATOR_ROOT: /app
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    volumes:
+      - "${DATA_ROOT:-./data}/agents:/app/agents"
+      - "${DATA_ROOT:-./data}/playbook:/app/playbook"
+      - "${DATA_ROOT:-./data}/reports:/app/reports"
+      - "${DATA_ROOT:-./data}/runs:/app/runs"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      API_ADDRESS: "${API_ADDRESS:?set API_ADDRESS}"
+    ports:
+      - "80:80"
+      - "443:443"
+    read_only: true
+    tmpfs:
+      - /config:size=16m,mode=0700
+      - /tmp:size=16m,mode=1777
+    volumes:
+      - "${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro"
+      - "${DATA_ROOT:-./data}/caddy:/data"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

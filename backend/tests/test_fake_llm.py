@@ -132,3 +132,31 @@ def test_model_for_tier():
     assert llm.model_for_tier("cheap") == llm.MODEL_CHEAP
     with pytest.raises(llm.LLMError):
         llm.model_for_tier("medium")
+
+
+def test_production_output_cap_is_applied(fake: FakeLLM, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("LLM_MAX_TOKENS", "2048")
+    fake.push(text("ok"))
+
+    llm.complete([{"role": "user", "content": "hi"}], "gpt-4o", max_tokens=9000)
+
+    assert fake.last_request["max_tokens"] == 2048
+
+
+def test_demo_usage_is_recorded(fake: FakeLLM, tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from backend.db import init_db
+
+    monkeypatch.setenv("TO_DB_PATH", str(tmp_path / "usage.sqlite3"))
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-bearer")
+    monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "1")
+    monkeypatch.setenv("DEMO_DAILY_TOKEN_LIMIT", "1000")
+    fake.push(text("ok", tokens_in=12, tokens_out=3))
+
+    llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
+
+    conn = init_db()
+    try:
+        row = conn.execute("SELECT model, tokens_in, tokens_out FROM demo_model_usage").fetchone()
+    finally:
+        conn.close()
+    assert tuple(row) == ("gpt-4o", 12, 3)

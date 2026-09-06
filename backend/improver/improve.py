@@ -30,6 +30,7 @@ from backend.improver.grouping import TRAIN_SPLIT, group_train_failures, resolve
 from backend.improver.patch import PatchError, patch
 from backend.improver.reflect import Proposal, reflect
 from backend.ledger.query import agent_row, events, latest_run
+from backend.runtime import neatlogs
 
 __all__ = ["AttemptOutcome", "ImproveResult", "improve"]
 
@@ -102,7 +103,7 @@ def _next_diagnosis(remaining: list[Diagnosis], avoid_lever: str | None) -> Diag
     return remaining.pop(0)
 
 
-def improve(
+def _improve(
     agent_id: str,
     max_attempts: int = 3,
     issue_id: str | None = None,
@@ -211,27 +212,37 @@ def improve(
                 if issue_id and priority_case_ids & set(diagnosis.failing_group.case_ids)
                 else None
             )
-            try:
-                candidate = patch(
-                    agent_id,
-                    version,
-                    diagnosis,
-                    candidate_version=next_candidate,
-                    conn=conn,
-                    agents_dir=agents_dir or _default_agents_dir(),
-                    root=root,
-                    model=model,
-                    complete=complete,
-                    emit=emit,
-                    issue_id=this_issue_id,
-                    proposals=proposals_by_signature.get(diagnosis.failing_group.signature, []),
-                )
-            except PatchError:
-                avoid_lever = diagnosis.lever
-                next_candidate += 1
-                if progress is not None:
-                    progress(attempt, total)
-                continue
+            with neatlogs.span(
+                "task_orchestrator.improve.attempt",
+                kind="CHAIN",
+                attempt=attempt,
+                from_version=version,
+                candidate_version=next_candidate,
+                lever=(
+                    diagnosis.lever if diagnosis.lever in {"memory", "prompt", "tools"} else "other"
+                ),
+            ):
+                try:
+                    candidate = patch(
+                        agent_id,
+                        version,
+                        diagnosis,
+                        candidate_version=next_candidate,
+                        conn=conn,
+                        agents_dir=agents_dir or _default_agents_dir(),
+                        root=root,
+                        model=model,
+                        complete=complete,
+                        emit=emit,
+                        issue_id=this_issue_id,
+                        proposals=proposals_by_signature.get(diagnosis.failing_group.signature, []),
+                    )
+                except PatchError:
+                    avoid_lever = diagnosis.lever
+                    next_candidate += 1
+                    if progress is not None:
+                        progress(attempt, total)
+                    continue
 
             accepted = gate(
                 agent_id,
@@ -279,6 +290,53 @@ def improve(
     finally:
         if owns_conn:
             conn.close()
+
+
+def improve(
+    agent_id: str,
+    max_attempts: int = 3,
+    issue_id: str | None = None,
+    *,
+    conn: sqlite3.Connection | None = None,
+    db: str | Path | None = None,
+    agents_dir: str | Path | None = None,
+    evaluators_dir: str | Path | None = None,
+    runs_dir: str | Path | None = None,
+    root: str | Path = ".",
+    trials: int | None = None,
+    model: str | None = None,
+    complete: CompleteFn | None = None,
+    emit: Any | None = None,
+    read_events: Any | None = None,
+    run_eval: RunEvalFn | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> ImproveResult:
+    """Run the improve workflow without exporting issue text or model content."""
+    with neatlogs.workflow_span(
+        "task_orchestrator.improve",
+        agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+        issue_id=neatlogs.safe_identifier(issue_id, "issue") if issue_id else None,
+        max_attempts=max_attempts,
+        trials=trials,
+    ):
+        return _improve(
+            agent_id,
+            max_attempts=max_attempts,
+            issue_id=issue_id,
+            conn=conn,
+            db=db,
+            agents_dir=agents_dir,
+            evaluators_dir=evaluators_dir,
+            runs_dir=runs_dir,
+            root=root,
+            trials=trials,
+            model=model,
+            complete=complete,
+            emit=emit,
+            read_events=read_events,
+            run_eval=run_eval,
+            progress=progress,
+        )
 
 
 def _default_agents_dir() -> str:

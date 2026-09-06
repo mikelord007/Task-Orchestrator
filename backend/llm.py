@@ -20,11 +20,12 @@ Tests never hit the network: `backend.testing.fake_llm.FakeLLM` is injected with
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
 
-from backend.settings import env, env_float
+from backend.settings import env, env_float, env_int
 
 __all__ = [
     "ModelCost",
@@ -44,6 +45,9 @@ __all__ = [
 
 class LLMError(RuntimeError):
     """Raised when the LLM endpoint is unusable (missing config, API failure)."""
+
+
+_live_call_lock = threading.Lock()
 
 
 def _model_strong() -> str:
@@ -134,37 +138,60 @@ def __getattr__(name: str) -> Any:
 # --------------------------------------------------------------------------
 
 _client: Any | None = None
+_client_injected = False
+_client_wrapped = False
+_client_lock = threading.RLock()
 
 
 def set_client(client: Any) -> None:
     """Inject a client. Tests pass `FakeLLM()`; nothing else may hit the network."""
-    global _client
-    _client = client
+    global _client, _client_injected, _client_wrapped
+    with _client_lock:
+        _client = client
+        _client_injected = True
+        _client_wrapped = False
 
 
 def reset_client() -> None:
     """Drop the injected/cached client so the next call rebuilds a real one."""
-    global _client
-    _client = None
+    global _client, _client_injected, _client_wrapped
+    with _client_lock:
+        _client = None
+        _client_injected = False
+        _client_wrapped = False
 
 
 def get_client() -> Any:
     """Return the injected client, or build an OpenAI-compatible one from env."""
-    global _client
-    if _client is not None:
-        return _client
-    api_key = env("LLM_API_KEY")
-    if not api_key:
-        raise LLMError(
-            "LLM_API_KEY is not set. Set it in .env, or inject a test double "
-            "with backend.llm.set_client(FakeLLM(...))."
+    global _client, _client_wrapped
+    with _client_lock:
+        if _client is not None:
+            if _client_injected:
+                return _client
+            from backend.runtime import neatlogs
+
+            if neatlogs.enabled() and not _client_wrapped:
+                _client = neatlogs.wrap_client(_client)
+                _client_wrapped = True
+            return _client
+        api_key = env("LLM_API_KEY")
+        if not api_key:
+            raise LLMError(
+                "LLM_API_KEY is not set. Set it in .env, or inject a test double "
+                "with backend.llm.set_client(FakeLLM(...))."
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as exc:  # pragma: no cover - dependency is declared
+            raise LLMError("the `openai` package is required for live LLM calls") from exc
+        raw_client = OpenAI(
+            base_url=env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key
         )
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover - dependency is declared
-        raise LLMError("the `openai` package is required for live LLM calls") from exc
-    _client = OpenAI(base_url=env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key)
-    return _client
+        from backend.runtime import neatlogs
+
+        _client = neatlogs.wrap_client(raw_client)
+        _client_wrapped = neatlogs.enabled()
+        return _client
 
 
 # --------------------------------------------------------------------------
@@ -249,6 +276,13 @@ def complete(
     `usage` comes from the API response, never from the model's own words
     (rule section 2.8).
     """
+    from backend.demo_limits import DemoLimitExceeded, ensure_token_budget, record_usage
+
+    try:
+        ensure_token_budget()
+    except DemoLimitExceeded as exc:
+        raise LLMError(str(exc)) from exc
+
     client = get_client()
     kwargs: dict[str, Any] = {"model": model, "messages": messages}
     openai_tools = to_openai_tools(tools)
@@ -258,26 +292,41 @@ def complete(
             kwargs["tool_choice"] = tool_choice
     if temperature is not None:
         kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
+    hard_max_tokens = max(0, env_int("LLM_MAX_TOKENS", 0))
+    if max_tokens is not None or hard_max_tokens:
+        requested = max_tokens if max_tokens is not None else hard_max_tokens
+        kwargs["max_tokens"] = min(requested, hard_max_tokens) if hard_max_tokens else requested
 
     started = time.perf_counter()
+    acquired = False
     try:
+        if env_int("LLM_CONCURRENCY", 0) == 1:
+            acquired = _live_call_lock.acquire(timeout=max(0, env_int("LLM_QUEUE_TIMEOUT_S", 5)))
+            if not acquired:
+                raise LLMError("live model capacity is busy; retry later")
         response = client.chat.completions.create(**kwargs)
     except AssertionError:
         # A test-double's own assertion (e.g. FakeLLM's "script exhausted"),
         # not an LLM/provider error -- let it surface as itself rather than
         # being laundered into an LLMError.
         raise
+    except LLMError:
+        raise
     except Exception as exc:  # noqa: BLE001 - surface every provider error the same way
         raise LLMError(f"LLM call to {model!r} failed: {exc}") from exc
+    finally:
+        if acquired:
+            _live_call_lock.release()
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     choice = response.choices[0]
     message = choice.message
     usage = getattr(response, "usage", None)
+    if usage is None and env("DEMO_REQUIRE_USAGE").strip().lower() in {"1", "true", "yes", "on"}:
+        raise LLMError("provider response omitted required token usage")
     tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
     tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
+    record_usage(model, tokens_in, tokens_out)
 
     return {
         "text": getattr(message, "content", None) or "",

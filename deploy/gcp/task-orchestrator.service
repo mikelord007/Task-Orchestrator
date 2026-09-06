@@ -1,0 +1,18 @@
+[Unit]
+Description=Task Orchestrator backend
+Requires=docker.service task-orchestrator-firewall.service
+After=network-online.target docker.service task-orchestrator-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/task-orchestrator/app
+ExecStartPre=/usr/bin/test -s /etc/task-orchestrator/backend.env
+ExecStart=/usr/bin/docker compose --env-file /etc/task-orchestrator/backend.env -f deploy/gcp/compose.yaml up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /etc/task-orchestrator/backend.env -f deploy/gcp/compose.yaml down
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

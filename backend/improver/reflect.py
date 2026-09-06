@@ -36,6 +36,7 @@ from backend.improver.grouping import (
     resolve_transcript_path,
 )
 from backend.improver.json_llm import JsonCallError, complete_json
+from backend.runtime import neatlogs
 from contracts.events import FailingGroup
 from contracts.transcript import Transcript, load_transcript
 
@@ -236,7 +237,7 @@ def _valid_tool_note(entry: Any, group_case_ids: set[str]) -> Proposal | None:
     )
 
 
-def reflect(
+def _reflect(
     agent_id: str,
     version: int,
     failure_group: FailingGroup,
@@ -288,6 +289,38 @@ def reflect(
         if (p := _valid_tool_note(entry, group_case_ids)) is not None
     ][:MAX_TOOL_NOTES]
     return rules + notes
+
+
+def reflect(
+    agent_id: str,
+    version: int,
+    failure_group: FailingGroup,
+    *,
+    conn: sqlite3.Connection | None = None,
+    db: str | Path | None = None,
+    root: str | Path = ".",
+    model: str | None = None,
+    complete: CompleteFn | None = None,
+) -> list[Proposal]:
+    """Reflect under an AGENT span while keeping transcript evidence local."""
+    with neatlogs.span(
+        "task_orchestrator.reflect",
+        kind="AGENT",
+        agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+        agent_version=version,
+        failure_group=neatlogs.safe_identifier(failure_group.signature, "group"),
+        case_count=len(failure_group.case_ids),
+    ):
+        return _reflect(
+            agent_id,
+            version,
+            failure_group,
+            conn=conn,
+            db=db,
+            root=root,
+            model=model,
+            complete=complete,
+        )
 
 
 def _default_model() -> str:

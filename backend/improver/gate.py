@@ -31,6 +31,7 @@ from backend.ledger.metrics import (
     tool_call_stats,
 )
 from backend.ledger.query import case_results, events, latest_run
+from backend.runtime import neatlogs
 from contracts.events import RejectReason
 
 __all__ = ["PASS_AT_1_TOLERANCE", "GateResult", "RunEvalFn", "gate"]
@@ -99,7 +100,7 @@ def _failing_group_case_ids(proposal: Any | None) -> list[str]:
     return [str(c) for c in case_ids] if isinstance(case_ids, (list, tuple)) else []
 
 
-def gate(
+def _gate(
     agent_id: str,
     candidate_version: int,
     *,
@@ -263,3 +264,44 @@ def gate(
     finally:
         if owns_conn:
             conn.close()
+
+
+def gate(
+    agent_id: str,
+    candidate_version: int,
+    *,
+    conn: sqlite3.Connection | None = None,
+    db: str | Path | None = None,
+    run_eval: RunEvalFn | None = None,
+    emit: Any | None = None,
+    read_events: Any | None = None,
+    complete: Any | None = None,
+    trials: int | None = None,
+    runs_dir: str | Path | None = None,
+    agents_dir: str | Path | None = None,
+    evaluators_dir: str | Path | None = None,
+    root: str | Path = ".",
+) -> bool:
+    """Evaluate a candidate under a GUARDRAIL span with safe identifiers."""
+    with neatlogs.span(
+        "task_orchestrator.gate",
+        kind="GUARDRAIL",
+        agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+        candidate_version=candidate_version,
+        trials=trials,
+    ):
+        return _gate(
+            agent_id,
+            candidate_version,
+            conn=conn,
+            db=db,
+            run_eval=run_eval,
+            emit=emit,
+            read_events=read_events,
+            complete=complete,
+            trials=trials,
+            runs_dir=runs_dir,
+            agents_dir=agents_dir,
+            evaluators_dir=evaluators_dir,
+            root=root,
+        )

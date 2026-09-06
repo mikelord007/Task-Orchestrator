@@ -1,0 +1,20 @@
+# Build from source only. Runtime state and credentials must never enter the
+# Docker build context; mutable production directories are mounted at runtime.
+*
+!backend/
+!backend/**
+!contracts/
+!contracts/**
+!evaluators/
+!evaluators/**
+!fixtures/
+!fixtures/**
+
+backend/.venv/
+backend/tests/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.env
+**/.env.*

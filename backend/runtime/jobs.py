@@ -26,14 +26,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.db import init_db, utcnow
+from backend.db import db_path, init_db, utcnow
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_ERROR = "error"
 
+INTERRUPTED_ERROR = "Interrupted: backend restarted before this job completed"
+
 ConnectionFactory = Callable[[], Any]
+
+
+def mark_incomplete_jobs_interrupted(connection: Any) -> int:
+    """Mark work a prior process left behind as terminally interrupted.
+
+    Jobs execute on in-process daemon threads, so they cannot survive a
+    process or VM restart. Recording that fact on the next startup avoids
+    leaving clients polling ``queued``/``running`` forever. The production
+    deployment intentionally runs one application process; running multiple
+    processes against this store would make startup ownership ambiguous.
+    """
+    now = utcnow()
+    with connection:
+        cursor = connection.execute(
+            "UPDATE improve_jobs SET status = ?, error = ?, updated_ts = ? WHERE status IN (?, ?)",
+            (STATUS_ERROR, INTERRUPTED_ERROR, now, STATUS_QUEUED, STATUS_RUNNING),
+        )
+    return int(cursor.rowcount)
 
 
 def default_connection_factory(db: str | Path | None = None) -> ConnectionFactory:
@@ -124,7 +144,20 @@ class JobStore:
     """
 
     def __init__(self, connection_factory: ConnectionFactory | None = None) -> None:
+        self._uses_dynamic_default = connection_factory is None
         self._connection_factory = connection_factory or default_connection_factory()
+
+    def bound_to_current_database(self) -> JobStore:
+        """Freeze a dynamic store to the ledger selected for this request.
+
+        Background work can outlive request-scoped environment overrides in
+        tests and scripts. Binding before the thread starts prevents a later
+        ``TO_DB_PATH`` change from redirecting job status writes to another
+        ledger. Explicitly injected stores are already bound and are reused.
+        """
+        if not self._uses_dynamic_default:
+            return self
+        return JobStore(default_connection_factory(db_path()))
 
     def _connect(self) -> Any:
         return self._connection_factory()
@@ -256,16 +289,35 @@ def run_in_background(
     """
     import threading
 
-    job_id = store.create(agent_id, kind, job_id=job_id)
+    from backend.demo_limits import claim_workflow_slot
+    from backend.runtime import neatlogs
+
+    store = store.bound_to_current_database()
+    slot = claim_workflow_slot()
+    try:
+        job_id = store.create(agent_id, kind, job_id=job_id)
+    except Exception:
+        slot.release()
+        raise
+    parent_context = neatlogs.copy_current_context()
 
     def target() -> None:
-        store.mark_running(job_id)
         try:
-            result = work(lambda done, total: store.mark_progress(job_id, done, total))
-        except Exception as exc:  # noqa: BLE001 - a failed job is reported, not raised
-            store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
-            return
-        store.mark_done(job_id, result)
+            with neatlogs.workflow_span(
+                "task_orchestrator.job",
+                job_id=neatlogs.safe_identifier(job_id, "job"),
+                agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+                job_kind=kind if kind in {"run", "improve"} else "other",
+            ):
+                store.mark_running(job_id)
+                try:
+                    result = work(lambda done, total: store.mark_progress(job_id, done, total))
+                except Exception as exc:  # noqa: BLE001 - report job failures
+                    store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+                    return
+                store.mark_done(job_id, result)
+        finally:
+            slot.release()
 
-    threading.Thread(target=target, daemon=True).start()
+    threading.Thread(target=lambda: parent_context.run(target), daemon=True).start()
     return job_id

@@ -1,0 +1,13 @@
+[Unit]
+Description=Block Task Orchestrator containers from the GCE metadata server
+Requires=docker.service
+After=docker.service
+Before=task-orchestrator.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/task-orchestrator-metadata-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
