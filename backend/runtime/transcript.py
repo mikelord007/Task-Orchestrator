@@ -113,6 +113,7 @@ class Transcript:
         self.notes: list[dict[str, Any]] = []
         self.assistant_messages: list[AssistantMessage] = []
         self.tool_call_history: list[ToolCallRecord] = []
+        self._recorded_message_count = 0
 
         self.tokens_in = 0
         self.tokens_out = 0
@@ -172,11 +173,22 @@ class Transcript:
         tools: list[dict[str, Any]] | None = None,
         phase: str = "act",
     ) -> None:
+        """Record one outbound request.
+
+        ``messages`` holds only what is *new* since the previous ``request``
+        step (the first call's "new" messages are the whole initial list, so
+        it is still "exactly what was sent" there) - storing the full,
+        monotonically growing list on every turn makes the transcript file
+        grow O(steps^2). Concatenating every ``request`` step's ``messages``
+        in order reconstructs the exact conversation sent on any given turn.
+        """
+        new_messages = messages[self._recorded_message_count :]
+        self._recorded_message_count = len(messages)
         self._append(
             "request",
             phase=phase,
             model=model,
-            messages=json.loads(json.dumps(messages, default=str)),
+            messages=json.loads(json.dumps(new_messages, default=str)),
             tools=[t.get("name") for t in (tools or [])],
         )
 
@@ -242,11 +254,13 @@ class Transcript:
             self.tool_errors += 1
             if self.first_tool_error is None:
                 self.first_tool_error = result
+        # Only the applicable one of result/error is written - contracts.
+        # transcript.TranscriptStep defaults the other to None on its own.
+        outcome = {"error": result} if is_error else {"result": result}
         self._append(
             "tool_return",
             tool=tool,
-            result=None if is_error else result,
-            error=result if is_error else None,
+            **outcome,
             # See _estimate_tokens: an approximation, not a measurement - the
             # API gives no exact per-tool-call token attribution. Flagged
             # explicitly so a consumer (W1's tool_call_stats, W9's charts)

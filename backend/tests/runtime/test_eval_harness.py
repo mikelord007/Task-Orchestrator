@@ -471,8 +471,9 @@ def test_outbound_tool_calls_use_openai_wire_format(
     data = json.loads(Path(summary.cases[0].transcript_path).read_text(encoding="utf-8"))
     requests = [s for s in data["steps"] if s["kind"] == "request"]
     assert len(requests) == 2
-    # The second request's message history includes the first turn's
-    # assistant message, tool_calls and all.
+    # Each request step's "messages" is only what's new since the previous
+    # one - the second request's delta is the first turn's assistant message
+    # (tool_calls and all) plus the tool-role reply.
     assistant_messages = [m for m in requests[1]["messages"] if m.get("role") == "assistant"]
     assert len(assistant_messages) == 1
     tool_calls = assistant_messages[0]["tool_calls"]
@@ -482,6 +483,27 @@ def test_outbound_tool_calls_use_openai_wire_format(
     assert call["function"]["name"] == "lookup_ticket"
     assert isinstance(call["function"]["arguments"], str)
     assert json.loads(call["function"]["arguments"]) == {"ticket_id": "t1"}
+
+
+def test_request_step_messages_are_deltas_that_reconstruct_the_full_conversation(
+    toy_package, evaluator_path, ledger, knobs, tmp_path
+):
+    """Storing the whole growing message list on every request step makes
+    the transcript file grow O(steps^2); each step stores only what changed
+    since the previous request instead. Concatenating them in order must
+    still reconstruct exactly what was actually sent on the final turn."""
+    summary, _ = run(
+        toy_package, evaluator_path, ledger, knobs, tmp_path, lookup_then_answer, trials=1
+    )
+    data = json.loads(Path(summary.cases[0].transcript_path).read_text(encoding="utf-8"))
+    requests = [s for s in data["steps"] if s["kind"] == "request"]
+    assert len(requests) == 2
+
+    reconstructed = [m for r in requests for m in r["messages"]]
+    assert [m["role"] for m in reconstructed] == ["system", "user", "assistant", "tool"]
+    # No request step after the first repeats a message the prior one sent.
+    assert requests[0]["messages"][0]["role"] == "system"
+    assert all(m.get("role") != "system" for m in requests[1]["messages"])
 
 
 def test_a_trial_never_sees_another_trials_messages(

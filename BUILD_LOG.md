@@ -73,7 +73,8 @@ Stall (22:23Z update): the shared account usage limit paused the orchestrator an
 | `task-orchestrator-10` | W0b — addendum doc (`PLAN_ADDENDUM.md`) | `ws/w0b-addendum` | #2 | merged (eba2a1c) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-7` | W1 — ledger & metrics | `ws/w1-ledger` | [#7](https://github.com/mikelord007/Task-Orchestrator/pull/7) | merged (1f9df25) | 2026-09-05 | 2026-09-05 22:52Z |
 | `task-orchestrator-7` | W1b — since= id cursor, normalized_args/tokens_estimated, metric_signal gate | `ws/w1b-since-cursor` | [#11](https://github.com/mikelord007/Task-Orchestrator/pull/11) | merged (e26ba8f) | 2026-09-05 | 2026-09-06 01:15Z |
-| `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | [#10](https://github.com/mikelord007/Task-Orchestrator/pull/10) | ready for review (CI green) | 2026-09-05 | 2026-09-05 |
+| `task-orchestrator-8` | W2 — agent runtime & eval harness | `ws/w2-runtime` | [#10](https://github.com/mikelord007/Task-Orchestrator/pull/10) | merged (f92cdc5) | 2026-09-05 | 2026-09-06 |
+| `task-orchestrator-8` | W2b — cleanup: passed_by_trial padding, request-step message deltas, single-key tool_return, env knobs | `ws/w2b-cleanup` | — | ready for review (CI pending) | 2026-09-06 | 2026-09-06 |
 | `task-orchestrator-9` | W3 — architect + toolbox | `ws/w3-architect` | [#9](https://github.com/mikelord007/Task-Orchestrator/pull/9) | merged (0af397a) | 2026-09-05 | 2026-09-06 |
 | `task-orchestrator-9` | W3b — contract-change: `orchestration_reason` | `ws/w3b-contract-orchestration-reason` | [#8](https://github.com/mikelord007/Task-Orchestrator/pull/8) | merged (1c5285f) | 2026-09-06 | 2026-09-06 |
 | `task-orchestrator-5` | W4 — domains, fixtures, evaluators | `ws/w4-domains` | [#1](https://github.com/mikelord007/Task-Orchestrator/pull/1) | merged (45676a9) | 2026-09-05 | 2026-09-05 |

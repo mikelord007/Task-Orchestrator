@@ -64,7 +64,13 @@ def load_scorer(directory: Path | str) -> ScoreFn:
         raise EvaluatorError(f"cannot import {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        # The module object (and the "score" callable's closure over it)
+        # stays alive via our own references; sys.modules only needed the
+        # entry during exec_module for relative imports inside score.py.
+        sys.modules.pop(module_name, None)
     scorer = getattr(module, "score", None)
     if not callable(scorer):
         raise EvaluatorError(f"{path} does not define score(expected, actual)")

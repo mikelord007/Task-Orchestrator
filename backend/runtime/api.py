@@ -177,10 +177,21 @@ def list_runs(agent_id: str, *, read_events: ReadEventsFn | None = None) -> list
             rows = sorted(by_case[case_id], key=lambda p: p.get("trial", p.get("repeat", 0)))
             first = rows[0]
             drift_event_id = first.get("drift_event_id")
+            # Indexed by actual trial number and padded to `trials`, not just
+            # "however many rows arrived": a missing trial (a crashed future,
+            # a run still in flight) must show up as an absence, not silently
+            # shift every later trial's result one slot to the left.
+            by_trial_index: dict[int, bool] = {}
+            for row in rows:
+                trial_index = row.get("trial", row.get("repeat"))
+                if trial_index is not None:
+                    by_trial_index[int(trial_index)] = bool(row.get("passed"))
+            width = max(trials, (max(by_trial_index) + 1) if by_trial_index else 0)
+            passed_by_trial = [by_trial_index.get(i, False) for i in range(width)]
             tasks.append(
                 TaskResult(
                     case_id=case_id,
-                    passed_by_trial=[bool(r.get("passed")) for r in rows],
+                    passed_by_trial=passed_by_trial,
                     score=float(first.get("score") or 0.0),
                     cost_usd=float(first.get("cost_usd") or 0.0),
                     latency_ms=int(first.get("latency_ms") or 0),
