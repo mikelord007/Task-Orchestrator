@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#f3f2f2" role="img" aria-labelledby="brand-title brand-desc">
+  <title id="brand-title">Task Orchestrator</title>
+  <desc id="brand-desc">Task Orchestrator mark on a square dark field.</desc>
+  <path fill="#131211" d="M0 0H32V32H0Z"/>
+  <path d="M4 4H28V8H8V24H16V28H4Z"/>
+  <path d="M12 12H28V28H20V24H24V16H12Z"/>
+</svg>

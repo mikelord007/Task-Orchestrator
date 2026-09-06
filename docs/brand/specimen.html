@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Orchestrator — brand specimen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root { color-scheme: dark; background: #0d0c0c; color: #f3f2f2; font-family: Archivo, sans-serif; }
+* { box-sizing: border-box; border-radius: 0; }
+body { margin: 0; }
+main { width: min(1120px, 100%); padding: 32px; margin-inline: auto; background: #131211; }
+header, section { padding-block: 28px; border-bottom: 2px solid #444141; }
+header { padding-top: 0; }
+h1 { margin: 18px 0 16px; font-size: clamp(34px, 6vw, 66px); font-weight: 800; line-height: 1.02; letter-spacing: -.025em; }
+p { max-width: 68ch; margin: 0; color: #d7d3d3; line-height: 1.4; text-wrap: pretty; }
+.label, h2, figcaption, footer { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 11px; line-height: 1.5; letter-spacing: .1em; text-transform: uppercase; }
+.label, h2 { color: #9b9797; }
+h2 { margin: 0 0 24px; }
+.hero { display: grid; grid-template-columns: 192px minmax(0,1fr); align-items: center; gap: 48px; padding-block: 48px; }
+.hero-mark { width: 192px; height: 192px; }
+.hero-lockup { display: block; width: min(504px,100%); height: auto; }
+figure { margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+figcaption { color: #9b9797; }
+.sizes, .grounds { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1px; background: #444141; border: 1px solid #444141; }
+.sizes figure, .grounds figure { padding: 24px; background: #131211; justify-content: space-between; }
+.sizes .sample { min-height: 48px; display: flex; align-items: center; }
+.grounds { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.grounds figure:nth-child(1) { background: #0d0c0c; }
+.grounds figure:nth-child(2) { background: #1b1a19; }
+.grounds figure:nth-child(3) { background: #232120; }
+.nav-example { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding-block: 20px; border-block: 2px solid #444141; }
+.nav-example span { font: 500 12px 'JetBrains Mono',monospace; color: #bab6b6; }
+footer { padding-block: 24px 0; color: #9b9797; }
+@media(max-width:650px) { main { padding: 20px; } .hero { grid-template-columns: minmax(0,1fr); gap: 28px; } .hero-mark { width: 128px; height: 128px; } .sizes { grid-template-columns: repeat(2,minmax(0,1fr)); } .grounds { grid-template-columns: minmax(0,1fr); } }
+</style>
+</head>
+<body>
+<main>
+<header><div class="label">Task Orchestrator / Identity study 01</div><h1>Work, held together.</h1><p>Two offset square frames establish one shared passage. The open structure gives separate tasks a common boundary and a direction through it.</p></header>
+<section class="hero" aria-label="Primary brand assets">
+<img class="hero-mark" src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator square-frame mark" width="192" height="192">
+<figure><img class="hero-lockup" src="../../frontend/public/brand/task-orchestrator-lockup.svg" alt="Task Orchestrator" width="504" height="64"><figcaption>Primary horizontal lockup / JetBrains Mono 500</figcaption></figure>
+</section>
+<section><h2>01 / Navigation size</h2><div class="nav-example"><img src="../../frontend/public/brand/task-orchestrator-lockup.svg" alt="Task Orchestrator" width="252" height="32"><span>WORKSPACE</span></div></section>
+<section><h2>02 / Actual pixel sizes</h2><div class="sizes">
+<figure><div class="sample"><img src="../../frontend/public/brand/task-orchestrator-favicon.svg" alt="Task Orchestrator favicon at 16 pixels" width="16" height="16"></div><figcaption>16px / favicon</figcaption></figure>
+<figure><div class="sample"><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator mark at 24 pixels" width="24" height="24"></div><figcaption>24px / compact</figcaption></figure>
+<figure><div class="sample"><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator mark at 32 pixels" width="32" height="32"></div><figcaption>32px / navigation</figcaption></figure>
+<figure><div class="sample"><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator mark at 48 pixels" width="48" height="48"></div><figcaption>48px / display</figcaption></figure>
+</div></section>
+<section><h2>03 / Dark surfaces</h2><div class="grounds">
+<figure><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator on deep background" width="48" height="48"><figcaption>#0d0c0c / shell</figcaption></figure>
+<figure><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator on surface background" width="48" height="48"><figcaption>#1b1a19 / surface</figcaption></figure>
+<figure><img src="../../frontend/public/brand/task-orchestrator-mark.svg" alt="Task Orchestrator on inset background" width="48" height="48"><figcaption>#232120 / inset</figcaption></figure>
+</div></section>
+<footer>32-unit construction / 4-unit module / neutral ink #f3f2f2</footer>
+</main>
+</body>
+</html>
