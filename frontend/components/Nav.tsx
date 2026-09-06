@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { USE_MOCKS } from "@/lib/api";
+import { LIVE_MODEL_CALLS, USE_MOCKS } from "@/lib/api";
 
 const LINKS = [
   { href: "/agents", label: "Agents", icon: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" },
@@ -111,6 +111,15 @@ export default function Nav() {
         {USE_MOCKS ? (
           <p className="rounded-xs border border-drift/40 px-1.5 py-1 text-drift">
             mock data. Unset NEXT_PUBLIC_USE_MOCKS to read the live backend.
+          </p>
+        ) : (
+          <p className="rounded-xs border border-pass/40 px-1.5 py-1 text-pass">
+            live backend data
+          </p>
+        )}
+        {!USE_MOCKS && !LIVE_MODEL_CALLS ? (
+          <p className="rounded-xs border border-drift/40 px-1.5 py-1 text-drift">
+            model actions unavailable: no provider credentials
           </p>
         ) : null}
       </div>
