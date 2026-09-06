@@ -7,6 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from backend.db import init_db
+from backend.ledger.emit import emit
 from backend.testing.fake_llm import FakeLLM
 from backend.testing.fake_llm import text as llm_text
 
@@ -100,6 +102,85 @@ def test_get_agents_lists_newest_first(client: TestClient):
     assert ids[:2] == [second, first]
 
 
+def test_get_agents_includes_frontend_summary_fields(client: TestClient):
+    _script_responses(_script())
+    agent_id = client.post("/agents", json=_create_body()).json()["agent_id"]
+
+    row = client.get("/agents").json()[0]
+
+    assert row["agent_id"] == agent_id
+    assert row["name"] == "triage widget issues"
+    assert row["latest_train"] is None
+    assert row["latest_holdout"] is None
+
+
+def test_get_agents_includes_latest_current_version_pass_stats(client: TestClient, db_file: Path):
+    _script_responses(_script())
+    agent_id = client.post("/agents", json=_create_body()).json()["agent_id"]
+    conn = init_db(db_file)
+    try:
+        emit(
+            "run_started",
+            agent_id=agent_id,
+            agent_version=0,
+            run_id="train-run",
+            split="train",
+            case_count=1,
+            trials=2,
+            conn=conn,
+        )
+        for trial, passed in enumerate((True, False)):
+            emit(
+                "case_result",
+                agent_id=agent_id,
+                agent_version=0,
+                run_id="train-run",
+                case_id="c1",
+                trial=trial,
+                passed=passed,
+                score=float(passed),
+                tokens_in=10,
+                tokens_out=5,
+                cost_usd=0.01,
+                latency_ms=100,
+                steps=1,
+                transcript_path=f"runs/train-run/c1.t{trial}.json",
+                tool_calls=0,
+                tool_errors=0,
+                conn=conn,
+            )
+        emit(
+            "run_finished",
+            agent_id=agent_id,
+            agent_version=0,
+            run_id="train-run",
+            split="train",
+            trials=2,
+            pass_at_1=0.5,
+            pass_pow_k=0.0,
+            pass_rate_std=0.5,
+            pass_rate_min=0.0,
+            pass_rate_max=1.0,
+            total_cost_usd=0.02,
+            p50_latency_ms=100,
+            p95_latency_ms=100,
+            drift_count=0,
+            tokens_saved_by_drift=0,
+            conn=conn,
+        )
+    finally:
+        conn.close()
+
+    row = client.get("/agents").json()[0]
+    assert row["latest_train"] == {
+        "mean": 0.5,
+        "std": 0.5,
+        "min": 0.0,
+        "max": 1.0,
+    }
+    assert row["latest_holdout"] is None
+
+
 def test_get_agent_version_reports_no_changes_diff_for_v0(client: TestClient):
     _script_responses(_script())
     agent_id = client.post("/agents", json=_create_body()).json()["agent_id"]
@@ -123,6 +204,8 @@ def test_get_evaluators_lists_the_synthetic_fixture(client: TestClient):
     body = response.json()
     assert len(body) == 1
     assert body[0]["evaluator_id"] == "widget_triage"
+    assert body[0]["domain"] == "widget_triage"
+    assert "Given an issue" in body[0]["description"]
     assert body[0]["case_counts"] == {"train": 2, "holdout": 1}
 
 

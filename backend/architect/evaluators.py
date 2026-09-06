@@ -1,4 +1,4 @@
-"""List evaluators for `GET /evaluators` (ids, summary, case counts, allowed tools)."""
+"""List evaluators for ``GET /evaluators``."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _case_counts(cases_path: Path) -> dict[str, int]:
 
 
 def list_evaluators(root: str | Path = DEFAULT_ROOT) -> list[dict]:
-    """`[{evaluator_id, summary, case_counts, allowed_tools}]`, sorted by id."""
+    """Return frontend-ready evaluator metadata, sorted by evaluator id."""
     base = Path(root)
     if not base.is_dir():
         return []
@@ -57,7 +57,8 @@ def list_evaluators(root: str | Path = DEFAULT_ROOT) -> list[dict]:
         results.append(
             {
                 "evaluator_id": entry.name,
-                "summary": _first_paragraph(readme),
+                "domain": entry.name,
+                "description": _first_paragraph(readme),
                 "case_counts": _case_counts(cases_path),
                 "allowed_tools": _allowed_tools(readme),
             }
