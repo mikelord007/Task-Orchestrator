@@ -1189,7 +1189,13 @@ function insightsA(): Insights {
     },
     markers: [
       { version: 0, kind: "issue_opened", ts: "2026-09-06T05:44:00Z" },
-      { version: 0, kind: "drift_detected", ts: "2026-09-06T05:29:00Z" },
+      {
+        version: 0,
+        kind: "drift_cluster",
+        ts: "2026-09-06T05:29:00Z",
+        count: 3,
+        count_by_kind: { loop: 2, budget: 1 },
+      },
       {
         version: 1,
         kind: "fix_accepted",

@@ -46,7 +46,9 @@ function Insights() {
   const compare = useAsync(() => getInsightsCompare(), []);
   const playbook = useAsync(() => getPlaybook(), []);
 
-  const agentName = agents.data?.find((a) => a.agent_id === agentId)?.name ?? agentId;
+  const foundAgent = agents.data?.find((a) => a.agent_id === agentId);
+  /** `GET /agents` may not carry a display `name` yet; `goal` is always real backend data. */
+  const agentName = foundAgent?.name ?? foundAgent?.goal ?? agentId;
   /** Prefer the real backend's own trials field; mock data only carries it on RunSummary. */
   const trials = insights.data?.trials ?? runs.data?.slice(-1)[0]?.trials ?? 0;
 
@@ -82,7 +84,7 @@ function Insights() {
             >
               {agents.data.map((a) => (
                 <option key={a.agent_id} value={a.agent_id}>
-                  {a.name}
+                  {a.name ?? a.goal}
                 </option>
               ))}
             </select>
