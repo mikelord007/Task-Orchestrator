@@ -47,7 +47,44 @@ class LLMError(RuntimeError):
     """Raised when the LLM endpoint is unusable (missing config, API failure)."""
 
 
-_live_call_lock = threading.Lock()
+_live_call_condition = threading.Condition()
+_active_live_calls = 0
+
+
+def _claim_live_call_slot() -> bool:
+    """Claim one configured provider-call slot, or fail after the queue timeout."""
+    global _active_live_calls
+    limit = max(0, env_int("LLM_CONCURRENCY", 0))
+    if limit == 0:
+        return False
+    deadline = time.monotonic() + max(0, env_int("LLM_QUEUE_TIMEOUT_S", 5))
+    with _live_call_condition:
+        while _active_live_calls >= limit:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LLMError("live model capacity is busy; retry later")
+            _live_call_condition.wait(timeout=remaining)
+        _active_live_calls += 1
+    return True
+
+
+def _release_live_call_slot(claimed: bool) -> None:
+    global _active_live_calls
+    if not claimed:
+        return
+    with _live_call_condition:
+        _active_live_calls -= 1
+        _live_call_condition.notify()
+
+
+def _token_reservation_size(kwargs: dict[str, Any]) -> int:
+    """Conservatively bound input tokens by UTF-8 bytes plus capped output."""
+    if "max_tokens" not in kwargs:
+        return 0
+    request_bytes = len(
+        json.dumps(kwargs, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+    )
+    return request_bytes + max(0, int(kwargs["max_tokens"]))
 
 
 def _model_strong() -> str:
@@ -276,12 +313,12 @@ def complete(
     `usage` comes from the API response, never from the model's own words
     (rule section 2.8).
     """
-    from backend.demo_limits import DemoLimitExceeded, ensure_token_budget, record_usage
-
-    try:
-        ensure_token_budget()
-    except DemoLimitExceeded as exc:
-        raise LLMError(str(exc)) from exc
+    from backend.demo_limits import (
+        DemoLimitExceeded,
+        record_usage,
+        release_token_reservation,
+        reserve_token_budget,
+    )
 
     client = get_client()
     kwargs: dict[str, Any] = {"model": model, "messages": messages}
@@ -297,43 +334,61 @@ def complete(
         requested = max_tokens if max_tokens is not None else hard_max_tokens
         kwargs["max_tokens"] = min(requested, hard_max_tokens) if hard_max_tokens else requested
 
-    started = time.perf_counter()
-    acquired = False
+    reservation_id: str | None = None
+    provider_responded = False
     try:
-        if env_int("LLM_CONCURRENCY", 0) == 1:
-            acquired = _live_call_lock.acquire(timeout=max(0, env_int("LLM_QUEUE_TIMEOUT_S", 5)))
-            if not acquired:
-                raise LLMError("live model capacity is busy; retry later")
-        response = client.chat.completions.create(**kwargs)
-    except AssertionError:
-        # A test-double's own assertion (e.g. FakeLLM's "script exhausted"),
-        # not an LLM/provider error -- let it surface as itself rather than
-        # being laundered into an LLMError.
-        raise
-    except LLMError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - surface every provider error the same way
-        raise LLMError(f"LLM call to {model!r} failed: {exc}") from exc
+        try:
+            reservation_id = reserve_token_budget(_token_reservation_size(kwargs))
+        except DemoLimitExceeded as exc:
+            raise LLMError(str(exc)) from exc
+
+        started = time.perf_counter()
+        acquired = False
+        try:
+            acquired = _claim_live_call_slot()
+            response = client.chat.completions.create(**kwargs)
+            provider_responded = True
+        except AssertionError:
+            # A test-double's own assertion (e.g. FakeLLM's "script exhausted"),
+            # not an LLM/provider error -- let it surface as itself rather than
+            # being laundered into an LLMError.
+            raise
+        except LLMError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - surface every provider error the same way
+            raise LLMError(f"LLM call to {model!r} failed: {exc}") from exc
+        finally:
+            _release_live_call_slot(acquired)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+
+        choice = response.choices[0]
+        message = choice.message
+        usage = getattr(response, "usage", None)
+        if usage is None and env("DEMO_REQUIRE_USAGE").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            raise LLMError("provider response omitted required token usage")
+        tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
+        tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
+        record_usage(model, tokens_in, tokens_out, reservation_id=reservation_id)
+        reservation_id = None
+
+        return {
+            "text": getattr(message, "content", None) or "",
+            "tool_calls": _parse_tool_calls(message),
+            "usage": {"tokens_in": tokens_in, "tokens_out": tokens_out},
+            "cost_usd": cost_for(model, tokens_in, tokens_out),
+            "model": getattr(response, "model", model) or model,
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "latency_ms": latency_ms,
+        }
     finally:
-        if acquired:
-            _live_call_lock.release()
-    latency_ms = int((time.perf_counter() - started) * 1000)
-
-    choice = response.choices[0]
-    message = choice.message
-    usage = getattr(response, "usage", None)
-    if usage is None and env("DEMO_REQUIRE_USAGE").strip().lower() in {"1", "true", "yes", "on"}:
-        raise LLMError("provider response omitted required token usage")
-    tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
-    tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
-    record_usage(model, tokens_in, tokens_out)
-
-    return {
-        "text": getattr(message, "content", None) or "",
-        "tool_calls": _parse_tool_calls(message),
-        "usage": {"tokens_in": tokens_in, "tokens_out": tokens_out},
-        "cost_usd": cost_for(model, tokens_in, tokens_out),
-        "model": getattr(response, "model", model) or model,
-        "finish_reason": getattr(choice, "finish_reason", None),
-        "latency_ms": latency_ms,
-    }
+        # Before a response exists, a provider failure has no reported usage
+        # to reconcile and capacity can be released. Once a response exists,
+        # malformed replies and persistence errors retain their conservative
+        # reservation so consumed quota cannot be reused.
+        if not provider_responded:
+            release_token_reservation(reservation_id)

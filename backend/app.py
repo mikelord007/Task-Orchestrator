@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.db import db_path, init_db
-from backend.settings import env
+from backend.settings import env, env_int
 
 load_dotenv()  # backend.settings already does this; explicit here too per review
 
@@ -84,12 +84,18 @@ async def _lifespan(app: FastAPI):
 
     if demo_limits_enabled() and (not _require_api_auth() or not _api_auth_token()):
         raise RuntimeError("PUBLIC_DEMO_LIMITS requires bearer authentication")
+    if demo_limits_enabled() and env_int("LLM_MAX_TOKENS", 0) <= 0:
+        raise RuntimeError("PUBLIC_DEMO_LIMITS requires a positive LLM_MAX_TOKENS")
     from backend.runtime import neatlogs
 
     neatlogs.initialize()
     try:
         conn = init_db()
         try:
+            if demo_limits_enabled():
+                from backend.demo_limits import recover_token_reservations
+
+                recover_token_reservations(conn)
             from backend.runtime.jobs import mark_incomplete_jobs_interrupted
 
             mark_incomplete_jobs_interrupted(conn)
