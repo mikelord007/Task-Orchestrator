@@ -126,6 +126,23 @@ def _render_group_evidence(
     return "\n".join(lines)
 
 
+def _group_tool_stats(stats: dict[str, Any], group: FailingGroup) -> dict[str, Any]:
+    """This group's own per-task tool usage, plus the run aggregate for scale.
+
+    Section K asks a `tools` diagnosis to cite a tracked metric about *these*
+    tasks. The run-wide aggregate alone is diluted by every task that passed:
+    a group whose three failing tasks each make three redundant calls reads
+    as "0.5 redundant calls" across a run of six executions, which is not a
+    signal anyone should act on. Both are shown, labelled, so the model can
+    say "4.2 on the failing tasks vs 0.3 across the run".
+    """
+    tasks = stats.get("tasks") or {}
+    return {
+        "group_tasks": {case_id: tasks[case_id] for case_id in group.case_ids if case_id in tasks},
+        "run_aggregate": stats.get("aggregate") or {},
+    }
+
+
 def _diagnosis_prompt(
     agent_id: str,
     version: int,
@@ -160,7 +177,8 @@ def _diagnosis_prompt(
         f"Agent: {agent_id} v{version}\n"
         f"Failing group: signature={group.signature!r} tag={group.tag!r} "
         f"({group.count} failing trial(s) across {len(group.case_ids)} task(s))\n\n"
-        f"Tool usage stats for this version/split (aggregate over all tasks): {stats}\n\n"
+        f"Tool usage stats -- `group_tasks` is per failing task in this group, "
+        f"`run_aggregate` is the whole train run for scale: {stats}\n\n"
         f"Evidence:\n{evidence or '(no transcripts available)'}"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -212,13 +230,15 @@ def diagnose(
         if not groups:
             return []
         case_index = load_case_index(evaluator_path)
-        stats = tool_call_stats(conn, agent_id, version, "train", root)["aggregate"]
+        run_stats = tool_call_stats(conn, agent_id, version, "train", root)
 
         resolved_model = model or _default_model()
         diagnoses: list[Diagnosis] = []
         for group in groups:
             evidence = _render_group_evidence(conn, agent_id, version, group, case_index, root)
-            messages = _diagnosis_prompt(agent_id, version, group, evidence, stats)
+            messages = _diagnosis_prompt(
+                agent_id, version, group, evidence, _group_tool_stats(run_stats, group)
+            )
             try:
                 parsed, _response = complete_json(messages, resolved_model, complete=complete)
             except JsonCallError:
