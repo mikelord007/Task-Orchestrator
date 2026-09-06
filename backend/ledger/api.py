@@ -33,6 +33,11 @@ def _open_connection() -> sqlite3.Connection:
     for name in _CONNECT_NAMES:
         factory = getattr(db, name, None)
         if callable(factory):
+            # FastAPI may hand this request-scoped connection between worker
+            # threads, but dependency setup, endpoint use, and teardown remain
+            # sequential. Keep every other db.connect() caller thread-affine.
+            if factory is db.connect:
+                return factory(check_same_thread=False)
             return factory()
     raise RuntimeError(
         "backend.db exposes no connection factory; expected one of " + ", ".join(_CONNECT_NAMES)
