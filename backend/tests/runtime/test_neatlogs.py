@@ -223,21 +223,18 @@ def test_mask_omits_content_redacts_pii_and_credentials_and_bounds_values(monkey
                 "authorization": "Bearer do-not-export",
                 "neatlogs.llm.token_count.prompt": 17,
             },
-            "events": [
-                {
-                    "attributes": {
-                        "error.message": "secret body",
-                        "status.description": "private customer prompt-like value",
-                    }
-                }
-            ],
+            "events": [{"attributes": {"error.message": "secret body"}}],
+            "status": {
+                "code": "ERROR",
+                "description": "private customer prompt-like value",
+            },
         }
     )
     assert masked["attributes"]["input.value"] == "[content omitted]"
     assert masked["attributes"]["authorization"] == "[redacted]"
     assert masked["attributes"]["neatlogs.llm.token_count.prompt"] == 17
     assert masked["events"][0]["attributes"]["error.message"] == "[content omitted]"
-    assert masked["events"][0]["attributes"]["status.description"] == "[content omitted]"
+    assert masked["status"]["description"] == "[content omitted]"
 
     monkeypatch.setenv("NEATLOGS_CAPTURE_CONTENT", "true")
     captured = neatlogs.telemetry_mask(
