@@ -23,7 +23,7 @@ export default function DomainComparison({ compare }: { compare: InsightsCompare
   return (
     <div>
       <p className="text-[11px] text-fg-mute">
-        playbook ablation · {ablation.domain} · v0 holdout, trials = {ablation.trials}
+        playbook ablation · {ablation.domain} · v0 holdout, trials = {ablation.trials ?? "—"}
       </p>
       <div className="mt-2 flex flex-wrap gap-8">
         <Stat

@@ -27,9 +27,10 @@ export default function FixCard({
   agentId: string;
   defaultExpanded?: boolean;
 }) {
-  const [showDetail, setShowDetail] = useState(defaultExpanded);
   const accepted = card.status === "accepted";
   const isMemory = card.lever === "memory" && (card.memory_entries?.length ?? 0) > 0;
+  const [showMemory, setShowMemory] = useState(defaultExpanded && isMemory);
+  const [showDiff, setShowDiff] = useState(defaultExpanded && !isMemory);
 
   return (
     <article id={`fix-${card.to_version}`} className="scroll-mt-4 border-t border-line py-4">
@@ -71,24 +72,33 @@ export default function FixCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
-          onClick={() => setShowDetail((v) => !v)}
+          onClick={() => (isMemory ? setShowMemory((v) => !v) : setShowDiff((v) => !v))}
           className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
         >
-          {showDetail ? "hide" : isMemory ? "show memory entries" : "show diff"}
+          {isMemory
+            ? showMemory
+              ? "hide memory entries"
+              : "show memory entries"
+            : showDiff
+              ? "hide diff"
+              : "show diff"}
         </button>
+        {isMemory ? (
+          <button
+            onClick={() => setShowDiff((v) => !v)}
+            className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
+          >
+            {showDiff ? "hide diff" : "show diff"}
+          </button>
+        ) : null}
         <span className="text-[11px] text-fg-mute">{card.diff_summary}</span>
         {card.files_touched.length ? (
           <span className="text-[11px] text-fg-mute">{card.files_touched.join("  ")}</span>
         ) : null}
       </div>
 
-      {showDetail ? (
-        isMemory ? (
-          <MemoryEntries entries={card.memory_entries!} />
-        ) : (
-          <DiffView agentId={agentId} toVersion={card.to_version} />
-        )
-      ) : null}
+      {showMemory && isMemory ? <MemoryEntries entries={card.memory_entries!} /> : null}
+      {showDiff ? <DiffView agentId={agentId} toVersion={card.to_version} /> : null}
     </article>
   );
 }
@@ -214,4 +224,3 @@ function BeforeAfter({ card }: { card: FixCardData }) {
     </table>
   );
 }
-

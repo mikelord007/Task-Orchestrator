@@ -515,11 +515,12 @@ export interface Insights {
  */
 export interface AblationReport {
   domain: string;
-  trials: number;
+  /** Older seeded ledgers predate this field; missing is rendered as unknown, never zero. */
+  trials: number | null;
   playbook_off: { pass_at_1: number | null; pass_pow_k: number | null; std: number | null };
   playbook_on: { pass_at_1: number | null; pass_pow_k: number | null; std: number | null };
   applied_lesson_ids: string[];
-  agent_ids: { playbook_off: string; playbook_on: string };
+  agent_ids?: { playbook_off: string; playbook_on: string };
 }
 
 /**

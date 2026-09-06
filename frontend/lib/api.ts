@@ -224,7 +224,33 @@ interface RawInsightsCompare {
       pass_at_1_by_version: InsightsCompare["domains"][number]["pass_at_1_by_version"];
     }[]
   >;
-  ablation: InsightsCompare["ablation"];
+  ablation:
+    | InsightsCompare["ablation"]
+    | {
+        domain: string;
+        playbook_off: { holdout_mean: number | null; holdout_std: number | null };
+        playbook_on: { holdout_mean: number | null; holdout_std: number | null };
+        applied_lessons: string[];
+      };
+}
+
+function normalizeAblation(raw: RawInsightsCompare["ablation"]): InsightsCompare["ablation"] {
+  if (!raw || "trials" in raw) return raw;
+  return {
+    domain: raw.domain,
+    trials: null,
+    playbook_off: {
+      pass_at_1: raw.playbook_off.holdout_mean,
+      pass_pow_k: null,
+      std: raw.playbook_off.holdout_std,
+    },
+    playbook_on: {
+      pass_at_1: raw.playbook_on.holdout_mean,
+      pass_pow_k: null,
+      std: raw.playbook_on.holdout_std,
+    },
+    applied_lesson_ids: raw.applied_lessons,
+  };
 }
 
 /** GET /insights/compare */
@@ -240,7 +266,7 @@ export async function getInsightsCompare(): Promise<InsightsCompare> {
         domain: d.domain,
         pass_at_1_by_version: d.pass_at_1_by_version,
       })),
-    ablation: raw.ablation,
+    ablation: normalizeAblation(raw.ablation),
   };
 }
 

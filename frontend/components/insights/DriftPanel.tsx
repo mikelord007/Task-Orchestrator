@@ -27,7 +27,8 @@ export default function DriftPanel({
   if (!hasAny) {
     return (
       <Empty>
-        No drift recorded. Either the watchdog has not fired, or no train run has happened yet.
+        No drift recorded. Run the train split; watchdog events appear here if a task loops,
+        exceeds a budget, or hits the step limit.
       </Empty>
     );
   }

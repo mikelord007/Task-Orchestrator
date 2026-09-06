@@ -9,7 +9,8 @@ export default function FlaggedTasks({ tasks }: { tasks: string[] }) {
   if (tasks.length === 0) {
     return (
       <Empty>
-        None. A task flags here only after 3 versions of train history with it stuck at 0%.
+        No task has enough failing history yet. Run the train split across 3 versions; tasks still
+        at 0% then flag here for review.
       </Empty>
     );
   }

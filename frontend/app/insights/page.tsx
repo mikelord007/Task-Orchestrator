@@ -51,6 +51,7 @@ function Insights() {
   const agentName = foundAgent?.name ?? foundAgent?.goal ?? agentId;
   /** Prefer the real backend's own trials field; mock data only carries it on RunSummary. */
   const trials = insights.data?.trials ?? runs.data?.slice(-1)[0]?.trials ?? 0;
+  const hasRunHistory = (insights.data?.pass_at_1_by_version.length ?? 0) > 0;
 
   const driftByVersion = useMemo(() => {
     const byVersion = insights.data?.drift.count_by_version;
@@ -114,14 +115,14 @@ function Insights() {
           <div className="mt-4 flex flex-wrap gap-8">
             <Stat
               label="tasks graduated"
-              value={String(insights.data?.graduated_count ?? "—")}
+              value={hasRunHistory ? String(insights.data?.graduated_count ?? "—") : "—"}
               tone="pass"
               size="lg"
             />
             <div className="min-w-[140px]">
               <div className="text-[11px] text-fg-mute">flagged tasks</div>
               <div className="mt-1 text-xl tabular-nums text-fg">
-                {insights.data?.flagged_tasks.length ?? "—"}
+                {hasRunHistory ? (insights.data?.flagged_tasks.length ?? "—") : "—"}
               </div>
             </div>
           </div>
@@ -152,14 +153,17 @@ function Insights() {
           </Panel>
 
           <Panel title="Fixes, regressions and issues">
-            {insights.data ? (
+            {insights.data && hasRunHistory ? (
               <FixesSummary
                 fixesByLever={insights.data.fixes_by_lever}
                 regressionsCaught={insights.data.regressions_caught}
                 issues={insights.data.issues}
               />
             ) : (
-              <Empty>No fixes yet.</Empty>
+              <Empty>
+                No improvement evidence yet. Run the train split, then start an improve attempt
+                to populate fixes, caught regressions, and linked issues.
+              </Empty>
             )}
           </Panel>
 
