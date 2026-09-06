@@ -12,7 +12,8 @@ def test_list_evaluators_reads_the_synthetic_fixture(evaluator_dir):
     assert len(result) == 1
     entry = result[0]
     assert entry["evaluator_id"] == "widget_triage"
-    assert "Given an issue" in entry["summary"]
+    assert entry["domain"] == "widget_triage"
+    assert "Given an issue" in entry["description"]
     assert entry["case_counts"] == {"train": 2, "holdout": 1}
 
 
@@ -33,7 +34,8 @@ def test_list_evaluators_reads_the_real_github_triage_and_ticket_triage_suites()
     assert set(result) == {"github_triage", "ticket_triage"}
 
     github = result["github_triage"]
-    assert github["summary"]
+    assert github["domain"] == "github_triage"
+    assert github["description"]
     assert sum(github["case_counts"].values()) == 60
     assert set(github["allowed_tools"]) == {
         "github_get_issue_context",
@@ -43,5 +45,6 @@ def test_list_evaluators_reads_the_real_github_triage_and_ticket_triage_suites()
     }
 
     ticket = result["ticket_triage"]
+    assert ticket["domain"] == "ticket_triage"
     assert sum(ticket["case_counts"].values()) == 50
     assert set(ticket["allowed_tools"]) >= {"regex_extract", "json_validate"}

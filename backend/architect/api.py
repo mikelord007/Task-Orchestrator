@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.db import REPO_ROOT, init_db
+from backend.ledger.metrics import pass_at_1
 from backend.settings import env
 
 from .evaluator_reader import EvaluatorNotFoundError
@@ -71,6 +72,15 @@ def _package_view(package_dir: Path) -> dict:
         ) from exc
 
 
+def _agent_summary(conn, row) -> dict:
+    summary = dict(row)
+    summary["name"] = " ".join(summary["goal"].split()[:6]) or summary["agent_id"]
+    for split in ("train", "holdout"):
+        stat = pass_at_1(conn, summary["agent_id"], summary["current_version"], split)
+        summary[f"latest_{split}"] = stat if stat["mean"] is not None else None
+    return summary
+
+
 @router.post("/agents")
 def create_agent(body: CreateAgentRequest) -> dict:
     try:
@@ -98,7 +108,7 @@ def list_agents() -> list[dict]:
         # created_ts has second resolution, so two agents created within the
         # same second tie -- rowid (insertion order) breaks the tie.
         rows = conn.execute("SELECT * FROM agents ORDER BY created_ts DESC, rowid DESC").fetchall()
-        return [dict(row) for row in rows]
+        return [_agent_summary(conn, row) for row in rows]
     finally:
         conn.close()
 
