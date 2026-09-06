@@ -39,28 +39,19 @@ const differences = [
 ] as const;
 
 interface LandingStats {
-  domain_a: {
-    current_version?: number | null;
-    trials?: number | null;
-    holdout?: {
-      pass_at_1?: {
-        before?: { mean?: number | null; std?: number | null } | null;
-        after?: { mean?: number | null; std?: number | null } | null;
-      } | null;
-      pass_pow_k?: {
-        k?: number | null;
-        before?: number | null;
-        after?: number | null;
-      } | null;
-    } | null;
-    fixes?: { accepted?: number | null; rejected?: number | null } | null;
-    tool_calls_per_task?: {
-      split?: string | null;
-      before?: number | null;
-      after?: number | null;
-    } | null;
-  };
-  ao: { sessions?: number | null; prs?: number | null };
+  current_version?: number | null;
+  trials?: number | null;
+  pass_at_1_by_version?: RatePoint[];
+  pass_pow_k_by_version?: RatePoint[];
+  markers?: Marker[];
+  fixes?: { accepted?: number | null; rejected?: number | null } | null;
+  tool_calls_per_task?: {
+    split?: string | null;
+    before?: { version?: number | null; value?: number | null } | null;
+    after?: { version?: number | null; value?: number | null } | null;
+  } | null;
+  ao_sessions?: number | null;
+  pr_count?: number | null;
   ablation?: {
     playbook_off?: { pass_at_1?: number | null } | null;
     playbook_on?: { pass_at_1?: number | null } | null;
@@ -106,15 +97,18 @@ function transition(
 
 function liveToolCalls(
   insights: Insights,
-): LandingStats["domain_a"]["tool_calls_per_task"] {
-  const train = insights.tool_stats_by_version
-    .filter((point) => point.split === "train" && finite(point.calls))
+): LandingStats["tool_calls_per_task"] {
+  const holdout = insights.tool_stats_by_version
+    .filter((point) => point.split === "holdout" && finite(point.calls))
     .sort((a, b) => a.version - b.version);
-  if (train.length < 2) return null;
+  if (holdout.length < 2) return null;
   return {
-    split: "train",
-    before: train[0].calls,
-    after: train[train.length - 1].calls,
+    split: "holdout",
+    before: { version: holdout[0].version, value: holdout[0].calls },
+    after: {
+      version: holdout[holdout.length - 1].version,
+      value: holdout[holdout.length - 1].calls,
+    },
   };
 }
 
@@ -146,17 +140,17 @@ export default function LandingPage() {
       (live?.pass_pow_k_by_version.length ?? 0) > 0;
     const pass1 = liveHasChart
       ? live!.pass_at_1_by_version
-      : (fallback.chart?.pass_at_1_by_version ?? []);
+      : (fallback.pass_at_1_by_version ?? fallback.chart?.pass_at_1_by_version ?? []);
     const passK = liveHasChart
       ? live!.pass_pow_k_by_version
-      : (fallback.chart?.pass_pow_k_by_version ?? []);
+      : (fallback.pass_pow_k_by_version ?? fallback.chart?.pass_pow_k_by_version ?? []);
     const version = currentVersion(
       pass1,
-      liveHasChart ? live?.current_version : fallback.domain_a.current_version,
+      liveHasChart ? live?.current_version : fallback.current_version,
     );
     const trialCount =
       (liveHasChart && finite(live?.trials) ? live.trials : null) ??
-      (finite(fallback.domain_a.trials) ? fallback.domain_a.trials : null);
+      (finite(fallback.trials) ? fallback.trials : null);
     const liveMarkers = live?.markers ?? [];
     const liveFixes = liveHasChart && live
       ? {
@@ -167,13 +161,13 @@ export default function LandingPage() {
     return {
       pass1,
       passK,
-      markers: liveHasChart ? liveMarkers : (fallback.chart?.markers ?? []),
+      markers: liveHasChart ? liveMarkers : (fallback.markers ?? fallback.chart?.markers ?? []),
       version,
       trials: trialCount,
-      fixes: liveFixes ?? fallback.domain_a.fixes ?? null,
+      fixes: liveFixes ?? fallback.fixes ?? null,
       toolCalls:
         (liveHasChart && live ? liveToolCalls(live) : null) ??
-        fallback.domain_a.tool_calls_per_task ??
+        fallback.tool_calls_per_task ??
         null,
     };
   }, [live]);
@@ -182,10 +176,8 @@ export default function LandingPage() {
     const cells: { label: string; value: string }[] = [];
     const liveHoldoutPass1 = transition(evidence.pass1, evidence.version, "holdout");
     const liveHoldoutPassK = transition(evidence.passK, evidence.version, "holdout");
-    const fallbackPass1 = fallback.domain_a.holdout?.pass_at_1;
-    const fallbackPassK = fallback.domain_a.holdout?.pass_pow_k;
-    const pass1Before = liveHoldoutPass1?.before ?? fallbackPass1?.before;
-    const pass1After = liveHoldoutPass1?.after ?? fallbackPass1?.after;
+    const pass1Before = liveHoldoutPass1?.before;
+    const pass1After = liveHoldoutPass1?.after;
     if (
       finite(pass1Before?.mean) &&
       finite(pass1Before.std) &&
@@ -199,10 +191,9 @@ export default function LandingPage() {
         ),
       );
     }
-    const passKBefore = liveHoldoutPassK?.before.mean ?? fallbackPassK?.before;
-    const passKAfter = liveHoldoutPassK?.after.mean ?? fallbackPassK?.after;
-    const passKTrials =
-      (liveHoldoutPassK && evidence.trials) ?? fallbackPassK?.k ?? evidence.trials;
+    const passKBefore = liveHoldoutPassK?.before.mean;
+    const passKAfter = liveHoldoutPassK?.after.mean;
+    const passKTrials = (liveHoldoutPassK && evidence.trials) ?? evidence.trials;
     if (finite(passKBefore) && finite(passKAfter) && finite(passKTrials)) {
       cells.push(
         statCell(
@@ -219,13 +210,17 @@ export default function LandingPage() {
         ),
       );
     }
-    const toolBefore = evidence.toolCalls?.before;
-    const toolAfter = evidence.toolCalls?.after;
-    if (finite(toolBefore) && finite(toolAfter)) {
+    const toolBefore = evidence.toolCalls?.before?.value;
+    const toolAfter = evidence.toolCalls?.after?.value;
+    if (
+      evidence.toolCalls?.split === "holdout" &&
+      finite(toolBefore) &&
+      finite(toolAfter)
+    ) {
       cells.push(statCell("Tool calls per task", `${decimal(toolBefore)} → ${decimal(toolAfter)}`));
     }
-    if (finite(fallback.ao.sessions)) {
-      cells.push(statCell("AO sessions", String(fallback.ao.sessions)));
+    if (finite(fallback.ao_sessions)) {
+      cells.push(statCell("AO sessions", String(fallback.ao_sessions)));
     }
     return cells;
   }, [evidence]);
@@ -306,7 +301,8 @@ export default function LandingPage() {
                 ))}
               </dl>
             ) : null}
-            {finite(evidence.trials) ? (
+            {finite(evidence.trials) &&
+            evidence.pass1.some((point) => point.split === "holdout") ? (
               <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute">
                 Domain A holdout · trials = {evidence.trials} · the improver never sees holdout tasks
               </p>
@@ -371,9 +367,9 @@ export default function LandingPage() {
       </main>
 
       <footer className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-7 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
-        {finite(fallback.ao.sessions) && finite(fallback.ao.prs) ? (
+        {finite(fallback.ao_sessions) && finite(fallback.pr_count) ? (
           <span>
-            Built in 30 hours with AO · {fallback.ao.sessions} worker sessions · {fallback.ao.prs} PRs
+            Built in 30 hours with AO · {fallback.ao_sessions} worker sessions · {fallback.pr_count} PRs
           </span>
         ) : null}
         <span className="flex items-center gap-5">
