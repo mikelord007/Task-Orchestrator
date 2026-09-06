@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from backend.ledger.emit import emit
+from backend.playbook import scan_and_record
 from backend.playbook.scan import scan
 
 AGENT_ID = "agent_demo"
@@ -142,3 +143,59 @@ def test_scan_skips_a_fix_accepted_with_no_matching_fix_proposed(tmp_path, conn,
     assert result.lessons == []
     assert fake.call_count == 0
     assert result.last_event_id > 0  # still advances the watermark past it
+
+
+def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete, monkeypatch):
+    playbook_path = tmp_path / "lessons.jsonl"
+    monkeypatch.setenv("TO_PLAYBOOK_PATH", str(playbook_path))
+    _complete, fake = make_complete(
+        [
+            _extraction_response(),
+            _extraction_response(
+                trigger="agent repeats a tool call without changing its arguments",
+                lesson="Cap identical retries and require the next attempt to change approach.",
+            ),
+        ]
+    )
+    _seed_fix(conn, to_version=1)
+    first = scan_and_record(conn)
+    first_lines = playbook_path.read_text(encoding="utf-8").splitlines()
+
+    repeated = scan_and_record(conn)
+    repeated_lines = playbook_path.read_text(encoding="utf-8").splitlines()
+
+    _seed_fix(conn, to_version=2)
+    second = scan_and_record(conn)
+    second_lines = playbook_path.read_text(encoding="utf-8").splitlines()
+
+    assert set(first) == {"recorded", "skipped", "last_event_id"}
+    assert repeated == {"recorded": 0, "skipped": 0, "last_event_id": first["last_event_id"]}
+    assert set(second) == {"recorded", "skipped", "last_event_id"}
+    assert first["recorded"] == 1
+    assert first["skipped"] == 0
+    assert second["recorded"] == 1
+    assert second["skipped"] == 0
+    assert second["last_event_id"] > first["last_event_id"]
+    assert len(first_lines) == 1
+    assert repeated_lines == first_lines
+    assert len(second_lines) == 2
+    assert second_lines[0] == first_lines[0]
+    assert fake.call_count == 2  # one call for each new fix, never the first fix twice
+
+
+def test_scan_and_record_reports_new_duplicate_as_skipped(
+    tmp_path, conn, make_complete, monkeypatch
+):
+    monkeypatch.setenv("TO_PLAYBOOK_PATH", str(tmp_path / "lessons.jsonl"))
+    _complete, fake = make_complete([_extraction_response(), _extraction_response()])
+
+    _seed_fix(conn, to_version=1)
+    first = scan_and_record(conn)
+    _seed_fix(conn, to_version=2)
+    second = scan_and_record(conn)
+
+    assert first["recorded"] == 1
+    assert first["skipped"] == 0
+    assert second["recorded"] == 0
+    assert second["skipped"] == 1
+    assert fake.call_count == 2
