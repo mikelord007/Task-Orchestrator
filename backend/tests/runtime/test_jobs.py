@@ -4,6 +4,7 @@ sqlite db (never the real one)."""
 from __future__ import annotations
 
 import time
+from threading import Event
 
 import pytest
 
@@ -165,3 +166,35 @@ def test_run_in_background_reports_failure(store):
     job = store.get(job_id)
     assert job.status == STATUS_ERROR
     assert "bad case" in job.error
+
+
+def test_background_job_keeps_the_ledger_selected_at_start(tmp_path, monkeypatch):
+    primary_path = tmp_path / "primary.sqlite3"
+    redirected_path = tmp_path / "redirected.sqlite3"
+    monkeypatch.setenv("TO_DB_PATH", str(primary_path))
+    dynamic_store = JobStore()
+    started = Event()
+    release = Event()
+
+    def work(progress):
+        started.set()
+        assert release.wait(timeout=2)
+        return {"ok": True}
+
+    job_id = run_in_background(dynamic_store, "run", "a1", work)
+    assert started.wait(timeout=2)
+
+    monkeypatch.setenv("TO_DB_PATH", str(redirected_path))
+    redirected_store = JobStore(default_connection_factory(redirected_path))
+    assert redirected_store.get("missing") is None
+    release.set()
+
+    primary_store = JobStore(default_connection_factory(primary_path))
+    for _ in range(200):
+        job = primary_store.get(job_id)
+        if job is not None and job.status == STATUS_DONE:
+            break
+        time.sleep(0.01)
+
+    assert primary_store.get(job_id).status == STATUS_DONE
+    assert redirected_store.get(job_id) is None

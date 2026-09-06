@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.db import init_db, utcnow
+from backend.db import db_path, init_db, utcnow
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -144,7 +144,20 @@ class JobStore:
     """
 
     def __init__(self, connection_factory: ConnectionFactory | None = None) -> None:
+        self._uses_dynamic_default = connection_factory is None
         self._connection_factory = connection_factory or default_connection_factory()
+
+    def bound_to_current_database(self) -> JobStore:
+        """Freeze a dynamic store to the ledger selected for this request.
+
+        Background work can outlive request-scoped environment overrides in
+        tests and scripts. Binding before the thread starts prevents a later
+        ``TO_DB_PATH`` change from redirecting job status writes to another
+        ledger. Explicitly injected stores are already bound and are reused.
+        """
+        if not self._uses_dynamic_default:
+            return self
+        return JobStore(default_connection_factory(db_path()))
 
     def _connect(self) -> Any:
         return self._connection_factory()
@@ -279,6 +292,7 @@ def run_in_background(
     from backend.demo_limits import claim_workflow_slot
     from backend.runtime import neatlogs
 
+    store = store.bound_to_current_database()
     slot = claim_workflow_slot()
     try:
         job_id = store.create(agent_id, kind, job_id=job_id)
