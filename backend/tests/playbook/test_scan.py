@@ -230,6 +230,32 @@ def test_scan_and_record_does_not_advance_cursor_when_scan_fails(
     assert cursor["last_event_id"] == 7
 
 
+def test_scan_and_record_explicit_lower_cursor_does_not_rewind_stored_cursor(
+    tmp_path, conn, make_complete
+):
+    complete, _fake = make_complete([])
+    playbook_path = tmp_path / "lessons.jsonl"
+    advanced = scan_and_record(
+        conn,
+        since_event_id=7,
+        playbook_path=playbook_path,
+        complete=complete,
+    )
+    replayed = scan_and_record(
+        conn,
+        since_event_id=3,
+        playbook_path=playbook_path,
+        complete=complete,
+    )
+
+    cursor = conn.execute(
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
+    ).fetchone()
+    assert advanced.last_event_id == 7
+    assert replayed.last_event_id == 3  # proves the explicit starting point was honored
+    assert cursor["last_event_id"] == 7
+
+
 def test_scan_and_record_explicit_cursor_overrides_persisted_start(tmp_path, conn, make_complete):
     playbook_path = tmp_path / "lessons.jsonl"
     complete, fake = make_complete([_extraction_response()])
