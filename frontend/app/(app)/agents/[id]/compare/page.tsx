@@ -64,7 +64,7 @@ function Compare() {
   const currentVersion = agent.data?.current_version ?? 0;
 
   return (
-    <div className="mx-auto max-w-[1360px] px-6 py-5">
+    <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <div className="mb-2 text-[11px]">
         <Crumb href="/agents">agents</Crumb>
         <span className="text-fg-mute"> / </span>
@@ -74,11 +74,11 @@ function Compare() {
 
       <PageHeader
         title="Compare one task across versions"
-        subtitle="The same input, graded against the same expected answer, at v0 and at the current version. Fields matching the expected answer are green, fields differing are red."
+        subtitle="The same input, graded against the same expected answer, at v0 and at the current version. Matching fields are white; differing fields are red."
       />
 
-      <div className="mt-3 border-b border-line pb-3">
-        <div className="text-[11px] text-fg-mute">task</div>
+      <div className="mt-5 border-b-2 border-line-soft pb-4">
+        <div className="small-label">task</div>
         {runs.loading ? (
           <p className="text-[12px] text-fg-mute">Loading tasks…</p>
         ) : cases.length === 0 ? (
@@ -93,10 +93,10 @@ function Compare() {
                 key={id}
                 onClick={() => pick(id)}
                 aria-pressed={id === caseId}
-                className={`rounded-xs border px-2 py-0.5 text-[11px] ${
+                className={`border px-2 py-1 font-mono text-[10px] ${
                   id === caseId
-                    ? "border-train/50 bg-train/10 text-train"
-                    : "border-line text-fg-mute hover:border-fg-mute hover:text-fg-dim"
+                    ? "border-fg bg-fg text-ink-900"
+                    : "border-line text-fg-mute hover:border-[#ff9783] hover:text-[#ff9783]"
                 }`}
               >
                 {id}
@@ -113,7 +113,7 @@ function Compare() {
       ) : result.error ? (
         <Empty>Could not load {caseId}: {result.error}</Empty>
       ) : !result.data ? null : (
-        <div className="grid gap-px bg-line pt-4 md:grid-cols-3">
+        <div className="grid gap-4 pt-6 md:grid-cols-3">
           <Column
             title="expected"
             note="Ground truth from the evaluator."
@@ -165,8 +165,8 @@ function Column({
   );
 
   return (
-    <section className="bg-ink-900 px-3 py-3">
-      <header className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
+    <section className="border border-line-soft bg-ink-700 p-5">
+      <header className="flex items-baseline justify-between gap-2 border-b-2 border-line-soft pb-4">
         <div className="flex items-baseline gap-1.5">
           <h2 className="text-[13px] text-fg">{title}</h2>
           {side?.passed !== undefined ? (

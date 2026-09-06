@@ -41,18 +41,17 @@ export default function Stat({
     drift: "bg-drift",
   }[tone];
 
-  const valueSize = { sm: "text-base", md: "text-xl", lg: "text-3xl" }[size];
+  const valueSize = { sm: "text-xl", md: "text-3xl", lg: "text-4xl" }[size];
 
   const hasRate = rate !== undefined && rate !== null;
   const shown = hasRate ? pct(rate.mean) : (value ?? DASH);
   const isEmpty = shown === DASH;
 
   return (
-    <div className="min-w-[104px]">
-      <div className="text-[11px] leading-4 text-fg-mute">{label}</div>
-      <div className="flex items-baseline gap-1.5">
+    <div className="min-w-[112px] border-t-2 border-line-soft pt-3">
+      <div className="flex flex-wrap items-baseline gap-1.5">
         <span
-          className={`${valueSize} tabular-nums leading-tight ${isEmpty ? "text-fg-mute" : toneClass}`}
+          className={`border border-dashed border-fg-mute bg-ink-600 px-2 py-0.5 font-mono font-bold tabular-nums leading-tight ${valueSize} ${isEmpty ? "text-fg-mute" : toneClass}`}
         >
           {shown}
         </span>
@@ -63,6 +62,7 @@ export default function Stat({
           <span className="text-[11px] tabular-nums text-fg-dim">± {pct(rate.std)}</span>
         ) : null}
       </div>
+      <div className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.06em] leading-4 text-fg-mute">{label}</div>
       {hasRate && !isEmpty ? <Band rate={rate} color={bandColor} /> : null}
     </div>
   );
@@ -74,7 +74,7 @@ function Band({ rate, color }: { rate: RateStat; color: string }) {
   const width = Math.max(1.5, Math.min(100 - left, (rate.max - rate.min) * 100));
   return (
     <div
-      className="relative mt-1 h-[3px] w-full bg-ink-700"
+      className="relative mt-2 h-[3px] w-full bg-ink-600"
       title={`min ${pct(rate.min)} / max ${pct(rate.max)} over trials`}
     >
       <div

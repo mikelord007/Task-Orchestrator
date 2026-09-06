@@ -27,12 +27,12 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={rows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
               <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
               <YAxis tick={axisTick} tickLine={false} axisLine={false} width={24} />
               <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
-              <Line dataKey="calls" stroke={CHART_COLORS.train} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} name="calls/task" />
-              <Line dataKey="redundant" stroke={CHART_COLORS.drift} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="redundant/task" />
-              <Line dataKey="errors" stroke={CHART_COLORS.fail} strokeWidth={1.5} dot={{ r: 2 }} isAnimationActive={false} name="errors/task" />
+              <Line dataKey="calls" stroke={CHART_COLORS.train} strokeWidth={5} dot={{ r: 3 }} isAnimationActive={false} name="calls/task" />
+              <Line dataKey="redundant" stroke={CHART_COLORS.drift} strokeWidth={3} strokeDasharray="3 9" dot={false} isAnimationActive={false} name="redundant/task" />
+              <Line dataKey="errors" stroke={CHART_COLORS.fail} strokeWidth={3} dot={{ r: 2 }} isAnimationActive={false} name="errors/task" />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -51,7 +51,7 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={rows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
               <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
               <YAxis yAxisId="tokens" tick={axisTick} tickLine={false} axisLine={false} width={30} />
               <YAxis yAxisId="ms" orientation="right" tick={axisTick} tickLine={false} axisLine={false} width={34} />
               <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
@@ -59,14 +59,14 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
                 yAxisId="tokens"
                 dataKey="tool_tokens"
                 stroke={CHART_COLORS.holdout}
-                strokeWidth={2}
-                strokeDasharray={anyEstimated ? "4 2" : undefined}
+                strokeWidth={5}
+                strokeDasharray={anyEstimated ? "3 9" : undefined}
                 dot={{ r: 2.5 }}
                 isAnimationActive={false}
                 name={tokensLabel}
                 connectNulls
               />
-              <Line yAxisId="ms" dataKey="latency_ms" stroke={CHART_COLORS.pass} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="ms/task" />
+              <Line yAxisId="ms" dataKey="latency_ms" stroke={CHART_COLORS.mute} strokeWidth={3} strokeDasharray="3 9" dot={false} isAnimationActive={false} name="ms/task" />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

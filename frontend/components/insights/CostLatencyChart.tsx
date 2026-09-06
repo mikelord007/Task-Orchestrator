@@ -44,10 +44,10 @@ export default function CostLatencyChart({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={costRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                   <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
                   <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} tickFormatter={(v) => usd(v)} />
                   <Tooltip {...tooltipStyle} formatter={(v: number) => usd(v)} labelFormatter={(v) => `v${v}`} />
-                  <Bar dataKey="cost" radius={[2, 2, 0, 0]}>
+                  <Bar dataKey="cost" radius={0}>
                     {costRows.map((r) => (
                       <Cell key={r.version} fill={CHART_COLORS.train} fillOpacity={0.75} />
                     ))}
@@ -78,11 +78,11 @@ export default function CostLatencyChart({
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={latencyRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                   <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
                   <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} />
                   <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
-                  <Line dataKey="p50_ms" stroke={CHART_COLORS.pass} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} name="p50" />
-                  <Line dataKey="p95_ms" stroke={CHART_COLORS.mute} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="p95" />
+                  <Line dataKey="p50_ms" stroke={CHART_COLORS.pass} strokeWidth={5} dot={{ r: 3 }} isAnimationActive={false} name="p50" />
+                  <Line dataKey="p95_ms" stroke={CHART_COLORS.mute} strokeWidth={3} strokeDasharray="3 9" dot={false} isAnimationActive={false} name="p95" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

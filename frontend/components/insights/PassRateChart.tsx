@@ -40,8 +40,8 @@ const MARKER_LINE_COLOR: Record<Marker["kind"], string> = {
   issue_opened: CHART_COLORS.drift,
   fix_accepted: CHART_COLORS.pass,
   fix_rejected: CHART_COLORS.fail,
-  memory_demoted: CHART_COLORS.holdout,
-  drift_cluster: CHART_COLORS.mute,
+  memory_demoted: CHART_COLORS.drift,
+  drift_cluster: CHART_COLORS.drift,
 };
 
 const MARKER_TONE: Record<
@@ -51,8 +51,8 @@ const MARKER_TONE: Record<
   issue_opened: "drift",
   fix_accepted: "pass",
   fix_rejected: "fail",
-  memory_demoted: "holdout",
-  drift_cluster: "quiet",
+  memory_demoted: "drift",
+  drift_cluster: "drift",
 };
 
 const MARKER_LABEL: Record<Marker["kind"], string> = {
@@ -107,7 +107,11 @@ export default function PassRateChart({
 
   return (
     <div>
-      <p className="text-[11px] text-fg-mute">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 font-mono text-[17px] text-fg-mute">
+        <span className="inline-flex items-center gap-2"><span aria-hidden="true" className="h-3 w-3 bg-fg" /> train</span>
+        <span className="inline-flex items-center gap-2"><span aria-hidden="true" className="h-3 w-3 bg-fg-mute" /> holdout</span>
+      </div>
+      <p className="mt-2 font-mono text-[11px] text-fg-mute">
         {trials} · solid = pass@1 · dashed = pass^k · shaded = mean ±1σ · whiskers = min/max
       </p>
       <div className="mt-2 h-64 w-full">
@@ -118,7 +122,7 @@ export default function PassRateChart({
               dataKey="version"
               tickFormatter={(v) => `v${v}`}
               tick={axisTick}
-              axisLine={{ stroke: CHART_COLORS.grid }}
+              axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }}
               tickLine={false}
             />
             <YAxis
@@ -141,7 +145,7 @@ export default function PassRateChart({
                 key={`marker-${version}`}
                 x={version}
                 stroke={lineColorFor(ms)}
-                strokeDasharray="2 2"
+                strokeDasharray="3 9"
                 strokeOpacity={0.6}
               />
             ))}
@@ -160,7 +164,7 @@ export default function PassRateChart({
               stackId="trainBand"
               stroke="none"
               fill={CHART_COLORS.train}
-              fillOpacity={0.15}
+              fillOpacity={0.28}
               isAnimationActive={false}
               legendType="none"
               tooltipType="none"
@@ -181,7 +185,7 @@ export default function PassRateChart({
               stackId="trainPowKBand"
               stroke="none"
               fill={CHART_COLORS.train}
-              fillOpacity={0.1}
+              fillOpacity={0.28}
               isAnimationActive={false}
               legendType="none"
               tooltipType="none"
@@ -190,8 +194,8 @@ export default function PassRateChart({
             <Line
               dataKey="trainMean"
               stroke={CHART_COLORS.train}
-              strokeWidth={2}
-              dot={{ r: 2.5 }}
+              strokeWidth={5}
+              dot={{ r: 3 }}
               isAnimationActive={false}
               name="train pass@1"
               connectNulls
@@ -199,7 +203,7 @@ export default function PassRateChart({
               <ErrorBar
                 dataKey="trainErr"
                 width={4}
-                strokeWidth={1}
+                strokeWidth={2}
                 stroke={CHART_COLORS.train}
                 direction="y"
               />
@@ -207,9 +211,9 @@ export default function PassRateChart({
             <Line
               dataKey="trainPowK"
               stroke={CHART_COLORS.train}
-              strokeWidth={1.5}
-              strokeDasharray="3 3"
-              dot={{ r: 2 }}
+              strokeWidth={3}
+              strokeDasharray="3 9"
+              dot={false}
               isAnimationActive={false}
               name="train pass^k"
               connectNulls
@@ -217,7 +221,7 @@ export default function PassRateChart({
               <ErrorBar
                 dataKey="trainPowKErr"
                 width={4}
-                strokeWidth={1}
+                strokeWidth={2}
                 stroke={CHART_COLORS.train}
                 direction="y"
               />
@@ -237,7 +241,7 @@ export default function PassRateChart({
               stackId="holdoutBand"
               stroke="none"
               fill={CHART_COLORS.holdout}
-              fillOpacity={0.15}
+              fillOpacity={0.28}
               isAnimationActive={false}
               legendType="none"
               tooltipType="none"
@@ -258,7 +262,7 @@ export default function PassRateChart({
               stackId="holdoutPowKBand"
               stroke="none"
               fill={CHART_COLORS.holdout}
-              fillOpacity={0.1}
+              fillOpacity={0.28}
               isAnimationActive={false}
               legendType="none"
               tooltipType="none"
@@ -267,7 +271,7 @@ export default function PassRateChart({
             <Line
               dataKey="holdoutMean"
               stroke={CHART_COLORS.holdout}
-              strokeWidth={2}
+              strokeWidth={3}
               dot={{ r: 2.5 }}
               isAnimationActive={false}
               name="holdout pass@1"
@@ -276,7 +280,7 @@ export default function PassRateChart({
               <ErrorBar
                 dataKey="holdoutErr"
                 width={4}
-                strokeWidth={1}
+                strokeWidth={2}
                 stroke={CHART_COLORS.holdout}
                 direction="y"
               />
@@ -284,9 +288,9 @@ export default function PassRateChart({
             <Line
               dataKey="holdoutPowK"
               stroke={CHART_COLORS.holdout}
-              strokeWidth={1.5}
-              strokeDasharray="3 3"
-              dot={{ r: 2 }}
+              strokeWidth={3}
+              strokeDasharray="3 9"
+              dot={false}
               isAnimationActive={false}
               name="holdout pass^k"
               connectNulls
@@ -294,7 +298,7 @@ export default function PassRateChart({
               <ErrorBar
                 dataKey="holdoutPowKErr"
                 width={4}
-                strokeWidth={1}
+                strokeWidth={2}
                 stroke={CHART_COLORS.holdout}
                 direction="y"
               />

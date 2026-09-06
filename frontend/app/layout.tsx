@@ -1,30 +1,33 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Archivo, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const plexMono = IBM_Plex_Mono({
+const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-plex-mono",
+  weight: ["400", "500", "700"],
+  variable: "--font-jetbrains-mono",
   display: "swap",
 });
 
-const plexSans = IBM_Plex_Sans({
+const archivo = Archivo({
   subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-plex-sans",
+  weight: ["400", "600", "700", "800"],
+  variable: "--font-archivo",
   display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Task Orchestrator",
-  description: "Generate an agent, measure it, improve it, prove the improvement.",
+  description: "Build agents from evidence. Measure, improve, and gate every change.",
+  icons: {
+    icon: [{ url: "/brand/task-orchestrator-favicon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plexMono.variable} ${plexSans.variable}`}>
-      <body className="min-h-screen bg-ink-900 text-fg">{children}</body>
+    <html lang="en" className={`${jetBrainsMono.variable} ${archivo.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

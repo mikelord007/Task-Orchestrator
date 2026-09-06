@@ -27,8 +27,8 @@ export default function FixCard({
   const [showDiff, setShowDiff] = useState(defaultExpanded && !isMemory);
 
   return (
-    <article id={`fix-${card.to_version}`} className="scroll-mt-4 border-t border-line py-4">
-      <header className="flex flex-wrap items-center gap-2">
+    <article id={`fix-${card.to_version}`} className="mt-4 scroll-mt-4 border border-line-soft bg-ink-800 p-6 first:mt-0">
+      <header className="flex flex-wrap items-center gap-2 border-b-2 border-line-soft pb-4">
         <Pill tone={accepted ? "pass" : "fail"}>{card.status}</Pill>
         <LeverChip lever={card.lever} />
         <span className="text-[12px] text-fg">
@@ -65,7 +65,7 @@ export default function FixCard({
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           onClick={() => (isMemory ? setShowMemory((v) => !v) : setShowDiff((v) => !v))}
-          className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
+          className="border border-line px-2 py-1 font-mono text-[10px] uppercase text-fg-dim hover:border-[#ff9783] hover:text-[#ff9783]"
         >
           {isMemory
             ? showMemory
@@ -78,7 +78,7 @@ export default function FixCard({
         {isMemory ? (
           <button
             onClick={() => setShowDiff((v) => !v)}
-            className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
+            className="border border-line px-2 py-1 font-mono text-[10px] uppercase text-fg-dim hover:border-[#ff9783] hover:text-[#ff9783]"
           >
             {showDiff ? "hide diff" : "show diff"}
           </button>

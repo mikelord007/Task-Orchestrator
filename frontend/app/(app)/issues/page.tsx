@@ -4,7 +4,7 @@ import { Button, Empty, PageHeader, Panel } from "@/components/ui";
 
 export default function IssuesPage() {
   return (
-    <div className="mx-auto max-w-[1200px] px-6 py-5">
+    <div className="mx-auto max-w-[1200px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <PageHeader
         title="Issues"
         subtitle="Issue tracking was not included in this build. No issue data is loaded or submitted."

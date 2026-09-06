@@ -73,7 +73,7 @@ function AgentDetail() {
 
   if (agent.error) {
     return (
-      <div className="mx-auto max-w-[1360px] px-6 py-5">
+      <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10">
         <Empty>Could not load {agentId}: {agent.error}</Empty>
       </div>
     );
@@ -97,7 +97,7 @@ function AgentDetail() {
   };
 
   return (
-    <div className="mx-auto max-w-[1360px] px-6 py-5">
+    <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <div className="mb-2 text-[11px]">
         <Crumb href="/agents">agents</Crumb>
         <span className="text-fg-mute"> / {a.agent_id}</span>
@@ -137,10 +137,10 @@ function AgentDetail() {
               key={v}
               onClick={() => setParam("version", String(v))}
               aria-pressed={v === shownVersion}
-              className={`rounded-xs border px-1.5 py-px ${
+              className={`border px-2 py-1 font-mono text-[10px] font-bold uppercase ${
                 v === shownVersion
-                  ? "border-train/50 text-train"
-                  : "border-line text-fg-mute hover:text-fg-dim"
+                  ? "border-fg bg-fg text-ink-900"
+                  : "border-line text-fg-mute hover:border-[#ff9783] hover:text-[#ff9783]"
               }`}
               title={v === a.current_version ? "Current version" : `Snapshot v${v}`}
             >
@@ -151,11 +151,11 @@ function AgentDetail() {
           <span className="text-fg-mute">* current</span>
           <Link
             href={`/agents/${agentId}/compare`}
-            className="ml-2 text-fg-mute hover:text-train hover:underline"
+            className="ml-2 font-mono text-[#ff563c] hover:text-[#ff9783] hover:underline"
           >
             compare a task
           </Link>
-          <Link href={`/insights?agent=${agentId}`} className="text-fg-mute hover:text-train hover:underline">
+          <Link href={`/insights?agent=${agentId}`} className="font-mono text-[#ff563c] hover:text-[#ff9783] hover:underline">
             insights
           </Link>
         </div>
@@ -204,14 +204,14 @@ function AgentDetail() {
 
       <JobBar handle={job} />
 
-      <nav className="mt-4 flex gap-5 border-b border-line">
+      <nav className="mt-6 flex gap-5 overflow-x-auto border-b-2 border-line-soft">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setParam("tab", t)}
             aria-current={t === tab ? "page" : undefined}
-            className={`-mb-px border-b py-1.5 text-[12px] ${
-              t === tab ? "border-train text-fg" : "border-transparent text-fg-mute hover:text-fg-dim"
+            className={`-mb-px border-b-2 px-1 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.06em] ${
+              t === tab ? "border-fg text-fg" : "border-transparent text-fg-mute hover:text-[#ff9783]"
             }`}
           >
             {t}
@@ -222,7 +222,7 @@ function AgentDetail() {
         ))}
       </nav>
 
-      <div className="pt-4">
+      <div className="overflow-x-auto pt-4">
         {tab === "prompt" ? <PromptTab prompt={a.prompt} /> : null}
 
         {tab === "tools" ? (

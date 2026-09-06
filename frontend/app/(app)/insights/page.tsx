@@ -79,7 +79,7 @@ function Insights() {
   }
 
   return (
-    <div className="mx-auto max-w-[1360px] space-y-7 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-[1440px] space-y-8 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <PageHeader
         title="Insights"
         subtitle="Every chart here is a query over the append-only event ledger. Nothing is hardcoded."
@@ -120,7 +120,7 @@ function Insights() {
       ) : (
         <>
           {insights.data?.saturated ? (
-            <div className="rounded-lg border border-drift/40 bg-drift/5 px-4 py-4 text-[12px] leading-6 text-drift">
+            <div className="border border-drift bg-drift px-4 py-4 font-mono text-[12px] leading-6 text-ink-900">
               Capability suite saturated for {agentName}: train pass@1 has held ≥ 95% for two
               consecutive versions. Add harder tasks to the train split before trusting further
               gains here.
@@ -128,7 +128,7 @@ function Insights() {
           ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-line border-t-pass/60 bg-ink-800 p-6">
+            <div className="border border-line-soft bg-ink-700 p-6">
               <Stat
                 label="tasks graduated"
                 value={hasRunHistory ? String(insights.data?.graduated_count ?? "—") : "—"}
@@ -139,7 +139,7 @@ function Insights() {
                 Tasks that met the graduation criteria.
               </p>
             </div>
-            <div className="rounded-xl border border-line border-t-fg-mute/60 bg-ink-800 p-6">
+            <div className="border border-line-soft bg-ink-700 p-6">
               <div className="text-[11px] leading-4 text-fg-mute">flagged tasks</div>
               <div className="text-3xl leading-tight tabular-nums text-fg">
                 {hasRunHistory ? (insights.data?.flagged_tasks.length ?? "—") : "—"}
