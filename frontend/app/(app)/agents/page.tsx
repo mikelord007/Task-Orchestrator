@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { createAgent, listAgents, listEvaluators } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import Stat from "@/components/Stat";
-import { Button, Empty, Field, PageHeader, Panel, Td, Th, inputClass } from "@/components/ui";
+import { Button, Empty, Field, PageHeader, Panel, Pill, inputClass } from "@/components/ui";
 
 export default function AgentsPage() {
   const agents = useAsync(() => listAgents(), []);
@@ -14,7 +14,7 @@ export default function AgentsPage() {
   const [formOpen, setFormOpen] = useState(false);
 
   return (
-    <div className="mx-auto max-w-[1360px] px-6 py-5">
+    <div className="mx-auto max-w-[1360px] px-4 py-6 sm:px-8 sm:py-8">
       <PageHeader
         title="Agents"
         subtitle="Each agent is a versioned package. A version is only ever added, never edited in place."
@@ -38,7 +38,7 @@ export default function AgentsPage() {
       <Panel
         title="All agents"
         meta={agents.data ? `${agents.data.length}` : undefined}
-        className="mt-5"
+        className="mt-7"
       >
         {agents.loading ? (
           <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
@@ -50,49 +50,46 @@ export default function AgentsPage() {
             a goal, a tool set and an evaluator.
           </Empty>
         ) : (
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr>
-                <Th className="w-[22%]">agent</Th>
-                <Th className="w-[14%]">domain</Th>
-                <Th className="w-[7%]">version</Th>
-                <Th className="w-[16%]">train</Th>
-                <Th className="w-[16%]">holdout</Th>
-                <Th>goal</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.data!.map((agent) => (
-                <tr key={agent.agent_id}>
-                  <Td>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {agents.data!.map((agent) => (
+              <article
+                key={agent.agent_id}
+                className="group flex min-w-0 flex-col rounded-lg border border-line bg-ink-900/50 p-5 transition-colors hover:border-fg-mute/60 hover:bg-ink-800"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <Link
                       href={`/agents/${agent.agent_id}`}
-                      className="text-fg hover:text-train hover:underline"
+                      className="break-words font-sans text-lg font-medium text-fg underline-offset-4 hover:underline"
                     >
                       {agent.name}
+                      <span
+                        aria-hidden="true"
+                        className="ml-2 inline-block text-fg-mute transition-transform group-hover:translate-x-0.5"
+                      >
+                        ↗
+                      </span>
                     </Link>
-                    <div className="text-[11px] text-fg-mute">{agent.agent_id}</div>
-                  </Td>
-                  <Td className="text-fg-dim">{agent.domain}</Td>
-                  <Td className="tabular-nums text-fg-dim">v{agent.current_version}</Td>
-                  <Td>
-                    <Stat label="" rate={agent.latest_train} tone="train" size="sm" />
-                  </Td>
-                  <Td>
-                    <Stat label="" rate={agent.latest_holdout} tone="holdout" size="sm" />
-                  </Td>
-                  <Td className="text-fg-dim">
-                    <span className="prose-h block">{agent.goal}</span>
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div className="mt-1 break-all text-[10px] text-fg-mute">{agent.agent_id}</div>
+                  </div>
+                  <Pill>v{agent.current_version}</Pill>
+                </div>
+                <div className="mt-4">
+                  <Pill tone="quiet">{agent.domain}</Pill>
+                </div>
+                <p className="prose-h mt-3 flex-1 break-words text-fg-dim">{agent.goal}</p>
+                <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 border-t border-line pt-4">
+                  <Stat label="train" rate={agent.latest_train} tone="train" size="md" />
+                  <Stat label="holdout" rate={agent.latest_holdout} tone="holdout" size="md" />
+                </div>
+              </article>
+            ))}
+          </div>
         )}
         {(agents.data?.length ?? 0) > 0 ? (
-          <p className="mt-2 text-[10px] text-fg-mute">
-            Pass rates are the latest recorded run of the current version, mean ± std over trials.
-            A dash means that split has not been run.
+          <p className="mt-5 text-[11px] leading-5 text-fg-mute">
+            Pass rates are the latest recorded run of the current version, mean ± std over trials. A
+            dash means that split has not been run.
           </p>
         ) : null}
       </Panel>
@@ -104,7 +101,12 @@ function NewAgentForm({
   evaluators,
   onCreated,
 }: {
-  evaluators: { evaluator_id: string; domain: string; description: string; allowed_tools: string[] }[];
+  evaluators: {
+    evaluator_id: string;
+    domain: string;
+    description: string;
+    allowed_tools: string[];
+  }[];
   onCreated: () => void;
 }) {
   const router = useRouter();
@@ -144,7 +146,7 @@ function NewAgentForm({
 
   if (evaluators.length === 0) {
     return (
-      <Panel title="New agent" className="mt-5">
+      <Panel title="New agent" className="mt-7">
         <Empty>
           No evaluators are registered. Add one under <code>evaluators/</code> and reload; the tool
           list on this form comes from the evaluator.
@@ -154,8 +156,11 @@ function NewAgentForm({
   }
 
   return (
-    <Panel title="New agent" className="mt-5">
-      <form onSubmit={submit} className="grid max-w-[900px] gap-4 py-2 md:grid-cols-2">
+    <Panel title="New agent" className="mt-7">
+      <p className="mb-6 font-sans text-sm text-fg-dim">
+        Define a goal, choose an evaluator, and equip your first version.
+      </p>
+      <form onSubmit={submit} className="grid gap-6 md:grid-cols-2">
         <div className="md:col-span-2">
           <Field
             label="Goal"
@@ -163,7 +168,7 @@ function NewAgentForm({
           >
             <textarea
               required
-              rows={2}
+              rows={3}
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               placeholder="Triage an open issue the way this repository's maintainers do."
@@ -190,7 +195,11 @@ function NewAgentForm({
         </Field>
 
         <Field label="Domain" hint="Taken from the evaluator.">
-          <input readOnly value={evaluator?.domain ?? ""} className={`${inputClass} text-fg-mute`} />
+          <input
+            readOnly
+            value={evaluator?.domain ?? ""}
+            className={`${inputClass} text-fg-mute`}
+          />
         </Field>
 
         <div className="md:col-span-2">
@@ -198,7 +207,7 @@ function NewAgentForm({
             label={`Tools (${tools.length} of ${allowedTools.length})`}
             hint="Only the tools this evaluator allows. The architect may still write one glue tool of its own."
           >
-            <div className="mt-1 flex flex-wrap gap-1.5">
+            <div className="mt-3 flex flex-wrap gap-2">
               {allowedTools.map((tool) => {
                 const on = tools.includes(tool);
                 return (
@@ -211,10 +220,10 @@ function NewAgentForm({
                         prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
                       )
                     }
-                    className={`rounded-xs border px-2 py-1 text-[11px] ${
+                    className={`rounded-lg border px-3 py-2 text-[11px] transition-colors ${
                       on
-                        ? "border-train/50 bg-train/10 text-train"
-                        : "border-line text-fg-mute hover:border-fg-mute hover:text-fg-dim"
+                        ? "border-fg-dim bg-ink-600 text-fg"
+                        : "border-line bg-ink-900 text-fg-dim hover:border-fg-mute hover:text-fg"
                     }`}
                   >
                     {tool}
@@ -225,13 +234,13 @@ function NewAgentForm({
           </Field>
         </div>
 
-        <div className="md:col-span-2 flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-[12px] text-fg-dim">
+        <div className="md:col-span-2 flex flex-wrap items-center gap-4 border-t border-line pt-5">
+          <label className="flex flex-wrap items-center gap-2 text-[12px] text-fg-dim">
             <input
               type="checkbox"
               checked={usePlaybook}
               onChange={(e) => setUsePlaybook(e.target.checked)}
-              className="accent-train"
+              className="h-4 w-4 accent-fg"
             />
             Apply the playbook
             <span className="text-[11px] text-fg-mute">

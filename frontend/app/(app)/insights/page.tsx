@@ -2,7 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { getInsights, getInsightsCompare, getPlaybook, listAgents, listFixes, listRuns } from "@/lib/api";
+import {
+  getInsights,
+  getInsightsCompare,
+  getPlaybook,
+  listAgents,
+  listFixes,
+  listRuns,
+} from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import FixCard from "@/components/FixCard";
 import Stat from "@/components/Stat";
@@ -15,7 +22,7 @@ import MemoryGrowthChart from "@/components/insights/MemoryGrowthChart";
 import PassRateChart from "@/components/insights/PassRateChart";
 import PlaybookPanel from "@/components/insights/PlaybookPanel";
 import ToolEfficiencyChart from "@/components/insights/ToolEfficiencyChart";
-import { Empty, inputClass, PageHeader, Panel, Pill } from "@/components/ui";
+import { Button, Empty, inputClass, PageHeader, Panel, Pill } from "@/components/ui";
 
 export default function InsightsPage() {
   return (
@@ -66,29 +73,39 @@ function Insights() {
   }, [insights.data, runs.data]);
 
   function jumpToFix(toVersion: number) {
-    document.getElementById(`fix-${toVersion}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById(`fix-${toVersion}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
-    <div className="mx-auto max-w-[1360px] px-6 py-5">
+    <div className="mx-auto max-w-[1360px] space-y-7 px-4 py-6 sm:px-8 sm:py-8">
       <PageHeader
         title="Insights"
         subtitle="Every chart here is a query over the append-only event ledger. Nothing is hardcoded."
         right={
           agents.data && agents.data.length > 0 ? (
-            <select
-              value={agentId ?? ""}
-              onChange={(e) => router.replace(`/insights?agent=${e.target.value}`)}
-              className="rounded-xs border border-line bg-ink-800 px-2 py-1.5 text-[12px] text-fg focus:border-train focus:outline-none"
-            >
-              {agents.data.map((a) => (
-                <option key={a.agent_id} value={a.agent_id}>
-                  {a.name ?? a.goal}
-                </option>
-              ))}
-            </select>
+            <label className="block w-full sm:w-72">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-fg-dim">
+                Agent workspace
+              </span>
+              <select
+                value={agentId ?? ""}
+                onChange={(e) => router.replace(`/insights?agent=${e.target.value}`)}
+                className={`${inputClass} border-fg-mute/50 bg-ink-800`}
+              >
+                {agents.data.map((a) => (
+                  <option key={a.agent_id} value={a.agent_id}>
+                    {a.name ?? a.goal}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : !agents.loading ? (
-            <AgentIdField initial={agentId ?? ""} onGo={(id) => router.replace(`/insights?agent=${id}`)} />
+            <AgentIdField
+              initial={agentId ?? ""}
+              onGo={(id) => router.replace(`/insights?agent=${id}`)}
+            />
           ) : undefined
         }
       />
@@ -97,120 +114,155 @@ function Insights() {
         <p className="mt-4 text-[12px] text-fg-mute">Loading agents…</p>
       ) : !agentId ? (
         <Empty>
-          No agents yet. Create one under Agents, run a split, and its charts appear here — or
-          type a known agent id above.
+          No agents yet. Create one under Agents, run a split, and its charts appear here — or type
+          a known agent id above.
         </Empty>
       ) : (
         <>
           {insights.data?.saturated ? (
-            <div className="mt-3 border border-drift/40 bg-drift/5 px-3 py-2 text-[12px] text-drift">
+            <div className="rounded-lg border border-drift/40 bg-drift/5 px-4 py-4 text-[12px] leading-6 text-drift">
               Capability suite saturated for {agentName}: train pass@1 has held ≥ 95% for two
               consecutive versions. Add harder tasks to the train split before trusting further
               gains here.
             </div>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-8">
-            <Stat
-              label="tasks graduated"
-              value={hasRunHistory ? String(insights.data?.graduated_count ?? "—") : "—"}
-              tone="pass"
-              size="lg"
-            />
-            <div className="min-w-[140px]">
-              <div className="text-[11px] text-fg-mute">flagged tasks</div>
-              <div className="mt-1 text-xl tabular-nums text-fg">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-line border-t-pass/60 bg-ink-800 p-6">
+              <Stat
+                label="tasks graduated"
+                value={hasRunHistory ? String(insights.data?.graduated_count ?? "—") : "—"}
+                tone="pass"
+                size="lg"
+              />
+              <p className="mt-4 text-[11px] leading-5 text-fg-mute">
+                Tasks that met the graduation criteria.
+              </p>
+            </div>
+            <div className="rounded-xl border border-line border-t-fg-mute/60 bg-ink-800 p-6">
+              <div className="text-[11px] leading-4 text-fg-mute">flagged tasks</div>
+              <div className="text-3xl leading-tight tabular-nums text-fg">
                 {hasRunHistory ? (insights.data?.flagged_tasks.length ?? "—") : "—"}
               </div>
+              <p className="mt-4 text-[11px] leading-5 text-fg-mute">
+                Tasks at 0% pass rate for three versions.
+              </p>
             </div>
           </div>
 
-          <Panel title="Pass rate by version" meta={<Pill tone="quiet">pass@1 / pass^k</Pill>}>
-            {insights.loading ? (
-              <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
-            ) : (
-              <PassRateChart
-                pass1={insights.data?.pass_at_1_by_version ?? []}
-                passK={insights.data?.pass_pow_k_by_version ?? []}
-                markers={insights.data?.markers ?? []}
-                onJumpToFix={jumpToFix}
-              />
-            )}
-          </Panel>
+          <div className="space-y-5">
+            <h2 className="text-[11px] uppercase tracking-[0.16em] text-fg-mute">Performance</h2>
+            <Panel title="Pass rate by version" meta={<Pill tone="quiet">pass@1 / pass^k</Pill>}>
+              {insights.loading ? (
+                <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
+              ) : (
+                <PassRateChart
+                  pass1={insights.data?.pass_at_1_by_version ?? []}
+                  passK={insights.data?.pass_pow_k_by_version ?? []}
+                  markers={insights.data?.markers ?? []}
+                  onJumpToFix={jumpToFix}
+                />
+              )}
+            </Panel>
 
-          <Panel title="Cost and latency">
-            {insights.data ? (
-              <CostLatencyChart
-                cost={insights.data.cost_by_version}
-                latency={insights.data.latency_by_version}
-              />
-            ) : (
-              <Empty>No runs yet.</Empty>
-            )}
-          </Panel>
+            <Panel title="Cost and latency">
+              {insights.data ? (
+                <CostLatencyChart
+                  cost={insights.data.cost_by_version}
+                  latency={insights.data.latency_by_version}
+                />
+              ) : (
+                <Empty>No runs yet.</Empty>
+              )}
+            </Panel>
+          </div>
 
-          <Panel title="Fixes, regressions and issues">
-            {insights.data && hasRunHistory ? (
-              <FixesSummary
-                fixesByLever={insights.data.fixes_by_lever}
-                regressionsCaught={insights.data.regressions_caught}
-                issues={insights.data.issues}
-              />
-            ) : (
-              <Empty>
-                No improvement evidence yet. Run the train split, then start an improve attempt
-                to populate fixes, caught regressions, and linked issues.
-              </Empty>
-            )}
-          </Panel>
+          <div className="space-y-5">
+            <h2 className="text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+              Improvement evidence
+            </h2>
+            <Panel title="Fixes, regressions and issues">
+              {insights.data && hasRunHistory ? (
+                <FixesSummary
+                  fixesByLever={insights.data.fixes_by_lever}
+                  regressionsCaught={insights.data.regressions_caught}
+                  issues={insights.data.issues}
+                />
+              ) : (
+                <Empty>
+                  No improvement evidence yet. Run the train split, then start an improve attempt to
+                  populate fixes, caught regressions, and linked issues.
+                </Empty>
+              )}
+            </Panel>
 
-          <Panel title="Fix cards" meta={fixes.data ? `${fixes.data.length}` : undefined}>
-            {fixes.loading ? (
-              <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
-            ) : (fixes.data?.length ?? 0) === 0 ? (
-              <Empty>No improvement attempt yet for {agentName}.</Empty>
-            ) : (
-              fixes.data!.map((card) => (
-                <FixCard key={`${card.to_version}-${card.status}`} card={card} agentId={agentId} />
-              ))
-            )}
-          </Panel>
+            <Panel title="Fix cards" meta={fixes.data ? `${fixes.data.length}` : undefined}>
+              {fixes.loading ? (
+                <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
+              ) : (fixes.data?.length ?? 0) === 0 ? (
+                <Empty>No improvement attempt yet for {agentName}.</Empty>
+              ) : (
+                fixes.data!.map((card) => (
+                  <FixCard
+                    key={`${card.to_version}-${card.status}`}
+                    card={card}
+                    agentId={agentId}
+                  />
+                ))
+              )}
+            </Panel>
+          </div>
 
-          <Panel title="Drift">
-            {insights.data ? (
-              <DriftPanel drift={insights.data.drift} byVersion={driftByVersion} />
-            ) : (
-              <Empty>No data yet.</Empty>
-            )}
-          </Panel>
+          <div className="space-y-5">
+            <h2 className="text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+              Runtime &amp; memory
+            </h2>
+            <Panel title="Drift">
+              {insights.data ? (
+                <DriftPanel drift={insights.data.drift} byVersion={driftByVersion} />
+              ) : (
+                <Empty>No data yet.</Empty>
+              )}
+            </Panel>
 
-          <Panel title="Memory growth">
-            {insights.data ? (
-              <MemoryGrowthChart points={insights.data.memory_by_version} />
-            ) : (
-              <Empty>No data yet.</Empty>
-            )}
-          </Panel>
+            <Panel title="Memory growth">
+              {insights.data ? (
+                <MemoryGrowthChart points={insights.data.memory_by_version} />
+              ) : (
+                <Empty>No data yet.</Empty>
+              )}
+            </Panel>
 
-          <Panel title="Tool-usage efficiency">
-            {insights.data ? (
-              <ToolEfficiencyChart points={insights.data.tool_stats_by_version} />
-            ) : (
-              <Empty>No data yet.</Empty>
-            )}
-          </Panel>
+            <Panel title="Tool-usage efficiency">
+              {insights.data ? (
+                <ToolEfficiencyChart points={insights.data.tool_stats_by_version} />
+              ) : (
+                <Empty>No data yet.</Empty>
+              )}
+            </Panel>
+          </div>
 
-          <Panel title="Flagged tasks" meta={<span>0% for 3 versions running</span>}>
-            <FlaggedTasks tasks={insights.data?.flagged_tasks ?? []} />
-          </Panel>
+          <div className="space-y-5">
+            <h2 className="text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+              Tasks &amp; shared learning
+            </h2>
+            <Panel title="Flagged tasks" meta={<span>0% for 3 versions running</span>}>
+              <FlaggedTasks tasks={insights.data?.flagged_tasks ?? []} />
+            </Panel>
 
-          <Panel title="Domain comparison">
-            <DomainComparison compare={compare.data ?? null} />
-          </Panel>
+            <div className="grid items-start gap-5 xl:grid-cols-2">
+              <Panel title="Domain comparison">
+                <DomainComparison compare={compare.data ?? null} />
+              </Panel>
 
-          <Panel title="Playbook" meta={playbook.data ? `${playbook.data.length} lessons` : undefined}>
-            <PlaybookPanel lessons={playbook.data ?? []} />
-          </Panel>
+              <Panel
+                title="Playbook"
+                meta={playbook.data ? `${playbook.data.length} lessons` : undefined}
+              >
+                <PlaybookPanel lessons={playbook.data ?? []} />
+              </Panel>
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -232,20 +284,16 @@ function AgentIdField({ initial, onGo }: { initial: string; onGo: (agentId: stri
         e.preventDefault();
         if (value.trim()) onGo(value.trim());
       }}
-      className="flex items-center gap-1.5"
+      className="flex flex-wrap items-center gap-2"
     >
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        aria-label="Agent ID"
         placeholder="agent id"
-        className={`${inputClass} mt-0 w-40`}
+        className={`${inputClass} mt-0 w-48`}
       />
-      <button
-        type="submit"
-        className="rounded-xs border border-line px-2 py-1.5 text-[12px] text-fg-dim hover:border-fg-mute hover:text-fg"
-      >
-        go
-      </button>
+      <Button type="submit">Go</Button>
     </form>
   );
 }
