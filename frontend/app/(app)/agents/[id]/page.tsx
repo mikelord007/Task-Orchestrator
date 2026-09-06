@@ -88,36 +88,28 @@ function AgentDetail() {
   const latestTrain = a.latest_train;
   const latestHoldout = a.latest_holdout;
 
-  const counts: Record<Tab, number | null> = {
-    prompt: null,
-    tools: a.tools.length,
-    memory: a.memory.rules.length + a.memory.tool_notes.length + a.memory.episodes.length,
-    runs: runs.data?.length ?? null,
-    fixes: fixes.data?.length ?? null,
-  };
-
   return (
-    <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-      <div className="mb-2 text-[11px]">
+    <div className="mx-auto max-w-[1440px] px-5 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-14">
+      <div className="mb-5 text-[11px]">
         <Crumb href="/agents">agents</Crumb>
         <span className="text-fg-mute"> / {a.agent_id}</span>
       </div>
 
       <PageHeader
-        title={
-          <span className="flex flex-wrap items-baseline gap-3">
-            {a.name}
-            <span className="text-[12px] text-fg-mute">{a.domain}</span>
-            <Pill tone="quiet" title={a.orchestration_reason ?? undefined}>
-              {a.orchestration}
-            </Pill>
-          </span>
-        }
+        title={a.name}
         subtitle={
           <>
             <span className="prose-h block">{a.goal}</span>
+            <span className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-fg-mute">
+                {a.domain}
+              </span>
+              <Pill tone="quiet" title={a.orchestration_reason ?? undefined}>
+                {a.orchestration}
+              </Pill>
+            </span>
             {a.orchestration_reason ? (
-              <span className="prose-h mt-1 block text-fg-mute">{a.orchestration_reason}</span>
+              <span className="prose-h mt-3 block text-fg-mute">{a.orchestration_reason}</span>
             ) : null}
           </>
         }
@@ -129,100 +121,107 @@ function AgentDetail() {
         }
       />
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="text-fg-mute">version</span>
-          {versions.map((v) => (
-            <button
-              key={v}
-              onClick={() => setParam("version", String(v))}
-              aria-pressed={v === shownVersion}
-              className={`border px-2 py-1 font-mono text-[10px] font-bold uppercase ${
-                v === shownVersion
-                  ? "border-fg bg-fg text-ink-900"
-                  : "border-line text-fg-mute hover:border-[#ff9783] hover:text-[#ff9783]"
-              }`}
-              title={v === a.current_version ? "Current version" : `Snapshot v${v}`}
+      <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+          <label className="block min-w-[180px]">
+            <span className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-fg-mute">
+              Version
+            </span>
+            <select
+              value={shownVersion}
+              onChange={(event) => setParam("version", event.target.value)}
+              className="w-full border border-line bg-ink-700 px-3 py-2.5 font-mono text-[11px] font-bold uppercase text-fg focus:border-fg focus:outline-none"
+              aria-label="Agent version"
             >
-              v{v}
-              {v === a.current_version ? "*" : ""}
-            </button>
-          ))}
-          <span className="text-fg-mute">* current</span>
-          <Link
-            href={`/agents/${agentId}/compare`}
-            className="ml-2 font-mono text-[#ff563c] hover:text-[#ff9783] hover:underline"
-          >
-            compare a task
-          </Link>
-          <Link href={`/insights?agent=${agentId}`} className="font-mono text-[#ff563c] hover:text-[#ff9783] hover:underline">
-            insights
-          </Link>
+              {versions.map((v) => (
+                <option key={v} value={v}>
+                  v{v}{v === a.current_version ? " — current" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex flex-wrap gap-x-5 gap-y-2 pb-2.5 text-[11px]">
+            <Link
+              href={`/agents/${agentId}/compare`}
+              className="font-mono text-fg-mute hover:text-[#ff9783] hover:underline"
+            >
+              Compare a task
+            </Link>
+            <Link
+              href={`/insights?agent=${agentId}`}
+              className="font-mono text-fg-mute hover:text-[#ff9783] hover:underline"
+            >
+              View insights
+            </Link>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={job.active || !LIVE_MODEL_CALLS}
-            onClick={async () => {
-              const { run_id } = await runAgent(agentId, { split: "train" });
-              job.track(run_id, "Run train");
-            }}
-          >
-            Run train
-          </Button>
-          <Button
-            disabled={job.active || !LIVE_MODEL_CALLS}
-            onClick={async () => {
-              const { run_id } = await runAgent(agentId, { split: "holdout" });
-              job.track(run_id, "Run holdout");
-            }}
-            title={
-              LIVE_MODEL_CALLS
-                ? "Holdout is never shown to the improver; it is only run for reporting."
-                : "Unavailable: no model provider credentials are configured"
-            }
-          >
-            Run holdout
-          </Button>
-          <Button
-            variant="primary"
-            disabled={job.active || !LIVE_MODEL_CALLS}
-            onClick={async () => {
-              const { job_id } = await improveAgent(agentId, { max_attempts: 3 });
-              job.track(job_id, "Improve");
-            }}
-            title={
-              LIVE_MODEL_CALLS
-                ? "Diagnose the top failure groups, patch one lever, gate the result."
-                : "Unavailable: no model provider credentials are configured"
-            }
-          >
-            Improve
-          </Button>
+        <div className="border border-line-soft bg-ink-700 px-4 py-4 sm:px-5">
+          <span className="mb-3 block font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-fg-mute">
+            Actions
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={job.active || !LIVE_MODEL_CALLS}
+              onClick={async () => {
+                const { run_id } = await runAgent(agentId, { split: "train" });
+                job.track(run_id, "Run train");
+              }}
+            >
+              Run train
+            </Button>
+            <Button
+              disabled={job.active || !LIVE_MODEL_CALLS}
+              onClick={async () => {
+                const { run_id } = await runAgent(agentId, { split: "holdout" });
+                job.track(run_id, "Run holdout");
+              }}
+              title={
+                LIVE_MODEL_CALLS
+                  ? "Holdout is never shown to the improver; it is only run for reporting."
+                  : "Unavailable: no model provider credentials are configured"
+              }
+            >
+              Run holdout
+            </Button>
+            <Button
+              variant="primary"
+              disabled={job.active || !LIVE_MODEL_CALLS}
+              onClick={async () => {
+                const { job_id } = await improveAgent(agentId, { max_attempts: 3 });
+                job.track(job_id, "Improve");
+              }}
+              title={
+                LIVE_MODEL_CALLS
+                  ? "Diagnose the top failure groups, patch one lever, gate the result."
+                  : "Unavailable: no model provider credentials are configured"
+              }
+            >
+              Improve
+            </Button>
+          </div>
         </div>
       </div>
 
       <JobBar handle={job} />
 
-      <nav className="mt-6 flex gap-5 overflow-x-auto border-b-2 border-line-soft">
+      <nav className="mt-10 flex gap-7 overflow-x-auto border-b border-line-soft" aria-label="Agent details">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setParam("tab", t)}
             aria-current={t === tab ? "page" : undefined}
-            className={`-mb-px border-b-2 px-1 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.06em] ${
+            className={`-mb-px border-b-2 px-1 py-3.5 font-mono text-[11px] font-bold uppercase tracking-[0.06em] ${
               t === tab ? "border-fg text-fg" : "border-transparent text-fg-mute hover:text-[#ff9783]"
             }`}
           >
             {t}
-            {counts[t] !== null ? (
-              <span className="ml-1.5 text-[11px] tabular-nums text-fg-mute">{counts[t]}</span>
-            ) : null}
           </button>
         ))}
       </nav>
 
-      <div className="overflow-x-auto pt-4">
+      <div className="overflow-x-auto pt-8 sm:pt-10">
         {tab === "prompt" ? <PromptTab prompt={a.prompt} /> : null}
 
         {tab === "tools" ? (
