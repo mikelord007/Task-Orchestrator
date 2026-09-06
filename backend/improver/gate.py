@@ -81,22 +81,22 @@ def _pairs_from_summary(summary: Any) -> list[tuple[str, bool]]:
     return [(o.case_id, bool(o.passed)) for o in summary.cases]
 
 
-def _failing_group_case_ids(
-    conn: sqlite3.Connection, agent_id: str, candidate_version: int
-) -> list[str]:
+def _proposal_for(conn: sqlite3.Connection, agent_id: str, candidate_version: int) -> Any | None:
+    """The `fix_proposed` `patch` wrote for this candidate, if any.
+
+    It is the only record of what the candidate *is*: which version it was cut
+    from, which lever was pulled, and which failing group it targeted.
+    """
     for event in reversed(events(conn, kind="fix_proposed", agent_id=agent_id)):
         if event.get("to_version") == candidate_version:
-            group = event.get("failing_group") or {}
-            case_ids = group.get("case_ids")
-            return [str(c) for c in case_ids] if isinstance(case_ids, (list, tuple)) else []
-    return []
-
-
-def _lever_for(conn: sqlite3.Connection, agent_id: str, candidate_version: int) -> str | None:
-    for event in reversed(events(conn, kind="fix_proposed", agent_id=agent_id)):
-        if event.get("to_version") == candidate_version:
-            return event.lever
+            return event
     return None
+
+
+def _failing_group_case_ids(proposal: Any | None) -> list[str]:
+    group = (proposal.get("failing_group") if proposal is not None else None) or {}
+    case_ids = group.get("case_ids")
+    return [str(c) for c in case_ids] if isinstance(case_ids, (list, tuple)) else []
 
 
 def gate(
@@ -134,14 +134,21 @@ def gate(
         conn = init_db(db)
 
     try:
-        prior_version = candidate_version - 1
+        proposal = _proposal_for(conn, agent_id, candidate_version)
+        # The version the candidate was *cut from*, which is not
+        # `candidate_version - 1`: `improve` allocates a fresh slot per
+        # attempt, so after v1 is rejected, v2 is still a child of v0.
+        # Comparing v2 against the rejected v1 would measure the candidate
+        # against a version that was never installed.
+        from_version = proposal.get("from_version") if proposal is not None else None
+        prior_version = int(from_version) if from_version is not None else candidate_version - 1
         # None, not a placeholder string: `lever` is the ledger's own column
         # and `emit` validates it against `contracts.events.Lever`. A gate run
         # with no `fix_proposed` on record (an operator re-gating a candidate
         # directory by hand) has no lever to report, and inventing one would
         # be rejected by the contract.
-        lever = _lever_for(conn, agent_id, candidate_version)
-        group_case_ids = set(_failing_group_case_ids(conn, agent_id, candidate_version))
+        lever = proposal.lever if proposal is not None else None
+        group_case_ids = set(_failing_group_case_ids(proposal))
 
         prior_stable = stable_pass_set(conn, agent_id, prior_version)
         prior_pass_stat = pass_at_1(conn, agent_id, prior_version, TRAIN_SPLIT)
