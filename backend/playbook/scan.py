@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from backend.architect.llm_client import CompleteFn
+from backend.db import REPO_ROOT
 from backend.ledger.query import Event, events
+from backend.settings import env
 
 from .extract import LessonExtractionError, extract_lesson
 from .record import DEFAULT_PLAYBOOK_PATH, record_lesson
@@ -154,11 +156,15 @@ def _save_watermark(conn: sqlite3.Connection, event_id: int) -> None:
     conn.commit()
 
 
+def _configured_playbook_path() -> Path:
+    return Path(env("TO_PLAYBOOK_PATH") or REPO_ROOT / "playbook" / "lessons.jsonl")
+
+
 def scan_and_record(
     conn: sqlite3.Connection,
     *,
     since_event_id: int | None = None,
-    playbook_path: str | Path = DEFAULT_PLAYBOOK_PATH,
+    playbook_path: str | Path | None = None,
     complete: CompleteFn | None = None,
     model: str | None = None,
 ) -> ScanResult:
@@ -171,11 +177,12 @@ def scan_and_record(
     """
     persisted = _persisted_watermark(conn)
     watermark = persisted if since_event_id is None else since_event_id
+    resolved_playbook_path = _configured_playbook_path() if playbook_path is None else playbook_path
 
     result = scan(
         conn,
         since_event_id=watermark,
-        playbook_path=playbook_path,
+        playbook_path=resolved_playbook_path,
         complete=complete,
         model=model,
     )

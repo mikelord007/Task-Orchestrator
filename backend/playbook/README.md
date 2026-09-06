@@ -21,7 +21,7 @@ def scan_and_record(
     conn: sqlite3.Connection,
     *,
     since_event_id: int | None = None,
-    playbook_path: str | Path = DEFAULT_PLAYBOOK_PATH,
+    playbook_path: str | Path | None = None,
     complete: CompleteFn | None = None,
     model: str | None = None,
 ) -> ScanResult
@@ -58,6 +58,11 @@ is operational bookkeeping in the same category as `schema_migrations`.
 Evaluation and display state remain derived exclusively from the append-only
 ledger. Repeated calls against the same database are incremental and do not
 extract or record the same accepted fix again.
+
+When `playbook_path` is `None`, the helper uses `TO_PLAYBOOK_PATH` when set and
+otherwise `<repo>/playbook/lessons.jsonl`. An explicit path, `complete`, and
+`model` are passed directly to `scan()`, which keeps tests offline with the
+FakeLLM and lets scripts select an isolated playbook file.
 
 The lower-level contract remains:
 

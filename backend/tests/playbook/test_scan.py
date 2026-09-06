@@ -148,8 +148,9 @@ def test_scan_skips_a_fix_accepted_with_no_matching_fix_proposed(tmp_path, conn,
     assert result.last_event_id > 0  # still advances the watermark past it
 
 
-def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete):
+def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete, monkeypatch):
     playbook_path = tmp_path / "lessons.jsonl"
+    monkeypatch.setenv("TO_PLAYBOOK_PATH", str(playbook_path))
     complete, fake = make_complete(
         [
             _extraction_response(),
@@ -160,14 +161,14 @@ def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_com
         ]
     )
     _seed_fix(conn, to_version=1)
-    first = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+    first = scan_and_record(conn, complete=complete)
     first_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
-    repeated = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+    repeated = scan_and_record(conn, complete=complete)
     repeated_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
     _seed_fix(conn, to_version=2)
-    second = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+    second = scan_and_record(conn, complete=complete)
     second_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
     assert len(first.lessons) == 1
