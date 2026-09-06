@@ -143,6 +143,19 @@ def test_production_output_cap_is_applied(fake: FakeLLM, monkeypatch: pytest.Mon
     assert fake.last_request["max_tokens"] == 2048
 
 
+def test_configured_provider_concurrency_accepts_exact_capacity(monkeypatch):
+    monkeypatch.setenv("LLM_CONCURRENCY", "2")
+    monkeypatch.setenv("LLM_QUEUE_TIMEOUT_S", "0")
+    first = llm._claim_live_call_slot()
+    second = llm._claim_live_call_slot()
+    try:
+        with pytest.raises(llm.LLMError, match="capacity"):
+            llm._claim_live_call_slot()
+    finally:
+        llm._release_live_call_slot(second)
+        llm._release_live_call_slot(first)
+
+
 def test_demo_usage_is_recorded(fake: FakeLLM, tmp_path, monkeypatch: pytest.MonkeyPatch):
     from backend.db import init_db
 
@@ -150,6 +163,7 @@ def test_demo_usage_is_recorded(fake: FakeLLM, tmp_path, monkeypatch: pytest.Mon
     monkeypatch.setenv("API_AUTH_TOKEN", "test-bearer")
     monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "1")
     monkeypatch.setenv("DEMO_DAILY_TOKEN_LIMIT", "1000")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "20")
     fake.push(text("ok", tokens_in=12, tokens_out=3))
 
     llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
@@ -160,3 +174,25 @@ def test_demo_usage_is_recorded(fake: FakeLLM, tmp_path, monkeypatch: pytest.Mon
     finally:
         conn.close()
     assert tuple(row) == ("gpt-4o", 12, 3)
+
+
+def test_failed_demo_call_releases_reserved_capacity(
+    fake: FakeLLM, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    from backend.db import init_db
+
+    monkeypatch.setenv("TO_DB_PATH", str(tmp_path / "failed-usage.sqlite3"))
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-bearer")
+    monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "1")
+    monkeypatch.setenv("DEMO_DAILY_TOKEN_LIMIT", "1000")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "20")
+
+    with pytest.raises(AssertionError, match="ran out of scripted responses"):
+        llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
+
+    conn = init_db()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM demo_model_token_reservations").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0

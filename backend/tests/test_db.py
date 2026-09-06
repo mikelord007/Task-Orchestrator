@@ -28,7 +28,7 @@ def test_migrations_apply_on_a_fresh_db(db_file: Path):
     conn = init_db(db_file)
     try:
         assert EXPECTED_TABLES <= _tables(conn)
-        assert applied_migrations(conn) == [1, 2, 3]
+        assert applied_migrations(conn) == [1, 2, 3, 4]
     finally:
         conn.close()
 
