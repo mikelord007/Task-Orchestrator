@@ -81,6 +81,8 @@ class TestBuildDomainAReport:
         assert report["agent_id"] == seeded.agent_id
         assert report["domain"] == "github_triage"
         assert report["current_version"] == 1
+        assert report["accepted_versions"] == [0, 1]
+        assert report["rejected_candidate_versions"] == [2]
         assert report["trials"] == seeded.trials
 
         for key in (
@@ -105,6 +107,19 @@ class TestBuildDomainAReport:
 
         # Round-trips through JSON exactly like the real CLI writes it.
         json.dumps(report)
+
+    def test_series_exclude_rejected_candidate_versions(self, seeded):
+        report = demo_run.build_domain_a_report(seeded.conn, seeded.agent_id, seeded.root)
+
+        for key in (
+            "pass_at_1_by_version",
+            "pass_pow_k_by_version",
+            "cost_by_version",
+            "latency_by_version",
+            "tool_stats_by_version",
+            "memory_by_version",
+        ):
+            assert {row["version"] for row in report[key]} <= {0, 1}
 
     def test_fix_counts_match_card_statuses(self, seeded):
         report = demo_run.build_domain_a_report(seeded.conn, seeded.agent_id, seeded.root)
@@ -197,6 +212,7 @@ class TestBuildDomainBReport:
             report = demo_run.build_domain_b_report(conn, "no_such_agent", tmp_path)
         finally:
             conn.close()
+        assert report["version"] is None
         assert report["train"]["pass_at_1"]["mean"] is None
         assert report["train"]["cost_per_run"] is None
 
@@ -254,6 +270,7 @@ class TestFlagRegressions:
 
     def test_flags_flat_pass_rate(self):
         domain_a = {
+            "current_version": 1,
             "pass_at_1_by_version": [
                 {"version": 0, "split": "train", "mean": 0.5, "std": 0.1},
                 {"version": 1, "split": "train", "mean": 0.5, "std": 0.1},
@@ -265,37 +282,89 @@ class TestFlagRegressions:
 
     def test_flags_increased_cost(self):
         domain_a = {
+            "current_version": 1,
             "pass_at_1_by_version": [
                 {"version": 0, "split": "train", "mean": 0.5, "std": 0.1},
                 {"version": 1, "split": "train", "mean": 0.7, "std": 0.1},
             ],
             "cost_by_version": [
-                {"version": 0, "cost_per_run": 0.10},
-                {"version": 1, "cost_per_run": 0.20},
+                {"version": 0, "split": "train", "cost_per_run": 0.10},
+                {"version": 1, "split": "train", "cost_per_run": 0.20},
             ],
         }
         flags = demo_run.flag_regressions(domain_a)
-        assert any("cost per run increased" in f for f in flags)
+        assert any("cost per run did not decrease" in f for f in flags)
 
     def test_no_flags_when_everything_improves(self):
         domain_a = {
+            "current_version": 1,
             "pass_at_1_by_version": [
                 {"version": 0, "split": "train", "mean": 0.5, "std": 0.1},
                 {"version": 1, "split": "train", "mean": 0.8, "std": 0.05},
             ],
             "cost_by_version": [
-                {"version": 0, "cost_per_run": 0.20},
-                {"version": 1, "cost_per_run": 0.10},
+                {"version": 0, "split": "train", "cost_per_run": 0.20},
+                {"version": 1, "split": "train", "cost_per_run": 0.10},
             ],
         }
         assert demo_run.flag_regressions(domain_a) == []
 
     def test_single_version_is_never_flagged(self):
         domain_a = {
+            "current_version": 0,
             "pass_at_1_by_version": [{"version": 0, "split": "train", "mean": 0.5, "std": 0.1}],
             "cost_by_version": [],
         }
         assert demo_run.flag_regressions(domain_a) == []
+
+    def test_flags_all_domain_a_and_domain_b_evidence(self):
+        domain_a = {
+            "current_version": 1,
+            "pass_at_1_by_version": [],
+            "pass_pow_k_by_version": [
+                {"version": 0, "split": "holdout", "mean": 0.4},
+                {"version": 1, "split": "holdout", "mean": 0.4},
+            ],
+            "cost_by_version": [],
+            "latency_by_version": [
+                {"version": 0, "split": "train", "p50_ms": 10, "p95_ms": 20},
+                {"version": 1, "split": "train", "p50_ms": 10, "p95_ms": 25},
+            ],
+            "tool_stats_by_version": [
+                {
+                    "version": 0,
+                    "split": "train",
+                    "calls": 1,
+                    "errors": 0,
+                    "redundant": 0,
+                    "tool_tokens": 10,
+                },
+                {
+                    "version": 1,
+                    "split": "train",
+                    "calls": 2,
+                    "errors": 0,
+                    "redundant": 1,
+                    "tool_tokens": 12,
+                },
+            ],
+        }
+        domain_b = {
+            "train": {"pass_at_1": {"mean": 0}, "pass_pow_k": {"mean": 0}},
+            "holdout": {},
+        }
+        ablation = {
+            "playbook_off": {"pass_at_1": 0.5, "pass_pow_k": 0.4},
+            "playbook_on": {"pass_at_1": 0.5, "pass_pow_k": 0.3},
+        }
+
+        flags = demo_run.flag_regressions(domain_a, domain_b, ablation)
+
+        assert any("holdout pass^k" in flag for flag in flags)
+        assert sum("latency" in flag for flag in flags) == 2
+        assert sum("tool " in flag for flag in flags) == 4
+        assert sum("Domain B train" in flag for flag in flags) == 2
+        assert sum("playbook ablation" in flag for flag in flags) == 2
 
 
 # --------------------------------------------------------------------------
@@ -332,8 +401,10 @@ class TestBuildSummaryMarkdown:
         assert "## Domain A -- github_triage" in markdown
         assert "## Domain B -- ticket_triage" in markdown
         assert "Playbook ablation" in markdown
-        assert "playbook off: pass@1 0.420" in markdown
-        assert "playbook on:  pass@1 0.580" in markdown
+        assert "playbook off (`trials = 3`): pass@1 = 0.420 ± 0.050" in markdown
+        assert "pass^k = 0.300 ± 0.050" in markdown
+        assert "playbook on (`trials = 3`): pass@1 = 0.580 ± 0.040" in markdown
+        assert "pass^k = 0.450 ± 0.040" in markdown
         assert "AO sessions: 1" in markdown
         assert "PRs: 1" in markdown
         assert "Best accepted fix card" in markdown
@@ -360,6 +431,7 @@ class TestBuildSummaryMarkdown:
     def test_flat_metrics_surface_a_flagged_section(self):
         domain_a = {
             "agent_id": "a1",
+            "current_version": 1,
             "trials": 3,
             "pass_at_1_by_version": [
                 {"version": 0, "split": "train", "mean": 0.5, "std": 0.1},
@@ -386,6 +458,46 @@ class TestBuildSummaryMarkdown:
         assert "Flagged (flat or negative" in markdown
         assert "train pass@1 did not improve" in markdown
 
+    def test_uses_current_version_and_labels_rejected_candidate(self, seeded):
+        domain_a = demo_run.build_domain_a_report(seeded.conn, seeded.agent_id, seeded.root)
+
+        markdown = demo_run.build_summary_markdown(domain_a, None, None, "")
+
+        assert "v0 -> v1" in markdown
+        assert "v0 -> v2" not in markdown
+        assert "rejected candidate versions (not current): [2]" in markdown
+
+    def test_missing_values_are_na_and_tool_token_estimate_is_labelled(self):
+        domain_a = {
+            "agent_id": "a1",
+            "current_version": 1,
+            "pass_at_1_by_version": [],
+            "pass_pow_k_by_version": [],
+            "cost_by_version": [],
+            "latency_by_version": [],
+            "tool_stats_by_version": [
+                {
+                    "version": 0,
+                    "split": "train",
+                    "calls": 1.0,
+                    "errors": 0.0,
+                    "tool_tokens": 17.0,
+                    "tool_tokens_estimated": True,
+                }
+            ],
+            "memory_by_version": [],
+            "drift": {},
+            "fix_cards": [],
+            "compare_cases": [],
+        }
+
+        markdown = demo_run.build_summary_markdown(domain_a, None, None, "")
+
+        assert "$n/a" not in markdown
+        assert "tokens=17 (estimated)" in markdown
+        assert "fix cards: n/a accepted, n/a rejected" in markdown
+        assert "capability suite saturated: n/a" in markdown
+
 
 # --------------------------------------------------------------------------
 # top-level keyword helper used by populate-cache
@@ -402,6 +514,64 @@ class TestTopKeywords:
     def test_caps_at_limit(self):
         keywords = demo_run._top_keywords("alpha beta gamma delta epsilon zeta eta", limit=3)
         assert len(keywords) == 3
+
+
+class TestAtomicArtifactsAndCache:
+    def test_atomic_json_preserves_previous_checkpoint_on_replace_failure(
+        self, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "domain_a.json"
+        path.write_text('{"old": true}\n', encoding="utf-8")
+        monkeypatch.setattr(
+            demo_run.os,
+            "replace",
+            lambda *_args: (_ for _ in ()).throw(OSError("replace failed")),
+        )
+
+        with pytest.raises(OSError, match="replace failed"):
+            demo_run._write_json(path, {"new": True})
+
+        assert json.loads(path.read_text(encoding="utf-8")) == {"old": True}
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_cache_helper_skips_valid_entry(self):
+        cached = {"labels": []}
+        github = SimpleNamespace(
+            read_cache=lambda _tool, _args: cached,
+            canonical_args=lambda args: args,
+            decode=lambda _result: pytest.fail("cached call should not be decoded"),
+        )
+        expected: list[tuple[str, dict]] = []
+        errors: list[str] = []
+
+        result = demo_run._ensure_cache_call(
+            github,
+            "github_list_labels",
+            {"repo": "owner/repo"},
+            lambda: pytest.fail("cached call should not be repeated"),
+            expected,
+            errors,
+        )
+
+        assert result == cached
+        assert expected == [("github_list_labels", {"repo": "owner/repo"})]
+        assert errors == []
+
+    def test_populate_cache_fails_on_error_return(self, tmp_path, monkeypatch):
+        from backend import settings
+        from backend.toolbox import github
+
+        monkeypatch.setattr(
+            settings, "env", lambda name: "token" if name == "GITHUB_TOKEN" else None
+        )
+        monkeypatch.setattr(demo_run, "_load_github_cases", lambda: [])
+        monkeypatch.setattr(github, "repo", lambda: "owner/repo")
+        monkeypatch.setattr(github, "read_cache", lambda *_args: None)
+        monkeypatch.setattr(github, "list_labels", lambda: "ERROR: rate limited")
+        monkeypatch.setattr(github, "cache_dir", lambda: tmp_path)
+
+        with pytest.raises(SystemExit, match="ERROR: github_list_labels.*rate limited"):
+            demo_run.cmd_populate_cache(SimpleNamespace())
 
 
 # --------------------------------------------------------------------------
@@ -509,14 +679,16 @@ class TestDomainAImprovementRounds:
         improve = _scripted_improver(fake, trace)
 
         monkeypatch.setattr(demo_run, "_scan_playbook_after_improve", lambda *_args: [])
+        monkeypatch.setattr(demo_run, "_accepted_version_chain", lambda *_args: [0])
         monkeypatch.setattr(
             demo_run,
             "build_domain_a_report",
-            lambda _conn, _agent_id, root: {"current_version": fake.call_count},
+            lambda _conn, _agent_id, root, *, progress: {"progress": dict(progress)},
         )
 
         def checkpoint(_path, report):
-            trace.append(f"checkpoint:{report['current_version']}")
+            progress = report["progress"]
+            trace.append(f"checkpoint:{progress['phase']}:{progress.get('completed_rounds', 0)}")
 
         monkeypatch.setattr(demo_run, "_write_json", checkpoint)
 
@@ -531,14 +703,16 @@ class TestDomainAImprovementRounds:
 
         assert len(results) == rounds
         assert fake.call_count == rounds
-        assert trace == [
-            item
-            for round_number in range(1, rounds + 1)
-            for item in (
-                f"improve:{seeded.agent_id}:3",
-                f"checkpoint:{round_number}",
+        assert trace.count(f"improve:{seeded.agent_id}:3") == rounds
+        assert sum(item.startswith("checkpoint:improving:") for item in trace) == rounds
+        assert (
+            sum(
+                item.startswith("checkpoint:round_complete:")
+                or item == f"checkpoint:complete:{rounds}"
+                for item in trace
             )
-        ]
+            == rounds
+        )
         output = capsys.readouterr().out
         assert output.count("case_runs=") == rounds
         assert output.count("elapsed_seconds=") == rounds
@@ -556,15 +730,19 @@ class TestDomainAImprovementRounds:
         improve = _scripted_improver(fake, trace)
 
         monkeypatch.setattr(demo_run, "_scan_playbook_after_improve", lambda *_args: [])
+        monkeypatch.setattr(demo_run, "_accepted_version_chain", lambda *_args: [0])
         monkeypatch.setattr(
             demo_run,
             "build_domain_a_report",
-            lambda _conn, _agent_id, root: {"round": fake.call_count},
+            lambda _conn, _agent_id, root, *, progress: {"progress": dict(progress)},
         )
         monkeypatch.setattr(
             demo_run,
             "_write_json",
-            lambda _path, report: trace.append(f"checkpoint:{report['round']}"),
+            lambda _path, report: trace.append(
+                f"checkpoint:{report['progress']['phase']}:"
+                f"{report['progress'].get('completed_rounds', 0)}"
+            ),
         )
 
         results = demo_run._run_improvement_rounds(
@@ -579,8 +757,133 @@ class TestDomainAImprovementRounds:
         assert len(results) == 2
         assert fake.call_count == 2
         assert len(results[-1].attempts) == 3  # rejected attempts remain visible evidence
-        assert trace[-1] == "checkpoint:2"
+        assert trace[-1] == "checkpoint:complete:2"
         assert "saturated after round 2" in capsys.readouterr().out
+
+    def test_scan_failure_still_checkpoints_accepted_round(self, seeded, monkeypatch):
+        fake = FakeLLM([llm_text('{"improved": true, "attempts": 1}')])
+        trace: list[str] = []
+        improve = _scripted_improver(fake, trace)
+        checkpoints: list[dict] = []
+
+        monkeypatch.setattr(demo_run, "_accepted_version_chain", lambda *_args: [0])
+        monkeypatch.setattr(
+            demo_run,
+            "_scan_playbook_after_improve",
+            lambda *_args: (_ for _ in ()).throw(RuntimeError("scan failed")),
+        )
+        monkeypatch.setattr(
+            demo_run,
+            "build_domain_a_report",
+            lambda _conn, _agent_id, root, *, progress: {"progress": dict(progress)},
+        )
+        monkeypatch.setattr(
+            demo_run,
+            "_write_json",
+            lambda _path, report: checkpoints.append(report),
+        )
+
+        with pytest.raises(RuntimeError, match="scan failed"):
+            demo_run._run_improvement_rounds(
+                seeded.conn,
+                seeded.agent_id,
+                improve,
+                rounds=4,
+                attempts_per_round=3,
+                started_at=demo_run.time.monotonic(),
+            )
+
+        progress = checkpoints[-1]["progress"]
+        assert progress["phase"] == "scan_failed"
+        assert progress["complete"] is False
+        assert progress["completed_rounds"] == 1
+        assert "RuntimeError: scan failed" == progress["last_error"]
+
+    def test_resume_skips_completed_rounds(self, seeded, monkeypatch):
+        fake = FakeLLM(
+            [
+                llm_text('{"improved": true, "attempts": 1}'),
+                llm_text('{"improved": true, "attempts": 1}'),
+            ]
+        )
+        trace: list[str] = []
+        improve = _scripted_improver(fake, trace)
+
+        monkeypatch.setattr(demo_run, "_scan_playbook_after_improve", lambda *_args: [])
+        monkeypatch.setattr(demo_run, "_accepted_version_chain", lambda *_args: [0])
+        monkeypatch.setattr(
+            demo_run,
+            "build_domain_a_report",
+            lambda _conn, _agent_id, root, *, progress: {"progress": dict(progress)},
+        )
+        monkeypatch.setattr(demo_run, "_write_json", lambda *_args: None)
+
+        results = demo_run._run_improvement_rounds(
+            seeded.conn,
+            seeded.agent_id,
+            improve,
+            rounds=4,
+            attempts_per_round=3,
+            started_at=demo_run.time.monotonic(),
+            progress={"phase": "round_complete", "completed_rounds": 2},
+        )
+
+        assert len(results) == 2
+        assert fake.call_count == 2
+
+    def test_resume_recovers_accepted_round_and_scans_playbook(self, seeded, monkeypatch):
+        scans: list[sqlite3.Connection] = []
+        checkpoints: list[dict] = []
+        monkeypatch.setattr(
+            demo_run,
+            "_resolve_scan_and_record",
+            lambda: lambda conn: scans.append(conn) or {"recorded": 1},
+        )
+        monkeypatch.setattr(
+            demo_run,
+            "build_domain_a_report",
+            lambda _conn, _agent_id, root, *, progress: {"progress": dict(progress)},
+        )
+        monkeypatch.setattr(
+            demo_run,
+            "_write_json",
+            lambda _path, report: checkpoints.append(report),
+        )
+
+        results = demo_run._run_improvement_rounds(
+            seeded.conn,
+            seeded.agent_id,
+            lambda *_args, **_kwargs: pytest.fail("accepted round must not replay"),
+            rounds=1,
+            attempts_per_round=3,
+            started_at=demo_run.time.monotonic(),
+            progress={
+                "phase": "improving",
+                "completed_rounds": 0,
+                "round_in_progress": 1,
+                "round_starting_version": 0,
+                "round_event_cursor": 0,
+            },
+        )
+
+        assert results == []
+        assert scans == [seeded.conn]
+        assert checkpoints[-1]["progress"]["complete"] is True
+
+    def test_resume_refuses_candidate_directory_collision(self, seeded, tmp_path, monkeypatch):
+        agents_dir = tmp_path / "agents"
+        (agents_dir / seeded.agent_id / "v2").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(demo_run, "AGENTS_DIR", agents_dir)
+        progress = {
+            "phase": "improving",
+            "completed_rounds": 1,
+            "round_in_progress": 2,
+            "round_starting_version": 1,
+            "round_event_cursor": demo_run._event_cursor(seeded.conn, seeded.agent_id),
+        }
+
+        with pytest.raises(SystemExit, match="candidate directories exist"):
+            demo_run._recover_round_cursor(seeded.conn, seeded.agent_id, progress, 3)
 
 
 def test_domain_a_cli_separates_rounds_from_attempt_budget():
@@ -595,6 +898,118 @@ def test_domain_a_cli_separates_rounds_from_attempt_budget():
     )
     assert configured.improve_rounds == 6
     assert configured.attempts_per_round == 2
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["domain-a", "--improve-rounds", "0"])
+
+
+def test_demo_cli_splits_agent_ids_and_files_issues_by_default(monkeypatch):
+    parser = demo_run.build_parser()
+    args = parser.parse_args(
+        ["demo", "--domain-a-agent-id", "github-agent", "--domain-b-agent-id", "ticket-agent"]
+    )
+    seen: list[tuple[str, str | None]] = []
+
+    monkeypatch.setattr(
+        demo_run, "cmd_preflight", lambda step: seen.append(("preflight", None)) or 0
+    )
+    monkeypatch.setattr(
+        demo_run,
+        "cmd_domain_a",
+        lambda step: seen.append(("domain-a", step.agent_id)) or 0,
+    )
+    monkeypatch.setattr(
+        demo_run,
+        "cmd_domain_b",
+        lambda step: seen.append(("domain-b", step.agent_id)) or 0,
+    )
+    monkeypatch.setattr(demo_run, "cmd_summary", lambda step: seen.append(("summary", None)) or 0)
+
+    assert args.file_issues is True
+    assert demo_run.cmd_demo(args) == 0
+    assert seen == [
+        ("preflight", None),
+        ("domain-a", "github-agent"),
+        ("domain-b", "ticket-agent"),
+        ("summary", None),
+    ]
+
+
+def test_summary_refuses_partial_domain_a(tmp_path, monkeypatch):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    demo_run._write_json(
+        reports / "domain_a.json",
+        {
+            "agent_id": "a1",
+            "complete": False,
+            "progress": {"phase": "round_complete", "completed_rounds": 1},
+        },
+    )
+    monkeypatch.setattr(demo_run, "REPORTS_DIR", reports)
+    monkeypatch.setattr(demo_run, "BUILD_LOG_PATH", tmp_path / "BUILD_LOG.md")
+
+    with pytest.raises(SystemExit, match="partial checkpoint"):
+        demo_run.cmd_summary(SimpleNamespace(file_issues=False))
+
+    assert not (reports / "summary.md").exists()
+
+
+def test_real_improver_lazy_import_resolves():
+    improve = demo_run._resolve_improve()
+
+    assert callable(improve)
+    assert improve.__module__ == "backend.improver.improve"
+
+
+def test_domain_a_resume_skips_finished_baselines_and_rounds(seeded, tmp_path, monkeypatch):
+    import backend.architect.generate as architect_generate
+    from backend import db
+    from backend.runtime import evaluation
+
+    reports = tmp_path / "reports"
+    demo_run._write_json(
+        reports / "domain_a.json",
+        {
+            "agent_id": seeded.agent_id,
+            "complete": True,
+            "progress": {"phase": "complete", "complete": True, "completed_rounds": 1},
+        },
+    )
+    paid_calls: list[str] = []
+    monkeypatch.setattr(demo_run, "REPORTS_DIR", reports)
+    monkeypatch.setattr(db, "init_db", lambda: seeded.conn)
+    monkeypatch.setattr(
+        architect_generate,
+        "generate",
+        lambda **_kwargs: paid_calls.append("generate") or pytest.fail("must not generate"),
+    )
+    monkeypatch.setattr(
+        evaluation,
+        "run_eval",
+        lambda *_args, **_kwargs: paid_calls.append("eval") or pytest.fail("must not eval"),
+    )
+    monkeypatch.setattr(
+        demo_run,
+        "_resolve_improve",
+        lambda: (
+            lambda *_args, **_kwargs: (
+                paid_calls.append("improve") or pytest.fail("must not improve")
+            )
+        ),
+    )
+
+    assert (
+        demo_run.cmd_domain_a(
+            SimpleNamespace(
+                agent_id=seeded.agent_id,
+                improve_rounds=1,
+                attempts_per_round=3,
+            )
+        )
+        == 0
+    )
+    assert paid_calls == []
 
 
 def test_playbook_ablation_uses_importable_module_command(tmp_path):

@@ -37,7 +37,9 @@ seed:
 ## Full evidence pipeline: preflight -> domain-a -> domain-b -> summary
 ## (scripts/demo_run.py). Needs the backend already running in another
 ## terminal (`make backend`) and a populated .env (LLM + GitHub creds, see
-## .env.example). Idempotent: pass AGENT_ID=<id> to reuse an existing
-## Domain A agent instead of creating a new one.
+## .env.example). Idempotent: pass DOMAIN_A_AGENT_ID=<id> and/or
+## DOMAIN_B_AGENT_ID=<id> to reuse the corresponding domain's agent.
 demo:
-	$(BACKEND) python scripts/demo_run.py demo $(if $(AGENT_ID),--agent-id $(AGENT_ID),)
+	$(BACKEND) python scripts/demo_run.py demo \
+		$(if $(DOMAIN_A_AGENT_ID),--domain-a-agent-id $(DOMAIN_A_AGENT_ID),) \
+		$(if $(DOMAIN_B_AGENT_ID),--domain-b-agent-id $(DOMAIN_B_AGENT_ID),)

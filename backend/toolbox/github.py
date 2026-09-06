@@ -34,6 +34,7 @@ import contextvars
 import hashlib
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -246,15 +247,29 @@ def write_cache(tool_name: str, args: dict, response: Any) -> None:
         "response": response,
         "fetched_at": datetime.now(UTC).isoformat(),
     }
+    temporary: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(entry, ensure_ascii=False, indent=2, default=str),
+        with tempfile.NamedTemporaryFile(
+            mode="w",
             encoding="utf-8",
-        )
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(json.dumps(entry, ensure_ascii=False, indent=2, default=str))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
     except OSError:
         # A read-only cache directory must not fail a run.
         pass
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------
