@@ -44,10 +44,10 @@ export default function DriftPanel({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={kindRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-                <XAxis dataKey="kind" tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                <XAxis dataKey="kind" tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
                 <YAxis tick={axisTick} tickLine={false} axisLine={false} width={24} allowDecimals={false} />
                 <Tooltip {...tooltipStyle} />
-                <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                <Bar dataKey="count" radius={0}>
                   {kindRows.map((r) => (
                     <Cell key={r.kind} fill={CHART_COLORS.drift} fillOpacity={0.8} />
                   ))}
@@ -67,10 +67,10 @@ export default function DriftPanel({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={byVersion} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-                <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
                 <YAxis tick={axisTick} tickLine={false} axisLine={false} width={24} allowDecimals={false} />
                 <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
-                <Line dataKey="count" stroke={CHART_COLORS.drift} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} />
+                <Line dataKey="count" stroke={CHART_COLORS.drift} strokeWidth={5} dot={{ r: 3 }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

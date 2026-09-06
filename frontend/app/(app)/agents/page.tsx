@@ -14,7 +14,7 @@ export default function AgentsPage() {
   const [formOpen, setFormOpen] = useState(false);
 
   return (
-    <div className="mx-auto max-w-[1360px] px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <PageHeader
         title="Agents"
         subtitle="Each agent is a versioned package. A version is only ever added, never edited in place."
@@ -59,23 +59,23 @@ export default function AgentsPage() {
             {agents.data!.map((agent) => (
               <article
                 key={agent.agent_id}
-                className="group flex min-w-0 flex-col rounded-lg border border-line bg-ink-900/50 p-5 transition-colors hover:border-fg-mute/60 hover:bg-ink-800"
+                className="group flex min-w-0 flex-col border border-line-soft bg-ink-700 p-6 transition-colors hover:border-fg-mute"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-3 border-b-2 border-line-soft pb-4">
                   <div className="min-w-0">
                     <Link
                       href={`/agents/${agent.agent_id}`}
-                      className="break-words font-sans text-lg font-medium text-fg underline-offset-4 hover:underline"
+                      className="break-words font-sans text-xl font-bold text-fg underline-offset-4 hover:text-[#ff9783] hover:underline"
                     >
                       {agent.name}
                       <span
                         aria-hidden="true"
-                        className="ml-2 inline-block text-fg-mute transition-transform group-hover:translate-x-0.5"
+                        className="ml-2 inline-block text-[#ff563c] transition-transform group-hover:translate-x-0.5"
                       >
                         ↗
                       </span>
                     </Link>
-                    <div className="mt-1 break-all text-[10px] text-fg-mute">{agent.agent_id}</div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-fg-mute">{agent.agent_id}</div>
                   </div>
                   <Pill>v{agent.current_version}</Pill>
                 </div>
@@ -83,7 +83,7 @@ export default function AgentsPage() {
                   <Pill tone="quiet">{agent.domain}</Pill>
                 </div>
                 <p className="prose-h mt-3 flex-1 break-words text-fg-dim">{agent.goal}</p>
-                <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 border-t border-line pt-4">
+                <div className="mt-5 grid grid-cols-1 gap-5 border-t-2 border-line-soft pt-4 sm:grid-cols-2">
                   <Stat label="train" rate={agent.latest_train} tone="train" size="md" />
                   <Stat label="holdout" rate={agent.latest_holdout} tone="holdout" size="md" />
                 </div>
@@ -225,7 +225,7 @@ function NewAgentForm({
                         prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
                       )
                     }
-                    className={`rounded-lg border px-3 py-2 text-[11px] transition-colors ${
+                    className={`border px-3 py-2 font-mono text-[11px] transition-colors ${
                       on
                         ? "border-fg-dim bg-ink-600 text-fg"
                         : "border-line bg-ink-900 text-fg-dim hover:border-fg-mute hover:text-fg"

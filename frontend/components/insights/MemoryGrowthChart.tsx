@@ -27,12 +27,12 @@ export default function MemoryGrowthChart({ points }: { points: MemoryByVersionP
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 4, right: 24, left: -18, bottom: 0 }}>
             <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-            <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+            <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} />
             <YAxis yAxisId="count" tick={axisTick} tickLine={false} axisLine={false} width={24} allowDecimals={false} />
             <YAxis yAxisId="confidence" orientation="right" domain={[0, 1]} tick={axisTick} tickLine={false} axisLine={false} width={28} />
             <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
             <Bar yAxisId="count" dataKey="rules" stackId="mem" fill={CHART_COLORS.pass} fillOpacity={0.75} name="rules" radius={[0, 0, 0, 0]} />
-            <Bar yAxisId="count" dataKey="tool_notes" stackId="mem" fill={CHART_COLORS.train} fillOpacity={0.75} name="tool notes" radius={[2, 2, 0, 0]} />
+            <Bar yAxisId="count" dataKey="tool_notes" stackId="mem" fill={CHART_COLORS.mute} fillOpacity={0.75} name="tool notes" radius={0} />
             <Bar
               yAxisId="count"
               dataKey="demotions"
@@ -40,13 +40,14 @@ export default function MemoryGrowthChart({ points }: { points: MemoryByVersionP
               fillOpacity={0.9}
               name="demotions at version"
               barSize={6}
-              radius={[2, 2, 0, 0]}
+              radius={0}
             />
             <Line
               yAxisId="confidence"
               dataKey="mean_confidence"
               stroke={CHART_COLORS.holdout}
-              strokeWidth={2}
+              strokeWidth={3}
+              strokeDasharray="3 9"
               dot={{ r: 2.5 }}
               isAnimationActive={false}
               name="mean confidence"
@@ -56,7 +57,7 @@ export default function MemoryGrowthChart({ points }: { points: MemoryByVersionP
         </ResponsiveContainer>
       </div>
       <p className="mt-1 text-[11px] text-fg-mute">
-        stacked bars = rule + tool-note count (left axis) · amber bars = demotions at that version ·
+        stacked bars = rule + tool-note count (left axis) · red bars = demotions at that version ·
         line = mean confidence (right axis) · {totalDemotions} demotion
         {totalDemotions === 1 ? "" : "s"} to date
       </p>

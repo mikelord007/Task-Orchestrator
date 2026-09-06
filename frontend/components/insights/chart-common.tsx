@@ -1,24 +1,30 @@
 export const CHART_COLORS = {
-  train: "#4cc2ff",
-  holdout: "#a98bff",
-  pass: "#3fd3a0",
-  fail: "#f2616a",
-  drift: "#e8b14a",
-  mute: "#6d7d8d",
-  grid: "#212c38",
+  train: "#f3f2f2",
+  holdout: "#9b9797",
+  pass: "#f3f2f2",
+  fail: "#ff563c",
+  drift: "#ff563c",
+  mute: "#7d7979",
+  grid: "#2d2b2b",
+  line: "#605d5d",
 };
 
 /** Shared dark-theme styling for Recharts tooltips. */
 export const tooltipStyle = {
   contentStyle: {
-    background: "#0e141b",
-    border: "1px solid #212c38",
-    borderRadius: 3,
-    fontSize: 11,
-    color: "#d7e0e8",
+    background: "#232120",
+    border: "1px solid #605d5d",
+    borderRadius: 0,
+    fontFamily: "var(--font-jetbrains-mono), monospace",
+    fontSize: 13,
+    color: "#f3f2f2",
   },
-  labelStyle: { color: "#9aa9b8" },
-  itemStyle: { color: "#d7e0e8" },
+  labelStyle: { color: "#bab6b6" },
+  itemStyle: { color: "#f3f2f2" },
 };
 
-export const axisTick = { fontSize: 11, fill: "#6d7d8d" };
+export const axisTick = {
+  fontFamily: "var(--font-jetbrains-mono), monospace",
+  fontSize: 17,
+  fill: "#7d7979",
+};

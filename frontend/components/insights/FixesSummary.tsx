@@ -7,11 +7,11 @@ import { CHART_COLORS, axisTick, tooltipStyle } from "./chart-common";
 
 const LEVER_COLOR: Record<Lever, string> = {
   memory: CHART_COLORS.pass,
-  tools: CHART_COLORS.train,
+  tools: CHART_COLORS.mute,
   prompt: CHART_COLORS.holdout,
-  orchestration: CHART_COLORS.mute,
-  routing: CHART_COLORS.drift,
-  grader: CHART_COLORS.fail,
+  orchestration: CHART_COLORS.line,
+  routing: CHART_COLORS.mute,
+  grader: CHART_COLORS.holdout,
 };
 
 /** Fixes by lever, regressions caught, and issue counts — the mechanism, not only the curve. */
@@ -37,10 +37,10 @@ export default function FixesSummary({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 0 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} horizontal={false} />
-                <XAxis type="number" tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} allowDecimals={false} />
+                <XAxis type="number" tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.line, strokeWidth: 2 }} allowDecimals={false} />
                 <YAxis dataKey="lever" type="category" tick={axisTick} tickLine={false} axisLine={false} width={78} />
                 <Tooltip {...tooltipStyle} />
-                <Bar dataKey="count" radius={[0, 2, 2, 0]}>
+                <Bar dataKey="count" radius={0}>
                   {rows.map((r) => (
                     <Cell key={r.lever} fill={LEVER_COLOR[r.lever as Lever] ?? CHART_COLORS.mute} />
                   ))}

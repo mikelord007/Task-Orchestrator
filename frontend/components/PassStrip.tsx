@@ -18,17 +18,15 @@ export default function PassStrip({ passed }: { passed: boolean[] }) {
             : "Failed in every trial"
       }
     >
+      <span className="sr-only">{passed.map((ok) => ok ? "pass" : "fail").join(", ")}</span>
       {passed.map((ok, i) => (
         <span
           key={i}
-          className={`inline-block h-3 w-3 text-center text-[10px] leading-3 ${
-            ok ? "text-pass" : "text-fail"
-          }`}
-        >
-          {ok ? "✓" : "✗"}
-        </span>
+          aria-hidden="true"
+          className={`inline-block h-3 w-3 border ${ok ? "border-fg bg-fg" : "border-fail bg-fail"}`}
+        />
       ))}
-      {flaky ? <span className="ml-0.5 text-[10px] text-drift">flaky</span> : null}
+      {flaky ? <span className="ml-1 font-mono text-[9px] font-bold uppercase text-drift">flaky</span> : null}
     </span>
   );
 }

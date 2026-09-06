@@ -167,7 +167,7 @@ function TaskRow({
       <Td>
         <Link
           href={`/agents/${agentId}/compare?case_id=${encodeURIComponent(task.case_id)}`}
-          className="text-fg hover:text-train hover:underline"
+          className="text-fg hover:text-[#ff9783] hover:underline"
           title="Compare v0 and the current version on this task"
         >
           {task.case_id}
@@ -201,7 +201,7 @@ function TaskRow({
       <Td>{task.drift_kind ? <DriftBadge kind={task.drift_kind} /> : null}</Td>
       <Td className="text-[11px]">
         {task.trace_url ? (
-          <a href={task.trace_url} target="_blank" rel="noreferrer" className="text-fg-mute hover:text-train">
+          <a href={task.trace_url} target="_blank" rel="noreferrer" className="text-[#ff563c] hover:text-[#ff9783]">
             trace
           </a>
         ) : null}
@@ -250,10 +250,10 @@ function Filter({
           key={opt}
           onClick={() => onChange(opt)}
           aria-pressed={value === opt}
-          className={`rounded-xs border px-1.5 py-px ${
+          className={`border px-2 py-1 font-mono text-[10px] ${
             value === opt
-              ? "border-train/50 text-train"
-              : "border-transparent text-fg-mute hover:text-fg-dim"
+              ? "border-fg bg-fg text-ink-900"
+              : "border-transparent text-fg-mute hover:text-[#ff9783]"
           }`}
         >
           {format(opt)}

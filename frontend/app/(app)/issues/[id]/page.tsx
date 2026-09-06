@@ -47,7 +47,7 @@ export default function IssueDetailPage() {
 
   if (issue.error) {
     return (
-      <div className="mx-auto max-w-[900px] px-6 py-5">
+      <div className="mx-auto max-w-[1000px] px-5 py-8 sm:px-8 lg:px-10">
         <Empty>Could not load {issueId}: {issue.error}</Empty>
       </div>
     );
@@ -60,7 +60,7 @@ export default function IssueDetailPage() {
   const isGraderBug = i.tags?.includes("grader-bug");
 
   return (
-    <div className="mx-auto max-w-[900px] px-6 py-5">
+    <div className="mx-auto max-w-[1000px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
       <div className="mb-2 text-[11px]">
         <Crumb href="/issues">issues</Crumb>
         <span className="text-fg-mute"> / {i.issue_id}</span>
@@ -71,7 +71,7 @@ export default function IssueDetailPage() {
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             <Pill tone={STATUS_TONE[i.status]}>{i.status}</Pill>
-            <Pill tone={i.source === "human" ? "train" : "quiet"}>{i.source}</Pill>
+            <Pill tone="quiet">{i.source}</Pill>
             {isGraderBug ? <Pill tone="drift">grader-bug</Pill> : null}
             <span className="text-fg-mute">
               {agent.data?.name ?? i.agent_id} · {shortTs(i.created_ts)}

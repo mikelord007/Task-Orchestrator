@@ -2,126 +2,68 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Brand from "@/components/Brand";
 import { LIVE_MODEL_CALLS, USE_MOCKS } from "@/lib/api";
 
 const LINKS = [
-  { href: "/agents", label: "Agents", icon: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" },
-  { href: "/issues", label: "Issues", unavailable: true, icon: "M12 8v5m0 3h.01M5 3h14v18H5z" },
-  { href: "/insights", label: "Insights", icon: "M4 4v16h16M8 15v-4m5 4V7m5 8V3" },
+  { href: "/agents", index: "01", label: "Agents" },
+  { href: "/issues", index: "02", label: "Issues", unavailable: true },
+  { href: "/insights", index: "03", label: "Insights" },
 ];
 
 export default function Nav() {
   const pathname = usePathname() ?? "";
+
   return (
-    <nav className="sticky top-0 flex h-screen w-[68px] shrink-0 flex-col border-r border-line bg-ink-800/50 px-2 py-6 md:w-[216px] md:px-4">
-      <Link
-        href="/agents"
-        aria-label="Task Orchestrator"
-        className="flex items-center gap-3 rounded-lg px-1 md:px-2"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-fg-mute/40 bg-ink-700 text-fg">
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            className="h-6 w-6"
-          >
-            <path d="M9 3h6v6H9zM3 15h6v6H3zM15 15h6v6h-6zM12 9v3M6 15v-3h12v3" />
-          </svg>
-        </span>
-        <span className="hidden leading-tight md:block">
-          <span className="block font-sans text-base font-medium text-fg">Task</span>
-          <span className="mt-0.5 block text-[11px] text-fg-dim">Orchestrator</span>
-        </span>
-      </Link>
-
-      <p className="mb-3 mt-10 hidden px-3 text-[9px] uppercase tracking-[0.16em] text-fg-mute md:block">
-        Workspace
-      </p>
-      <ul className="mt-8 space-y-2 md:mt-0">
-        {LINKS.map((link) => {
-          const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
-
-          if (link.unavailable) {
+    <nav className="sticky top-0 z-40 flex w-full shrink-0 flex-col border-b-2 border-line-soft bg-ink-900 md:h-screen md:w-[248px] md:border-b-0 md:border-r-2">
+      <div className="flex items-center justify-between gap-5 border-b border-line-soft px-4 py-4 md:block md:px-6 md:py-6">
+        <span className="md:hidden"><Brand compact href="/agents" /></span>
+        <span className="hidden md:block"><Brand href="/agents" /></span>
+        <p className="small-label hidden md:mt-10 md:block">Workspace / public demo</p>
+        <ul className="flex gap-1 md:mt-4 md:grid md:gap-2">
+          {LINKS.map((link) => {
+            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <li key={link.href}>
-                <button
-                  type="button"
-                  disabled
-                  title="Issue tracking is unavailable in this build"
-                  aria-label={link.label}
-                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg border border-transparent px-3 py-3 text-left text-[12px] text-fg-mute opacity-60"
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="h-4 w-4 shrink-0"
+                {link.unavailable ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="Issue tracking is unavailable in this build"
+                    aria-label={`${link.label}, unavailable`}
+                    className="flex w-full cursor-not-allowed items-center gap-3 border border-transparent px-3 py-2.5 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute opacity-55 md:py-3"
                   >
-                    <path d={link.icon} />
-                  </svg>
-                  <span className="hidden md:block">
-                    <span className="block">{link.label}</span>
-                    <span className="mt-1 block text-[9px]">unavailable in this build</span>
-                  </span>
-                </button>
+                    <span>{link.index}</span><span>{link.label}</span><span className="hidden text-[8px] md:ml-auto md:block">off</span>
+                  </button>
+                ) : (
+                  <Link
+                    href={link.href}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-3 border px-3 py-2.5 font-mono text-[10px] font-bold uppercase tracking-[0.06em] transition-colors md:py-3 ${
+                      active
+                        ? "border-fg bg-fg text-ink-900"
+                        : "border-transparent text-fg-dim hover:border-[#ff9783] hover:text-[#ff9783]"
+                    }`}
+                  >
+                    <span>{link.index}</span><span>{link.label}</span>
+                  </Link>
+                )}
               </li>
             );
-          }
+          })}
+        </ul>
+      </div>
 
-          return (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                aria-label={link.label}
-                title={link.label}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-[12px] transition-colors ${
-                  active
-                    ? "border-fg-mute/30 bg-ink-600 font-medium text-fg shadow-[inset_2px_0_0_var(--color-fg)]"
-                    : "border-transparent text-fg-dim hover:border-line hover:bg-ink-700/60 hover:text-fg"
-                }`}
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="h-4 w-4 shrink-0"
-                >
-                  <path d={link.icon} />
-                </svg>
-                <span className="hidden md:inline">{link.label}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="mt-auto hidden space-y-3 border-t border-line pt-5 text-[10px] leading-5 text-fg-mute md:block">
-        <p>
-          Every number on these pages is a query over the append-only event ledger. Nothing is
-          stored as a status.
-        </p>
-        {USE_MOCKS ? (
-          <p className="rounded-xs border border-drift/40 px-1.5 py-1 text-drift">
-            mock data. Unset NEXT_PUBLIC_USE_MOCKS to read the live backend.
+      <div className="mt-auto hidden border-t-2 border-line-soft p-6 md:block">
+        <p className="font-mono text-[10px] leading-5 text-fg-mute">Metrics are derived from the append-only event ledger.</p>
+        <div className="mt-5 grid gap-2">
+          <p className={`border px-2 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.05em] ${USE_MOCKS ? "border-line bg-ink-600 text-fg-mute" : "border-fg bg-fg text-ink-900"}`}>
+            {USE_MOCKS ? "Mock dataset" : "Live backend data"}
           </p>
-        ) : (
-          <p className="rounded-xs border border-pass/40 px-1.5 py-1 text-pass">
-            live backend data
-          </p>
-        )}
-        {!USE_MOCKS && !LIVE_MODEL_CALLS ? (
-          <p className="rounded-xs border border-drift/40 px-1.5 py-1 text-drift">
-            model actions unavailable: no provider credentials
-          </p>
-        ) : null}
+          {!USE_MOCKS && !LIVE_MODEL_CALLS ? (
+            <p className="border border-line bg-ink-600 px-2 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.05em] text-fg-mute">Model actions unavailable</p>
+          ) : null}
+        </div>
       </div>
     </nav>
   );
