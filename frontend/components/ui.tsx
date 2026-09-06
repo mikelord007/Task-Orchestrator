@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { DriftKind, Lever } from "@/lib/types";
 
-/** A titled region. A hairline and a label, not a card. */
+/** A titled card with a consistent header and padded content. */
 export function Panel({
   title,
   meta,
@@ -17,15 +17,17 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`border-t border-line ${className}`}>
-      <header className="flex flex-wrap items-baseline justify-between gap-2 py-2">
-        <div className="flex items-baseline gap-3">
-          <h2 className="text-[13px] text-fg">{title}</h2>
+    <section
+      className={`min-w-0 rounded-xl border border-line bg-ink-800/60 shadow-sm shadow-ink-900/30 ${className}`}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft px-5 py-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <h2 className="text-[13px] font-medium text-fg">{title}</h2>
           {meta ? <span className="text-[11px] text-fg-mute">{meta}</span> : null}
         </div>
         {actions}
       </header>
-      {children}
+      <div className="min-w-0 overflow-x-auto p-4 sm:p-5">{children}</div>
     </section>
   );
 }
@@ -36,7 +38,19 @@ export function Panel({
  */
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <p className="border-l-2 border-ink-600 py-3 pl-3 text-[12px] text-fg-dim">{children}</p>
+    <div className="flex items-start gap-3 rounded-lg border border-dashed border-line bg-ink-900/40 px-4 py-6">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="mt-0.5 h-5 w-5 shrink-0 text-fg-mute"
+      >
+        <path d="M4 7h16v13H4zM8 4h8M8 11h8M8 15h5" />
+      </svg>
+      <p className="min-w-0 max-w-[72ch] break-words text-[12px] leading-6 text-fg-dim">{children}</p>
+    </div>
   );
 }
 
@@ -50,18 +64,18 @@ export function Pill({
   title?: string;
 }) {
   const cls = {
-    neutral: "border-line text-fg-dim",
-    quiet: "border-ink-600 text-fg-mute",
-    pass: "border-pass/40 text-pass",
-    fail: "border-fail/40 text-fail",
-    train: "border-train/40 text-train",
-    holdout: "border-holdout/40 text-holdout",
-    drift: "border-drift/40 text-drift",
+    neutral: "border-line bg-ink-700 text-fg-dim",
+    quiet: "border-line bg-ink-900/50 text-fg-dim",
+    pass: "border-pass/25 bg-pass/10 text-pass",
+    fail: "border-fail/25 bg-fail/10 text-fail",
+    train: "border-train/25 bg-train/10 text-train",
+    holdout: "border-holdout/25 bg-holdout/10 text-holdout",
+    drift: "border-drift/25 bg-drift/10 text-drift",
   }[tone];
   return (
     <span
       title={title}
-      className={`inline-block rounded-xs border px-1.5 py-px text-[10px] leading-4 ${cls}`}
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] leading-4 ${cls}`}
     >
       {children}
     </span>
@@ -103,13 +117,19 @@ export function Button({
   title?: string;
 }) {
   const base =
-    "rounded-xs border px-2.5 py-1 text-[12px] leading-5 disabled:cursor-not-allowed disabled:opacity-40";
+    "inline-flex items-center justify-center gap-2 rounded-lg border px-3.5 py-2 text-[12px] font-medium leading-5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
   const cls =
     variant === "primary"
-      ? "border-train/50 text-train hover:bg-train/10"
-      : "border-line text-fg-dim hover:border-fg-mute hover:text-fg";
+      ? "border-fg bg-fg text-ink-900 shadow-sm enabled:hover:border-fg-dim enabled:hover:bg-fg-dim"
+      : "border-line bg-ink-800 text-fg-dim enabled:hover:border-fg-mute enabled:hover:bg-ink-700 enabled:hover:text-fg";
   return (
-    <button type={type} onClick={onClick} disabled={disabled} title={title} className={`${base} ${cls}`}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`${base} ${cls}`}
+    >
       {children}
     </button>
   );
@@ -126,15 +146,15 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-[11px] text-fg-mute">{label}</span>
+      <span className="block text-[11px] font-medium text-fg-dim">{label}</span>
       {children}
-      {hint ? <span className="mt-0.5 block text-[10px] text-fg-mute">{hint}</span> : null}
+      {hint ? <span className="mt-2 block text-[11px] leading-5 text-fg-mute">{hint}</span> : null}
     </label>
   );
 }
 
 export const inputClass =
-  "mt-1 w-full rounded-xs border border-line bg-ink-800 px-2 py-1.5 text-[12px] text-fg placeholder:text-fg-mute focus:border-train focus:outline-none";
+  "mt-2 w-full min-w-0 rounded-lg border border-line bg-ink-900 px-3 py-2.5 text-[12px] leading-5 text-fg placeholder:text-fg-mute transition-colors hover:border-fg-mute/50 focus:border-fg-dim focus:outline-none focus:ring-2 focus:ring-fg/10";
 
 export function PageHeader({
   title,
@@ -146,10 +166,14 @@ export function PageHeader({
   right?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-3">
+    <div className="flex flex-wrap items-start justify-between gap-5 border-b border-line pb-6">
       <div className="min-w-0">
-        <h1 className="text-[15px] text-fg">{title}</h1>
-        {subtitle ? <div className="mt-1 text-[12px] text-fg-dim">{subtitle}</div> : null}
+        <h1 className="font-sans text-3xl font-medium tracking-tight text-fg">{title}</h1>
+        {subtitle ? (
+          <div className="mt-2 max-w-[72ch] font-sans text-[14px] leading-6 text-fg-dim">
+            {subtitle}
+          </div>
+        ) : null}
       </div>
       {right}
     </div>
@@ -167,12 +191,16 @@ export function Crumb({ href, children }: { href: string; children: ReactNode })
 /** Table primitives: row hairlines only, no vertical rules, no zebra. */
 export function Th({ children, className = "" }: { children?: ReactNode; className?: string }) {
   return (
-    <th className={`border-b border-line py-1.5 pr-4 text-left font-normal text-fg-mute ${className}`}>
+    <th
+      className={`border-b border-line py-1.5 pr-4 text-left font-normal text-fg-mute ${className}`}
+    >
       {children}
     </th>
   );
 }
 
 export function Td({ children, className = "" }: { children?: ReactNode; className?: string }) {
-  return <td className={`border-b border-line-soft py-1.5 pr-4 align-top ${className}`}>{children}</td>;
+  return (
+    <td className={`border-b border-line-soft py-1.5 pr-4 align-top ${className}`}>{children}</td>
+  );
 }
