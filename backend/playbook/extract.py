@@ -38,7 +38,8 @@ on it (e.g. "agent must map free-text input to a fixed label vocabulary").
 duplicate_detection -- never the literal source domain name.
 - `lever` is exactly one of: prompt, tools, memory, orchestration, routing.
 
-Respond with ONLY a JSON object: {"lever": ..., "trigger": ..., "lesson": ..., "domain_tags": [...]}"""
+Respond with ONLY a JSON object: {"lever": ..., "trigger": ..., "lesson": ..., \
+"domain_tags": [...]}"""
 
 
 class LessonExtractionError(Exception):

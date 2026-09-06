@@ -29,7 +29,7 @@ def new_lesson_id() -> str:
 
 def _mirror_row(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.execute(
-        'INSERT OR IGNORE INTO lessons '
+        "INSERT OR IGNORE INTO lessons "
         '(id, lever, "trigger", lesson, domain_tags, source_agent_id, source_issue_id, ts) '
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
