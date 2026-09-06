@@ -1301,9 +1301,11 @@ export const COMPARE_DOMAINS: InsightsCompare = {
   ],
   ablation: {
     domain: "ticket_triage",
-    playbook_off: { holdout_mean: 0.4167, holdout_std: 0.0589 },
-    playbook_on: { holdout_mean: 0.5833, holdout_std: 0.0417 },
-    applied_lessons: ["l-001", "l-003"],
+    trials: TRIALS,
+    playbook_off: { pass_at_1: 0.4167, pass_pow_k: 0.3333, std: 0.0589 },
+    playbook_on: { pass_at_1: 0.5833, pass_pow_k: 0.5, std: 0.0417 },
+    applied_lesson_ids: ["l-001", "l-003"],
+    agent_ids: { playbook_off: "ticket-triage-00", playbook_on: AGENT_B },
   },
 };
 

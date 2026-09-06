@@ -507,16 +507,19 @@ export interface Insights {
 }
 
 /**
- * `reports/ablation.json` verbatim (backend/tests/ledger/seed.py is the
- * canonical producer today; `scripts/playbook_ablation.py`, W8, writes the
- * real one later with the same shape). Flat mean/std, not a full `RateStat`
- * — there is no min/max because the ablation runs holdout once per side.
+ * `reports/ablation.json` verbatim, per `scripts/playbook_ablation.py`
+ * (W8) — the authoritative producer of this file. `std` is over per-trial
+ * pass rates on one holdout run per side, not a full `RateStat`: there is no
+ * min/max because the script only reads `pass_at_1`'s std back off the
+ * ledger, not the raw per-trial array.
  */
 export interface AblationReport {
   domain: string;
-  playbook_off: { holdout_mean: number; holdout_std: number };
-  playbook_on: { holdout_mean: number; holdout_std: number };
-  applied_lessons: string[];
+  trials: number;
+  playbook_off: { pass_at_1: number | null; pass_pow_k: number | null; std: number | null };
+  playbook_on: { pass_at_1: number | null; pass_pow_k: number | null; std: number | null };
+  applied_lesson_ids: string[];
+  agent_ids: { playbook_off: string; playbook_on: string };
 }
 
 /**

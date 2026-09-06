@@ -23,22 +23,24 @@ export default function DomainComparison({ compare }: { compare: InsightsCompare
   return (
     <div>
       <p className="text-[11px] text-fg-mute">
-        playbook ablation · {ablation.domain} · v0 holdout pass@1
+        playbook ablation · {ablation.domain} · v0 holdout, trials = {ablation.trials}
       </p>
       <div className="mt-2 flex flex-wrap gap-8">
         <Stat
-          label="playbook off"
-          value={`${pct(ablation.playbook_off.holdout_mean)} ± ${pct(ablation.playbook_off.holdout_std)}`}
+          label="playbook off · pass@1"
+          value={`${pct(ablation.playbook_off.pass_at_1)} ± ${pct(ablation.playbook_off.std)}`}
+          suffix={`pass^k ${pct(ablation.playbook_off.pass_pow_k)}`}
         />
         <Stat
-          label="playbook on"
-          value={`${pct(ablation.playbook_on.holdout_mean)} ± ${pct(ablation.playbook_on.holdout_std)}`}
+          label="playbook on · pass@1"
+          value={`${pct(ablation.playbook_on.pass_at_1)} ± ${pct(ablation.playbook_on.std)}`}
+          suffix={`pass^k ${pct(ablation.playbook_on.pass_pow_k)}`}
           tone="pass"
         />
       </div>
       <p className="mt-2 text-[11px] text-fg-mute">
         applied lessons:{" "}
-        {ablation.applied_lessons.length > 0 ? ablation.applied_lessons.join(", ") : "none"}
+        {ablation.applied_lesson_ids.length > 0 ? ablation.applied_lesson_ids.join(", ") : "none"}
       </p>
     </div>
   );
