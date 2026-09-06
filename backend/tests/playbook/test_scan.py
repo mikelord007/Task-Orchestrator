@@ -12,7 +12,7 @@ from backend.playbook.scan import scan
 AGENT_ID = "agent_demo"
 
 
-def _seed_fix(conn, *, to_version: int, issue_id: str | None = None) -> None:
+def _seed_proposal(conn, *, to_version: int, issue_id: str | None = None) -> None:
     emit(
         "fix_proposed",
         agent_id=AGENT_ID,
@@ -34,6 +34,14 @@ def _seed_fix(conn, *, to_version: int, issue_id: str | None = None) -> None:
         diff_summary="+3 rules, +1 tool note",
         files_touched=["memory/rules.jsonl"],
     )
+
+
+def _seed_fix(conn, *, to_version: int, issue_id: str | None = None) -> None:
+    _seed_proposal(conn, to_version=to_version, issue_id=issue_id)
+    _seed_accepted(conn, to_version=to_version)
+
+
+def _seed_accepted(conn, *, to_version: int) -> None:
     emit(
         "fix_accepted",
         agent_id=AGENT_ID,
@@ -118,34 +126,51 @@ def test_scan_processes_multiple_new_fixes_in_one_call(tmp_path, conn, make_comp
     assert fake.call_count == 2
 
 
-def test_scan_skips_a_fix_accepted_with_no_matching_fix_proposed(tmp_path, conn, make_complete):
-    emit(
-        "fix_accepted",
-        agent_id=AGENT_ID,
-        agent_version=1,
-        lever="memory",
-        conn=conn,
-        to_version=1,
-        pass_at_1_before=0.5,
-        pass_at_1_after=0.6,
-        pass_pow_k_before=0.4,
-        pass_pow_k_after=0.5,
-        group_pass_before=0.0,
-        group_pass_after=0.5,
-        holdout_pass_at_1_after=0.5,
-        holdout_pass_pow_k_after=0.4,
-        cost_per_run_before=0.1,
-        cost_per_run_after=0.1,
-        tool_calls_per_task_before=5,
-        tool_calls_per_task_after=5,
-    )
+def test_scan_reports_missing_proposal_as_retryable(tmp_path, conn, make_complete):
+    _seed_accepted(conn, to_version=1)
     complete, fake = make_complete([])
 
     result = scan(conn, playbook_path=tmp_path / "lessons.jsonl", complete=complete)
 
     assert result.lessons == []
+    assert result.skipped_unusable_event_ids
     assert fake.call_count == 0
-    assert result.last_event_id > 0  # still advances the watermark past it
+    assert result.last_event_id == 0  # retryable: the event is not checkpointed
+
+
+def test_scan_and_record_retries_extraction_failure(tmp_path, conn, make_complete):
+    playbook_path = tmp_path / "lessons.jsonl"
+    _seed_fix(conn, to_version=1)
+    accepted_id = conn.execute("SELECT id FROM events WHERE kind = 'fix_accepted'").fetchone()["id"]
+    complete, fake = make_complete(["not json", "still not json", _extraction_response()])
+
+    failed = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+    retried = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+
+    assert failed.lessons == []
+    assert failed.skipped_unusable_event_ids == [accepted_id]
+    assert failed.last_event_id == 0
+    assert len(retried.lessons) == 1
+    assert retried.last_event_id == accepted_id
+    assert fake.call_count == 3
+
+
+def test_scan_and_record_retries_missing_proposal(tmp_path, conn, make_complete):
+    playbook_path = tmp_path / "lessons.jsonl"
+    _seed_accepted(conn, to_version=1)
+    accepted_id = conn.execute("SELECT id FROM events WHERE kind = 'fix_accepted'").fetchone()["id"]
+    complete, fake = make_complete([_extraction_response()])
+
+    missing = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+    _seed_proposal(conn, to_version=1)
+    retried = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+
+    assert missing.lessons == []
+    assert missing.skipped_unusable_event_ids == [accepted_id]
+    assert missing.last_event_id == 0
+    assert len(retried.lessons) == 1
+    assert retried.last_event_id == accepted_id
+    assert fake.call_count == 1
 
 
 def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete, monkeypatch):
@@ -200,12 +225,19 @@ def test_scan_and_record_reports_new_duplicate_as_skipped(tmp_path, conn, make_c
     assert second.lessons == []
     assert second.skipped_duplicate_event_ids
     assert second.skipped_unusable_event_ids == []
+    assert second.last_event_id > first.last_event_id
+    cursor = conn.execute(
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
+    ).fetchone()
+    assert cursor["last_event_id"] == second.last_event_id
     assert fake.call_count == 2
 
 
 def test_scan_and_record_does_not_advance_cursor_when_scan_fails(
     tmp_path, conn, make_complete, monkeypatch
 ):
+    for version in range(1, 8):
+        _seed_proposal(conn, to_version=version)
     complete, _fake = make_complete([])
     initial = scan_and_record(
         conn,
@@ -233,6 +265,8 @@ def test_scan_and_record_does_not_advance_cursor_when_scan_fails(
 def test_scan_and_record_explicit_lower_cursor_does_not_rewind_stored_cursor(
     tmp_path, conn, make_complete
 ):
+    for version in range(1, 8):
+        _seed_proposal(conn, to_version=version)
     complete, _fake = make_complete([])
     playbook_path = tmp_path / "lessons.jsonl"
     advanced = scan_and_record(
@@ -254,6 +288,36 @@ def test_scan_and_record_explicit_lower_cursor_does_not_rewind_stored_cursor(
     assert advanced.last_event_id == 7
     assert replayed.last_event_id == 3  # proves the explicit starting point was honored
     assert cursor["last_event_id"] == 7
+
+
+def test_scan_and_record_clamps_forward_cursor_to_observed_ledger(tmp_path, conn, make_complete):
+    playbook_path = tmp_path / "lessons.jsonl"
+    _seed_fix(conn, to_version=1)
+    highest_observed_id = conn.execute("SELECT MAX(id) FROM events").fetchone()[0]
+    complete, fake = make_complete(
+        [
+            _extraction_response(
+                trigger="agent repeats a tool call without changing its arguments",
+                lesson="Cap identical retries and require the next attempt to change approach.",
+            )
+        ]
+    )
+
+    scan_and_record(
+        conn,
+        since_event_id=1_000_000,
+        playbook_path=playbook_path,
+        complete=complete,
+    )
+    cursor = conn.execute(
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
+    ).fetchone()
+    _seed_fix(conn, to_version=2)
+    resumed = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+
+    assert cursor["last_event_id"] == highest_observed_id
+    assert len(resumed.lessons) == 1
+    assert fake.call_count == 1
 
 
 def test_scan_and_record_explicit_cursor_overrides_persisted_start(tmp_path, conn, make_complete):
