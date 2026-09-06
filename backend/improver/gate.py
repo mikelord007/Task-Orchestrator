@@ -33,9 +33,16 @@ from backend.ledger.metrics import (
 from backend.ledger.query import case_results, events, latest_run
 from contracts.events import RejectReason
 
-__all__ = ["GateResult", "RunEvalFn", "gate"]
+__all__ = ["PASS_AT_1_TOLERANCE", "GateResult", "RunEvalFn", "gate"]
 
 HOLDOUT_SPLIT = "holdout"
+
+#: ``RunSummary.pass_at_1`` is rounded to 6 decimals by the runtime while the
+#: ledger's ``pass_at_1`` is not, so a candidate that is *exactly* as good as
+#: its parent can read one ulp low (1/3 -> 0.333333 < 0.3333333333333333) and
+#: be rejected for "no_gain" it never suffered. Compare at the runtime's own
+#: precision rather than at float precision.
+PASS_AT_1_TOLERANCE = 5e-7
 
 
 class RunEvalFn(Protocol):
@@ -128,7 +135,12 @@ def gate(
 
     try:
         prior_version = candidate_version - 1
-        lever = _lever_for(conn, agent_id, candidate_version) or "unknown"
+        # None, not a placeholder string: `lever` is the ledger's own column
+        # and `emit` validates it against `contracts.events.Lever`. A gate run
+        # with no `fix_proposed` on record (an operator re-gating a candidate
+        # directory by hand) has no lever to report, and inventing one would
+        # be rejected by the contract.
+        lever = _lever_for(conn, agent_id, candidate_version)
         group_case_ids = set(_failing_group_case_ids(conn, agent_id, candidate_version))
 
         prior_stable = stable_pass_set(conn, agent_id, prior_version)
@@ -164,7 +176,7 @@ def gate(
         candidate_pass_at_1 = summary.pass_at_1
 
         no_regression = prior_stable.issubset(candidate_stable)
-        accepted = no_regression and candidate_pass_at_1 >= prior_pass_at_1
+        accepted = no_regression and (candidate_pass_at_1 >= prior_pass_at_1 - PASS_AT_1_TOLERANCE)
 
         if accepted:
             holdout_summary = run_eval(
