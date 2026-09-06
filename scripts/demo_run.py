@@ -2,7 +2,8 @@
 
     uv run --project backend python scripts/demo_run.py preflight
     uv run --project backend python scripts/demo_run.py populate-cache
-    uv run --project backend python scripts/demo_run.py domain-a [--agent-id ID] [--max-attempts N]
+    uv run --project backend python scripts/demo_run.py domain-a [--agent-id ID]
+        [--improve-rounds N] [--attempts-per-round N]
     uv run --project backend python scripts/demo_run.py domain-b [--agent-id ID]
     uv run --project backend python scripts/demo_run.py summary [--file-issues]
     uv run --project backend python scripts/demo_run.py demo   # preflight -> domain-a -> domain-b
@@ -40,6 +41,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -67,7 +69,8 @@ DOMAIN_A_GOAL = (
     "propose labels, component, priority, assignee, and duplicate-of, grounded in "
     "how similar issues were actually labelled and owned."
 )
-DEFAULT_MAX_ATTEMPTS = 4
+DEFAULT_IMPROVE_ROUNDS = 4
+DEFAULT_ATTEMPTS_PER_ROUND = 3
 
 REQUIRED_ENV = (
     "LLM_API_KEY",
@@ -708,6 +711,102 @@ def _scan_playbook_after_improve(conn: sqlite3.Connection, improve_result: Any) 
     return results
 
 
+def _improve_payload(improve_result: Any) -> dict[str, Any]:
+    """Normalize W6's dataclass result and simple test doubles to one mapping."""
+    if isinstance(improve_result, dict):
+        return improve_result
+    payload = getattr(improve_result, "payload", None)
+    if callable(payload):
+        value = payload()
+        if isinstance(value, dict):
+            return value
+    return {
+        "starting_version": getattr(improve_result, "starting_version", None),
+        "current_version": getattr(improve_result, "current_version", None),
+        "improved": getattr(improve_result, "improved", None),
+        "attempts": getattr(improve_result, "attempts", []),
+    }
+
+
+def _round_saturated(improve_result: Any, attempts_per_round: int) -> bool:
+    """True when a non-improving round consumed its full diagnosis budget."""
+    payload = _improve_payload(improve_result)
+    improved = payload.get("improved")
+    if improved is None:
+        improved = payload.get("current_version") != payload.get("starting_version")
+    if improved:
+        return False
+
+    attempt_ordinals: list[int] = []
+    for index, attempt in enumerate(payload.get("attempts") or [], start=1):
+        raw = (
+            attempt.get("attempt")
+            if isinstance(attempt, dict)
+            else getattr(attempt, "attempt", None)
+        )
+        try:
+            attempt_ordinals.append(int(raw if raw is not None else index))
+        except (TypeError, ValueError):
+            attempt_ordinals.append(index)
+    return bool(attempt_ordinals) and max(attempt_ordinals) >= attempts_per_round
+
+
+def _ledger_progress(conn: sqlite3.Connection, agent_id: str) -> tuple[int, float]:
+    """Cumulative case executions and observed cost for one agent."""
+    case_events = query_events(conn, kind="case_result", agent_id=agent_id)
+    cost_usd = 0.0
+    for event in case_events:
+        value = event.get("cost_usd")
+        if isinstance(value, bool) or value is None:
+            continue
+        try:
+            cost_usd += float(value)
+        except (TypeError, ValueError):
+            continue
+    return len(case_events), cost_usd
+
+
+def _run_improvement_rounds(
+    conn: sqlite3.Connection,
+    agent_id: str,
+    improve: Any,
+    *,
+    rounds: int,
+    attempts_per_round: int,
+    started_at: float,
+) -> list[Any]:
+    """Run independent W6 improve rounds, checkpointing evidence after each one."""
+    results: list[Any] = []
+    report_path = REPORTS_DIR / "domain_a.json"
+    for round_number in range(1, rounds + 1):
+        print(
+            f"improve round {round_number}/{rounds} (attempts_per_round={attempts_per_round}) ..."
+        )
+        improve_result = improve(agent_id, max_attempts=attempts_per_round)
+        results.append(improve_result)
+        print(f"improve round {round_number} done: {improve_result}")
+        _scan_playbook_after_improve(conn, improve_result)
+
+        report = build_domain_a_report(conn, agent_id, root=REPO_ROOT)
+        _write_json(report_path, report)
+
+        case_count, cost_usd = _ledger_progress(conn, agent_id)
+        elapsed_seconds = time.monotonic() - started_at
+        print(
+            f"checkpointed {report_path} after round {round_number}: "
+            f"case_runs={case_count}, elapsed_seconds={elapsed_seconds:.1f}, "
+            f"cost_usd={cost_usd:.6f}"
+        )
+
+        if _round_saturated(improve_result, attempts_per_round):
+            print(
+                f"capability suite saturated after round {round_number}: "
+                f"no improvement in {attempts_per_round} attempts; stopping early"
+            )
+            break
+    return results
+
+
 def cmd_domain_a(args: argparse.Namespace) -> int:
     from backend.architect.generate import generate
     from backend.db import init_db
@@ -715,6 +814,7 @@ def cmd_domain_a(args: argparse.Namespace) -> int:
     from backend.settings import eval_trials
     from backend.toolbox import registry
 
+    started_at = time.monotonic()
     conn = init_db()
     try:
         trials = eval_trials()
@@ -749,14 +849,14 @@ def cmd_domain_a(args: argparse.Namespace) -> int:
         )  # fmt: skip
 
         improve = _resolve_improve()
-        print(f"improving (max_attempts={args.max_attempts}) ...")
-        improve_result = improve(agent_id, max_attempts=args.max_attempts)
-        print(f"improve done: {improve_result}")
-        _scan_playbook_after_improve(conn, improve_result)
-
-        report = build_domain_a_report(conn, agent_id, root=REPO_ROOT)
-        _write_json(REPORTS_DIR / "domain_a.json", report)
-        print(f"wrote {REPORTS_DIR / 'domain_a.json'}")
+        _run_improvement_rounds(
+            conn,
+            agent_id,
+            improve,
+            rounds=args.improve_rounds,
+            attempts_per_round=args.attempts_per_round,
+            started_at=started_at,
+        )
     finally:
         conn.close()
     return 0
@@ -874,7 +974,18 @@ def build_parser() -> argparse.ArgumentParser:
     domain_a.add_argument(
         "--agent-id", default=None, help="reuse an existing agent instead of creating one"
     )
-    domain_a.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
+    domain_a.add_argument(
+        "--improve-rounds",
+        type=int,
+        default=DEFAULT_IMPROVE_ROUNDS,
+        help="number of independent improve() calls (default: 4)",
+    )
+    domain_a.add_argument(
+        "--attempts-per-round",
+        type=int,
+        default=DEFAULT_ATTEMPTS_PER_ROUND,
+        help="maximum diagnosis attempts within each improve() call (default: 3)",
+    )
 
     domain_b = sub.add_parser(
         "domain-b", help="run the ablation + one train/holdout on the playbook-on agent"
@@ -893,7 +1004,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     demo = sub.add_parser("demo", help="preflight -> domain-a -> domain-b -> summary")
     demo.add_argument("--agent-id", default=None)
-    demo.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
+    demo.add_argument("--improve-rounds", type=int, default=DEFAULT_IMPROVE_ROUNDS)
+    demo.add_argument("--attempts-per-round", type=int, default=DEFAULT_ATTEMPTS_PER_ROUND)
     demo.add_argument("--file-issues", action="store_true")
 
     return parser

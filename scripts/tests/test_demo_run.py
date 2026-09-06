@@ -6,12 +6,10 @@ than against a live LLM or a real GitHub API -- exactly what the brief asks
 for: "the script's report writers run against W1's seeded ledger with the
 FakeLLM (no network) and produce the JSON/markdown shapes."
 
-Only the pure report-writer functions are exercised here (`build_domain_a_report`,
-`select_compare_cases`, `build_domain_b_report`, `build_summary_markdown`,
-`flag_regressions`, `parse_build_log`); the CLI commands that create agents,
-run evals and call the (not-yet-merged) `backend.improver.improve` are not
-covered by an automated test -- they need a real or FakeLLM-backed backend and
-are exercised by hand once W6/W8 land, per the worker brief.
+The report writers remain pure-function tests. The Domain A improvement-round
+orchestrator is covered separately with the project's FakeLLM driving a stub
+improver, so call count, checkpoint ordering, and saturation are verified
+without running an eval suite or touching the network.
 """
 
 from __future__ import annotations
@@ -28,6 +26,9 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from backend.testing.fake_llm import FakeLLM  # noqa: E402
+from backend.testing.fake_llm import text as llm_text  # noqa: E402
 
 
 def _load_module():
@@ -461,6 +462,139 @@ class TestPlaybookScanHook:
 
         assert scans == []
         assert "skipping playbook lesson scan" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# Domain A outer improvement rounds
+# --------------------------------------------------------------------------
+
+
+def _scripted_improver(fake: FakeLLM, trace: list[str]):
+    """Use FakeLLM responses to drive W6-shaped improve results."""
+    version = 0
+
+    def improve(agent_id: str, max_attempts: int):
+        nonlocal version
+        trace.append(f"improve:{agent_id}:{max_attempts}")
+        response = fake.chat.completions.create(
+            model="fake-improver",
+            messages=[{"role": "user", "content": f"improve {agent_id} from v{version}"}],
+        )
+        instruction = json.loads(response.choices[0].message.content)
+        starting_version = version
+        improved = bool(instruction["improved"])
+        if improved:
+            version += 1
+        attempts = [
+            SimpleNamespace(
+                attempt=attempt, accepted=improved and attempt == instruction["attempts"]
+            )
+            for attempt in range(1, instruction["attempts"] + 1)
+        ]
+        return SimpleNamespace(
+            agent_id=agent_id,
+            starting_version=starting_version,
+            current_version=version,
+            attempts=attempts,
+        )
+
+    return improve
+
+
+class TestDomainAImprovementRounds:
+    def test_runs_n_improve_calls_and_checkpoints_each_round(self, seeded, monkeypatch, capsys):
+        rounds = 4
+        fake = FakeLLM([llm_text('{"improved": true, "attempts": 1}') for _ in range(rounds)])
+        trace: list[str] = []
+        improve = _scripted_improver(fake, trace)
+
+        monkeypatch.setattr(demo_run, "_scan_playbook_after_improve", lambda *_args: [])
+        monkeypatch.setattr(
+            demo_run,
+            "build_domain_a_report",
+            lambda _conn, _agent_id, root: {"current_version": fake.call_count},
+        )
+
+        def checkpoint(_path, report):
+            trace.append(f"checkpoint:{report['current_version']}")
+
+        monkeypatch.setattr(demo_run, "_write_json", checkpoint)
+
+        results = demo_run._run_improvement_rounds(
+            seeded.conn,
+            seeded.agent_id,
+            improve,
+            rounds=rounds,
+            attempts_per_round=3,
+            started_at=demo_run.time.monotonic(),
+        )
+
+        assert len(results) == rounds
+        assert fake.call_count == rounds
+        assert trace == [
+            item
+            for round_number in range(1, rounds + 1)
+            for item in (
+                f"improve:{seeded.agent_id}:3",
+                f"checkpoint:{round_number}",
+            )
+        ]
+        output = capsys.readouterr().out
+        assert output.count("case_runs=") == rounds
+        assert output.count("elapsed_seconds=") == rounds
+        assert output.count("cost_usd=") == rounds
+
+    def test_saturation_checkpoints_then_exits_early(self, seeded, monkeypatch, capsys):
+        fake = FakeLLM(
+            [
+                llm_text('{"improved": true, "attempts": 1}'),
+                llm_text('{"improved": false, "attempts": 3}'),
+                llm_text('{"improved": true, "attempts": 1}'),
+            ]
+        )
+        trace: list[str] = []
+        improve = _scripted_improver(fake, trace)
+
+        monkeypatch.setattr(demo_run, "_scan_playbook_after_improve", lambda *_args: [])
+        monkeypatch.setattr(
+            demo_run,
+            "build_domain_a_report",
+            lambda _conn, _agent_id, root: {"round": fake.call_count},
+        )
+        monkeypatch.setattr(
+            demo_run,
+            "_write_json",
+            lambda _path, report: trace.append(f"checkpoint:{report['round']}"),
+        )
+
+        results = demo_run._run_improvement_rounds(
+            seeded.conn,
+            seeded.agent_id,
+            improve,
+            rounds=4,
+            attempts_per_round=3,
+            started_at=demo_run.time.monotonic(),
+        )
+
+        assert len(results) == 2
+        assert fake.call_count == 2
+        assert len(results[-1].attempts) == 3  # rejected attempts remain visible evidence
+        assert trace[-1] == "checkpoint:2"
+        assert "saturated after round 2" in capsys.readouterr().out
+
+
+def test_domain_a_cli_separates_rounds_from_attempt_budget():
+    parser = demo_run.build_parser()
+
+    defaults = parser.parse_args(["domain-a"])
+    assert defaults.improve_rounds == 4
+    assert defaults.attempts_per_round == 3
+
+    configured = parser.parse_args(
+        ["domain-a", "--improve-rounds", "6", "--attempts-per-round", "2"]
+    )
+    assert configured.improve_rounds == 6
+    assert configured.attempts_per_round == 2
 
 
 def test_playbook_ablation_uses_importable_module_command(tmp_path):
