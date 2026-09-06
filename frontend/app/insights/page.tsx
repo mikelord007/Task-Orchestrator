@@ -140,12 +140,11 @@ function Insights() {
             )}
           </Panel>
 
-          <Panel title="Cost, latency and pass@1-vs-cost">
+          <Panel title="Cost and latency">
             {insights.data ? (
               <CostLatencyChart
                 cost={insights.data.cost_by_version}
                 latency={insights.data.latency_by_version}
-                pass1={insights.data.pass_at_1_by_version}
               />
             ) : (
               <Empty>No runs yet.</Empty>

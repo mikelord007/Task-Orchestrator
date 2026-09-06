@@ -423,8 +423,11 @@ export interface ToolStatsByVersionPoint {
   calls: number;
   errors: number;
   redundant: number;
-  tool_tokens: number;
+  /** `null` when the harness recorded no token counters for this version (backend/ledger/metrics.py). */
+  tool_tokens: number | null;
   latency_ms: number;
+  /** True if `tool_tokens` is an estimate rather than an API-reported count; absent on mock data. */
+  tool_tokens_estimated?: boolean | null;
 }
 
 /**
