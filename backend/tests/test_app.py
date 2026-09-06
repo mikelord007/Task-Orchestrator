@@ -27,7 +27,7 @@ def test_startup_migrates_the_database(client: TestClient, db_file: Path):
     client.get("/healthz")
     conn = connect(db_file)
     try:
-        assert applied_migrations(conn) == [1, 2, 3]
+        assert applied_migrations(conn) == [1, 2, 3, 4]
     finally:
         conn.close()
 
@@ -64,6 +64,18 @@ def test_required_auth_fails_closed_without_token(db_file: Path, monkeypatch: py
     monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
 
     with pytest.raises(RuntimeError, match="API_AUTH_TOKEN is empty"):
+        with TestClient(create_app()):
+            pass
+
+
+def test_public_demo_fails_closed_without_model_output_cap(db_file, monkeypatch):
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setenv("API_AUTH_TOKEN", "deployment-secret")
+    monkeypatch.setenv("REQUIRE_API_AUTH", "true")
+    monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "true")
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+
+    with pytest.raises(RuntimeError, match="positive LLM_MAX_TOKENS"):
         with TestClient(create_app()):
             pass
 

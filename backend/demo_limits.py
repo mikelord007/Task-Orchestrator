@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -119,32 +120,114 @@ def ensure_token_budget() -> None:
     limit = max(1, env_int("DEMO_DAILY_TOKEN_LIMIT", 250_000))
     conn = init_db()
     try:
+        since = _day_start(datetime.now(UTC))
         used = int(
             conn.execute(
                 "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) "
                 "FROM demo_model_usage WHERE ts >= ?",
-                (_day_start(datetime.now(UTC)),),
+                (since,),
+            ).fetchone()[0]
+        )
+        reserved = int(
+            conn.execute(
+                "SELECT COALESCE(SUM(reserved_tokens), 0) "
+                "FROM demo_model_token_reservations WHERE ts >= ?",
+                (since,),
             ).fetchone()[0]
         )
     finally:
         conn.close()
-    if used >= limit:
+    if used + reserved >= limit:
         raise DemoLimitExceeded("public demo daily token limit reached", 3600)
 
 
-def record_usage(model: str, tokens_in: int, tokens_out: int) -> None:
+def reserve_token_budget(maximum_tokens: int) -> str | None:
+    """Atomically reserve one call's conservative maximum token usage."""
+    if not enabled():
+        return None
+    if maximum_tokens <= 0:
+        raise DemoLimitExceeded("public demo requires a bounded model token limit", 3600)
+
+    limit = max(1, env_int("DEMO_DAILY_TOKEN_LIMIT", 250_000))
+    now = datetime.now(UTC)
+    reservation_id = f"tok_{uuid.uuid4().hex}"
+    conn = init_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        since = _day_start(now)
+        used = int(
+            conn.execute(
+                "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) "
+                "FROM demo_model_usage WHERE ts >= ?",
+                (since,),
+            ).fetchone()[0]
+        )
+        reserved = int(
+            conn.execute(
+                "SELECT COALESCE(SUM(reserved_tokens), 0) "
+                "FROM demo_model_token_reservations WHERE ts >= ?",
+                (since,),
+            ).fetchone()[0]
+        )
+        if used + reserved + maximum_tokens > limit:
+            raise DemoLimitExceeded("public demo daily token limit reached", 3600)
+        conn.execute(
+            "INSERT INTO demo_model_token_reservations "
+            "(reservation_id, ts, reserved_tokens) VALUES (?, ?, ?)",
+            (reservation_id, utcnow(), maximum_tokens),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return reservation_id
+
+
+def release_token_reservation(reservation_id: str | None) -> None:
+    if reservation_id is None:
+        return
+    conn = init_db()
+    try:
+        with conn:
+            conn.execute(
+                "DELETE FROM demo_model_token_reservations WHERE reservation_id = ?",
+                (reservation_id,),
+            )
+    finally:
+        conn.close()
+
+
+def record_usage(
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    *,
+    reservation_id: str | None = None,
+) -> None:
     if not enabled():
         return
     if tokens_in < 0 or tokens_out < 0:
         raise RuntimeError("provider returned negative token usage")
     conn = init_db()
     try:
-        with conn:
-            conn.execute(
-                "INSERT INTO demo_model_usage "
-                "(ts, model, tokens_in, tokens_out) VALUES (?, ?, ?, ?)",
-                (utcnow(), model, tokens_in, tokens_out),
+        conn.execute("BEGIN IMMEDIATE")
+        if reservation_id is not None:
+            cursor = conn.execute(
+                "DELETE FROM demo_model_token_reservations WHERE reservation_id = ?",
+                (reservation_id,),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError("model token reservation is missing")
+        conn.execute(
+            "INSERT INTO demo_model_usage (ts, model, tokens_in, tokens_out) VALUES (?, ?, ?, ?)",
+            (utcnow(), model, tokens_in, tokens_out),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

@@ -11,6 +11,12 @@ a root-owned mode-0600 file and never expose it in browser or `NEXT_PUBLIC_*`
 configuration. With no authenticated frontend proxy, the Vercel frontend must
 remain disconnected.
 
+Set `API_ADDRESS` in the private runtime environment to the VM's reserved
+public IPv4 address (or the configured DNS hostname). Keep
+`DATA_ROOT=/var/lib/task-orchestrator` and
+`BACKEND_ENV_FILE=/etc/task-orchestrator/backend.env`; these match the
+root-prepared, UID-10001-writable persistent directories and the systemd unit.
+
 The VM deployment intentionally has no attached service account. Model keys
 are absent initially, so live model-backed jobs fail closed until a provider
 is separately configured. `ARCHITECT_ALLOW_GLUE_TOOLS=0` prevents generated
