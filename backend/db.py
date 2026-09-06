@@ -49,15 +49,18 @@ def db_path(path: str | Path | None = None) -> Path:
     return DEFAULT_DB_PATH
 
 
-def connect(path: str | Path | None = None) -> sqlite3.Connection:
+def connect(
+    path: str | Path | None = None, *, check_same_thread: bool = True
+) -> sqlite3.Connection:
     """Open a connection with row access by name and foreign keys enabled.
 
     The parent directory is created if needed; the schema is *not* applied here
-    (call `init_db` for that).
+    (call `init_db` for that). Connections remain thread-affine unless a caller
+    explicitly opts out for a controlled, sequential cross-thread handoff.
     """
     resolved = db_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(resolved)
+    conn = sqlite3.connect(resolved, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

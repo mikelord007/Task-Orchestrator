@@ -1,9 +1,11 @@
 name: frontend
 
+# pull_request covers every push to a branch with an open PR; push is
+# restricted to main so the same commit does not trigger two runs.
 on:
-  push:
-    branches: ["**"]
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   build:
