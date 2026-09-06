@@ -68,6 +68,19 @@ def test_required_auth_fails_closed_without_token(db_file: Path, monkeypatch: py
             pass
 
 
+def test_lifespan_initializes_and_shuts_down_tracing_once(db_file, monkeypatch):
+    from backend.runtime import neatlogs
+
+    calls: list[str] = []
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setattr(neatlogs, "initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(neatlogs, "shutdown", lambda: calls.append("shutdown"))
+    with TestClient(create_app()) as tracing_client:
+        assert tracing_client.get("/healthz").status_code == 200
+        assert tracing_client.get("/healthz").status_code == 200
+    assert calls == ["initialize", "shutdown"]
+
+
 def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A subpackage exposing `api.router` is found without editing app.py."""
     import importlib

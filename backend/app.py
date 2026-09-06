@@ -84,15 +84,21 @@ async def _lifespan(app: FastAPI):
 
     if demo_limits_enabled() and (not _require_api_auth() or not _api_auth_token()):
         raise RuntimeError("PUBLIC_DEMO_LIMITS requires bearer authentication")
-    conn = init_db()
-    try:
-        from backend.runtime.jobs import mark_incomplete_jobs_interrupted
+    from backend.runtime import neatlogs
 
-        mark_incomplete_jobs_interrupted(conn)
+    neatlogs.initialize()
+    try:
+        conn = init_db()
+        try:
+            from backend.runtime.jobs import mark_incomplete_jobs_interrupted
+
+            mark_incomplete_jobs_interrupted(conn)
+        finally:
+            conn.close()
+        log.info("database ready at %s", db_path())
+        yield
     finally:
-        conn.close()
-    log.info("database ready at %s", db_path())
-    yield
+        neatlogs.shutdown()
 
 
 def create_app() -> FastAPI:

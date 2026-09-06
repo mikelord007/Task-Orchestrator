@@ -277,6 +277,7 @@ def run_in_background(
     import threading
 
     from backend.demo_limits import claim_workflow_slot
+    from backend.runtime import neatlogs
 
     slot = claim_workflow_slot()
     try:
@@ -284,18 +285,25 @@ def run_in_background(
     except Exception:
         slot.release()
         raise
+    parent_context = neatlogs.copy_current_context()
 
     def target() -> None:
         try:
-            store.mark_running(job_id)
-            try:
-                result = work(lambda done, total: store.mark_progress(job_id, done, total))
-            except Exception as exc:  # noqa: BLE001 - a failed job is reported, not raised
-                store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
-                return
-            store.mark_done(job_id, result)
+            with neatlogs.workflow_span(
+                "task_orchestrator.job",
+                job_id=neatlogs.safe_identifier(job_id, "job"),
+                agent_id=neatlogs.safe_identifier(agent_id, "agent"),
+                job_kind=kind if kind in {"run", "improve"} else "other",
+            ):
+                store.mark_running(job_id)
+                try:
+                    result = work(lambda done, total: store.mark_progress(job_id, done, total))
+                except Exception as exc:  # noqa: BLE001 - report job failures
+                    store.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+                    return
+                store.mark_done(job_id, result)
         finally:
             slot.release()
 
-    threading.Thread(target=target, daemon=True).start()
+    threading.Thread(target=lambda: parent_context.run(target), daemon=True).start()
     return job_id

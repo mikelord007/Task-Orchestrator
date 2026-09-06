@@ -138,37 +138,60 @@ def __getattr__(name: str) -> Any:
 # --------------------------------------------------------------------------
 
 _client: Any | None = None
+_client_injected = False
+_client_wrapped = False
+_client_lock = threading.RLock()
 
 
 def set_client(client: Any) -> None:
     """Inject a client. Tests pass `FakeLLM()`; nothing else may hit the network."""
-    global _client
-    _client = client
+    global _client, _client_injected, _client_wrapped
+    with _client_lock:
+        _client = client
+        _client_injected = True
+        _client_wrapped = False
 
 
 def reset_client() -> None:
     """Drop the injected/cached client so the next call rebuilds a real one."""
-    global _client
-    _client = None
+    global _client, _client_injected, _client_wrapped
+    with _client_lock:
+        _client = None
+        _client_injected = False
+        _client_wrapped = False
 
 
 def get_client() -> Any:
     """Return the injected client, or build an OpenAI-compatible one from env."""
-    global _client
-    if _client is not None:
-        return _client
-    api_key = env("LLM_API_KEY")
-    if not api_key:
-        raise LLMError(
-            "LLM_API_KEY is not set. Set it in .env, or inject a test double "
-            "with backend.llm.set_client(FakeLLM(...))."
+    global _client, _client_wrapped
+    with _client_lock:
+        if _client is not None:
+            if _client_injected:
+                return _client
+            from backend.runtime import neatlogs
+
+            if neatlogs.enabled() and not _client_wrapped:
+                _client = neatlogs.wrap_client(_client)
+                _client_wrapped = True
+            return _client
+        api_key = env("LLM_API_KEY")
+        if not api_key:
+            raise LLMError(
+                "LLM_API_KEY is not set. Set it in .env, or inject a test double "
+                "with backend.llm.set_client(FakeLLM(...))."
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as exc:  # pragma: no cover - dependency is declared
+            raise LLMError("the `openai` package is required for live LLM calls") from exc
+        raw_client = OpenAI(
+            base_url=env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key
         )
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover - dependency is declared
-        raise LLMError("the `openai` package is required for live LLM calls") from exc
-    _client = OpenAI(base_url=env("LLM_BASE_URL", "https://api.openai.com/v1"), api_key=api_key)
-    return _client
+        from backend.runtime import neatlogs
+
+        _client = neatlogs.wrap_client(raw_client)
+        _client_wrapped = neatlogs.enabled()
+        return _client
 
 
 # --------------------------------------------------------------------------

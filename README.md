@@ -70,7 +70,9 @@ Phase 0: a change needs an issue labelled `contract-change`.
 | `LLM_MODEL_STRONG` | `gpt-4o` | architect, diagnosis, reflection |
 | `LLM_MODEL_CHEAP` | `gpt-4o-mini` | routed steps |
 | `LLM_COST_TABLE` | built-in | JSON override of USD per 1M tokens per model |
-| `NEATLOGS_API_KEY` | — | optional tracing; transcripts are always written locally |
+| `NEATLOGS_ENABLED` | `false` | explicit Neatlogs export opt-in; also requires the API key |
+| `NEATLOGS_API_KEY` | — | private Neatlogs project key; a key alone does not enable export |
+| `NEATLOGS_CAPTURE_CONTENT` | `false` | opt in to bounded, locally redacted span content |
 | `GITHUB_TOKEN` | — | read-only PAT for the `github_triage` tools |
 | `TO_DB_PATH` | `runs/to.sqlite3` | SQLite ledger path |
 | `EVAL_TRIALS` | `3` | trials per task — this is what produces the error bars (`EVAL_REPEATS` is a deprecated alias) |

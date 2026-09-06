@@ -29,6 +29,12 @@ docker compose --env-file /etc/task-orchestrator/backend.env \
   -f deploy/gcp/compose.yaml up -d --build
 ```
 
+Neatlogs remains disabled unless the root-owned environment file contains both
+`NEATLOGS_ENABLED=true` and `NEATLOGS_API_KEY`. Leave
+`NEATLOGS_CAPTURE_CONTENT=false` for the initial production rollout. Roll back
+telemetry independently by setting `NEATLOGS_ENABLED=false` and restarting the
+service; local ledgers and transcripts continue to operate without the SDK.
+
 The host creates a 1 GiB swapfile and the mutable directories owned by
 UID/GID 10001. Compose uses bounded local logs, drops all backend capabilities,
 adds only `NET_BIND_SERVICE` for Caddy, uses no Docker socket, and runs the

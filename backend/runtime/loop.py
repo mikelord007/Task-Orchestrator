@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.runtime import neatlogs
 from backend.runtime.config import Knobs
 from backend.runtime.drift import (
     ACTION_ABORT,
@@ -243,15 +244,20 @@ def run_loop(
                 call_id=call_id,
             )
             started = time.monotonic()
-            tool = package.tools.get(name)
-            if tool is None:
-                text, is_error = (
-                    f"ERROR: unknown tool '{name}'. Available tools: "
-                    f"{', '.join(sorted(package.tools)) or 'none'}",
-                    True,
-                )
-            else:
-                text, is_error = invoke_tool(tool, args)
+            with neatlogs.span(
+                "task_orchestrator.tool",
+                kind="TOOL",
+                tool_name=neatlogs.safe_identifier(name, "tool"),
+            ):
+                tool = package.tools.get(name)
+                if tool is None:
+                    text, is_error = (
+                        f"ERROR: unknown tool '{name}'. Available tools: "
+                        f"{', '.join(sorted(package.tools)) or 'none'}",
+                        True,
+                    )
+                else:
+                    text, is_error = invoke_tool(tool, args)
             transcript.record_tool_return(
                 tool=name,
                 result=text,
