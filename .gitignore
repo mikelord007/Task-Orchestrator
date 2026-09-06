@@ -15,7 +15,13 @@ runs/*
 !runs/.gitkeep
 reports/*
 !reports/.gitkeep
-fixtures/github_cache/
+
+# The GitHub tool cache must be committable: the demo and eval runs read it
+# offline, so the recorded *.json responses have to ship in the repo (W11
+# populates it with a live run; nothing else belongs in this directory).
+fixtures/github_cache/*
+!fixtures/github_cache/*.json
+!fixtures/github_cache/README.md
 
 # Node / Next
 node_modules/

@@ -50,7 +50,7 @@ a run with no `run_finished` event is ignored.
 
 | function | returns |
 |---|---|
-| `events(conn, kind=, agent_id=, agent_version=, run_id=, since=, limit=)` | matching `Event`s, oldest first, payload decoded. `kind` takes one kind or many; `since` is an inclusive ISO8601 lower bound on `ts`. |
+| `events(conn, kind=, agent_id=, agent_version=, run_id=, since=, limit=)` | matching `Event`s, oldest first, payload decoded. `kind` takes one kind or many. `since` accepts either an event id cursor -- an `int`, or a digit string as arrives over HTTP (`id > since`, exclusive) -- or an ISO8601 UTC timestamp (`ts >= since`, inclusive), matching `backend.ledger.emit.read()`. |
 | `Event.trial()` | the event's trial index, reading `trial` and falling back to the pre-addendum `repeat` field. |
 | `runs(conn, agent_id, version=, split=, finished_only=True)` | `Run` objects pairing `run_started` with `run_finished`. |
 | `latest_run(conn, agent_id, version, split)` | the most recent finished `Run`, or `None`. |
@@ -83,8 +83,8 @@ the repo root).
 | `zero_pass_tasks(conn, agent_id)` | `[case_id]` stuck at 0% across the last 3 consecutive finished train runs; `[]` until that much history exists. Exposed in insights as `flagged_tasks`. |
 | `rule_stats(conn, agent_id)` | `{entry_id: {hits, misses, uses}}` from `case_result.rules_injected` × `passed`. |
 | `memory_by_version(conn, agent_id, root=)` | `[{version, rules, rules_written, tool_notes, mean_confidence, demotions}]`. `rules` is written-minus-demoted (active); `mean_confidence` comes from `agents/<id>/v<N>/memory/rules.jsonl`, `None` when that snapshot is absent. |
-| `tool_call_stats(conn, agent_id, version, split, root=)` | `{tasks: {case_id: {...}}, aggregate: {...}}` — `calls, errors, redundant, tool_tokens, latency_ms`, derived from the transcript's `steps[]` (see below), else a coarser fallback from `case_result` (in which case `redundant`/`tool_tokens` are honestly `None`, not `0`). |
-| `tool_stats_by_version(conn, agent_id, root=)` | `[{version, split, calls, errors, redundant, tool_tokens, latency_ms}]`, the aggregate from `tool_call_stats` per `(version, split)`, sharing one transcript-read cache across all of them. |
+| `tool_call_stats(conn, agent_id, version, split, root=)` | `{tasks: {case_id: {...}}, aggregate: {...}}` — `calls, errors, redundant, tool_tokens, latency_ms, tool_tokens_estimated`, derived from the transcript's `steps[]` (see below), else a coarser fallback from `case_result` (in which case `redundant`/`tool_tokens`/`tool_tokens_estimated` are honestly `None`, not `0`/`False`). |
+| `tool_stats_by_version(conn, agent_id, root=)` | `[{version, split, calls, errors, redundant, tool_tokens, latency_ms, tool_tokens_estimated}]`, the aggregate from `tool_call_stats` per `(version, split)`, sharing one transcript-read cache across all of them. |
 | `fix_cards(conn, agent_id, root=)` | `FixCard`s per `contracts/api.md`, newest first. |
 | `fix_diff(conn, agent_id, to_version, root=)` | the unified diff text at `fix_proposed.diff_path`, or `None`. Refuses a `diff_path` that resolves outside the repo root. |
 | `compare(conn, agent_id, case_id, root=)` | `{expected, v0, current}` — outputs read from the harness transcripts. |
@@ -98,13 +98,21 @@ the repo root).
 `steps[]` (`contracts/transcript.py`): each `tool_call` step (`tool`, `args`) is
 paired with the `tool_return` step immediately after it (`error`, `tokens_in`).
 A "redundant" call is the same tool with identical normalized args repeated
-within one trial. Reading a transcript goes through `load_transcript` (so a
-malformed file is caught, not crashed on) and is memoized per absolute path
-within one `tool_call_stats`/`tool_stats_by_version` call — transcripts are
-immutable once written, so re-reading one is pure waste. When a transcript is
-missing or fails to parse, the fallback reads the coarser `case_result` fields
-(`tool_calls`, `tool_errors`) and reports `redundant`/`tool_tokens` as `None`
-rather than guessing.
+within one trial; the grouping key prefers a `tool_call` step's own
+`normalized_args` (sorted keys, stripped/lowercased strings -- W2's harness
+extension beyond `contracts/transcript.py`, read via `getattr` since
+`TranscriptStep` allows extra fields) so redundancy detection agrees with the
+drift watchdog's loop check, falling back to our own `json.dumps(args,
+sort_keys=True)` when a step doesn't carry it. `tool_tokens_estimated` mirrors
+another such extension, `tool_return.tokens_estimated`: `True` if any call in
+scope had its tokens estimated rather than measured, `False` if none did,
+`None` if there is no transcript detail at all. Reading a transcript goes
+through `load_transcript` (so a malformed file is caught, not crashed on) and
+is memoized per absolute path within one `tool_call_stats`/`tool_stats_by_version`
+call — transcripts are immutable once written, so re-reading one is pure waste.
+When a transcript is missing or fails to parse, the fallback reads the coarser
+`case_result` fields (`tool_calls`, `tool_errors`) and reports
+`redundant`/`tool_tokens`/`tool_tokens_estimated` as `None` rather than guessing.
 
 ### Fix cards
 
@@ -128,8 +136,12 @@ by `to_version`, plus the diff file on disk — there is no fixes table.
   `agents/<id>/v<N>/memory/{rules,tool_notes}.jsonl` (rule text, confidence,
   tool note, evidence — fields `MemoryWritten` itself forbids) — so the UI can
   show the entries instead of a text diff.
-- `metric_signal` (optional on `fix_proposed`) passes straight through to the
-  card and to its `fix_accepted`/`fix_rejected` marker.
+- `metric_signal` (optional on `fix_proposed`) appears on the card **only**
+  when `lever == "tools"` (`contracts/api.md`: "set only for lever=tools
+  fixes ... null otherwise"), even if the raw event carries one for another
+  lever. `markers()` is not so restricted -- it is an undocumented chart
+  annotation, not `FixCard`, and still surfaces whatever `metric_signal` the
+  proposal has.
 - `diff_url` is always `/agents/{id}/fixes/{to_version}/diff`.
 
 ### Documented deltas beyond `contracts/api.md`

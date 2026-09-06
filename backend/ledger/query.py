@@ -115,13 +115,15 @@ def events(
     agent_id: str | None = None,
     agent_version: int | None = None,
     run_id: str | None = None,
-    since: str | None = None,
+    since: str | int | None = None,
     limit: int | None = None,
 ) -> list[Event]:
     """Return matching events, oldest first, payloads decoded.
 
-    ``kind`` accepts a single kind or an iterable of kinds. ``since`` is an
-    ISO8601 UTC timestamp compared lexicographically against ``ts`` (inclusive).
+    ``kind`` accepts a single kind or an iterable of kinds. ``since`` accepts
+    either an event id cursor -- an ``int``, or a digit string as arrives over
+    HTTP (``id > since``, exclusive) -- or an ISO8601 UTC timestamp
+    (``ts >= since``, inclusive), matching ``backend.ledger.emit.read()``.
     """
     where: list[str] = []
     params: list[Any] = []
@@ -143,8 +145,15 @@ def events(
         where.append("run_id = ?")
         params.append(run_id)
     if since is not None:
-        where.append("ts >= ?")
-        params.append(since)
+        if isinstance(since, int) and not isinstance(since, bool):
+            where.append("id > ?")
+            params.append(since)
+        elif isinstance(since, str) and since.isdigit():
+            where.append("id > ?")
+            params.append(int(since))
+        else:
+            where.append("ts >= ?")
+            params.append(since)
 
     sql = "SELECT " + _EVENT_COLUMNS + " FROM events"
     if where:

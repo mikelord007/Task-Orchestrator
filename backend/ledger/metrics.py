@@ -949,9 +949,25 @@ def _load_transcript(path: Path | None, cache: _TranscriptCache) -> Transcript |
     return transcript
 
 
+def _redundancy_key(step: Any) -> str:
+    """The key redundant-call detection groups on for one ``tool_call`` step.
+
+    Prefers the harness's own ``normalized_args`` (sorted keys, stripped and
+    lowercased strings -- an extension beyond ``contracts/transcript.py``,
+    read via ``getattr`` since it is not a formal model field) so redundancy
+    detection agrees with the drift watchdog's loop check, which groups calls
+    the same way. Falls back to our own normalization when a step doesn't
+    carry it (e.g. an older transcript).
+    """
+    normalized = getattr(step, "normalized_args", None)
+    if normalized:
+        return f"{step.tool}::{normalized}"
+    return f"{step.tool}::{_normalized_args_key(step.args)}"
+
+
 def _execution_tool_stats(
     event: Event, root: str | Path | None, cache: _TranscriptCache
-) -> dict[str, float | None]:
+) -> dict[str, Any]:
     """Tool stats for one task execution (one (task, trial) pair).
 
     Derived from the transcript's ``steps[]`` (``contracts/transcript.py``):
@@ -959,7 +975,10 @@ def _execution_tool_stats(
     after it. Falls back to the coarser ``case_result`` counters when the
     transcript is missing or fails to parse, honestly reporting ``redundant``
     and ``tool_tokens`` as unknown (``None``, not ``0``) in that case -- they
-    cannot be recovered from those counters alone.
+    cannot be recovered from those counters alone. ``tool_tokens_estimated``
+    is ``True`` when any paired ``tool_return`` flagged its ``tokens_in`` as
+    estimated (another read-only extension), ``False`` when none did, and
+    ``None`` when unknown (no transcript detail at all).
     """
     transcript = _load_transcript(_resolve(event.get("transcript_path"), root), cache)
     if transcript is not None:
@@ -968,12 +987,13 @@ def _execution_tool_stats(
         errors = 0
         calls = 0
         tokens = 0.0
+        estimated = False
         steps = transcript.steps
         for i, step in enumerate(steps):
             if step.kind != StepKind.tool_call:
                 continue
             calls += 1
-            key = f"{step.tool}::{_normalized_args_key(step.args)}"
+            key = _redundancy_key(step)
             if key in seen:
                 redundant += 1
             seen.add(key)
@@ -982,12 +1002,15 @@ def _execution_tool_stats(
                 if following.error:
                     errors += 1
                 tokens += _num(following.tokens_in) or 0.0
+                if getattr(following, "tokens_estimated", False):
+                    estimated = True
         return {
             "calls": float(calls),
             "errors": float(errors),
             "redundant": float(redundant),
             "tool_tokens": tokens,
             "latency_ms": _num(event.get("latency_ms")) or 0.0,
+            "tool_tokens_estimated": estimated,
         }
 
     return {
@@ -996,7 +1019,20 @@ def _execution_tool_stats(
         "redundant": None,
         "tool_tokens": None,
         "latency_ms": _num(event.get("latency_ms")) or 0.0,
+        "tool_tokens_estimated": None,
     }
+
+
+def _any_estimated(rows: Sequence[dict[str, Any]]) -> bool | None:
+    """Aggregate ``tool_tokens_estimated`` across executions: True if any
+    execution flagged it, None if every execution is unknown (no transcript
+    detail at all), False otherwise."""
+    flags = [r.get("tool_tokens_estimated") for r in rows]
+    if any(f is True for f in flags):
+        return True
+    if all(f is None for f in flags):
+        return None
+    return False
 
 
 def tool_call_stats(
@@ -1026,20 +1062,21 @@ def tool_call_stats(
         "tool_tokens": None,
         "latency_ms": None,
     }
+    empty_with_estimate = {**empty, "tool_tokens_estimated": None}
     if run is None:
-        return {"tasks": {}, "aggregate": dict(empty)}
+        return {"tasks": {}, "aggregate": dict(empty_with_estimate)}
 
     results = case_results(conn, run.run_id)
     if not results:
-        return {"tasks": {}, "aggregate": dict(empty)}
+        return {"tasks": {}, "aggregate": dict(empty_with_estimate)}
 
     per_execution = [_execution_tool_stats(e, root, cache) for e in results]
 
-    def field_mean(key: str, rows: Sequence[dict[str, float | None]]) -> float | None:
+    def field_mean(key: str, rows: Sequence[dict[str, Any]]) -> float | None:
         values = [r[key] for r in rows if r.get(key) is not None]
         return _mean(values)
 
-    by_task: dict[str, list[dict[str, float | None]]] = {}
+    by_task: dict[str, list[dict[str, Any]]] = {}
     for event, stats in zip(results, per_execution, strict=True):
         case_id = event.get("case_id")
         if case_id is None:
@@ -1047,20 +1084,30 @@ def tool_call_stats(
         by_task.setdefault(str(case_id), []).append(stats)
 
     tasks = {
-        task_id: {key: field_mean(key, rows) for key in empty} for task_id, rows in by_task.items()
+        task_id: {
+            **{key: field_mean(key, rows) for key in empty},
+            "tool_tokens_estimated": _any_estimated(rows),
+        }
+        for task_id, rows in by_task.items()
     }
-    aggregate = {key: field_mean(key, per_execution) for key in empty}
+    aggregate = {
+        **{key: field_mean(key, per_execution) for key in empty},
+        "tool_tokens_estimated": _any_estimated(per_execution),
+    }
     return {"tasks": tasks, "aggregate": aggregate}
 
 
 def tool_stats_by_version(
     conn: sqlite3.Connection, agent_id: str, root: str | Path | None = None
 ) -> list[dict[str, Any]]:
-    """``[{version, split, calls, errors, redundant, tool_tokens, latency_ms}]``.
+    """``[{version, split, calls, errors, redundant, tool_tokens, latency_ms,``
+    ``tool_tokens_estimated}]``.
 
     One row per (version, split) with a finished run, aggregated per task.
-    Expected to fall as memory grows (judge question 4). Shares one transcript
-    cache across every (version, split) in this call.
+    Expected to fall as memory grows (judge question 4). ``tool_tokens_estimated``
+    is ``True`` if any tool return in that (version, split) had its tokens
+    estimated rather than measured, ``None`` if no transcript detail exists at
+    all. Shares one transcript cache across every (version, split) in this call.
     """
     cache: _TranscriptCache = {}
     out: list[dict[str, Any]] = []
@@ -1145,7 +1192,8 @@ def fix_cards(
             "failing_group": _failing_group(proposal),
             "hypothesis": proposal.get("hypothesis"),
             "diagnosis": proposal.get("diagnosis"),
-            "metric_signal": proposal.get("metric_signal"),
+            # contracts/api.md: set only for lever=tools fixes, null otherwise.
+            "metric_signal": proposal.get("metric_signal") if lever == "tools" else None,
             "diff_summary": proposal.get("diff_summary"),
             "files_touched": list(files_touched)
             if isinstance(files_touched, (list, tuple))

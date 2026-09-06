@@ -75,6 +75,7 @@ def test_tool_call_stats_is_empty(empty_ledger: sqlite3.Connection, tmp_path: Pa
             "redundant": None,
             "tool_tokens": None,
             "latency_ms": None,
+            "tool_tokens_estimated": None,
         },
     }
     assert metrics.tool_stats_by_version(empty_ledger, "nobody", tmp_path) == []
