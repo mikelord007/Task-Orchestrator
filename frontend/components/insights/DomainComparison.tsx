@@ -1,86 +1,45 @@
-"use client";
-
-import { CartesianGrid, Line, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { InsightsCompare } from "@/lib/types";
 import { pct } from "@/lib/format";
+import Stat from "@/components/Stat";
 import { Empty } from "@/components/ui";
-import { CHART_COLORS, axisTick, tooltipStyle } from "./chart-common";
 
-const SERIES_COLOR = [CHART_COLORS.train, CHART_COLORS.holdout, CHART_COLORS.pass, CHART_COLORS.drift];
-
-/** Every domain's train pass@1 band side by side, plus the playbook ablation if it exists. */
+/**
+ * The playbook ablation (Domain B, v0, playbook on vs off) as a small stat
+ * panel. The side-by-side per-domain pass@1 chart was cut under time pressure
+ * (PLAN_ADDENDUM.md sec M cut order) — the ablation numbers are the part of
+ * this panel a judge actually needs.
+ */
 export default function DomainComparison({ compare }: { compare: InsightsCompare | null }) {
-  if (!compare || compare.domains.length === 0) {
-    return <Empty>No agents to compare yet. Create a second domain's agent to populate this.</Empty>;
+  const ablation = compare?.ablation;
+  if (!ablation) {
+    return (
+      <Empty>
+        No ablation report yet (reports/ablation.json). Run scripts/playbook_ablation.py to
+        produce one.
+      </Empty>
+    );
   }
-
-  const versions = Array.from(
-    new Set(compare.domains.flatMap((d) => d.pass_at_1_by_version.map((p) => p.version))),
-  ).sort((a, b) => a - b);
-  const rows = versions.map((version) => {
-    const row: Record<string, number | undefined> = { version };
-    for (const d of compare.domains) {
-      const point = d.pass_at_1_by_version.find((p) => p.version === version && p.split === "train");
-      row[d.agent_id] = point?.mean;
-    }
-    return row;
-  });
 
   return (
     <div>
-      <div className="h-48 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 4, right: 24, left: -18, bottom: 0 }}>
-            <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-            <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
-            <YAxis domain={[0, 1]} tickFormatter={(v) => `${Math.round(v * 100)}`} tick={axisTick} tickLine={false} axisLine={false} width={28} />
-            <Tooltip {...tooltipStyle} formatter={(v: number) => `${(v * 100).toFixed(1)}`} labelFormatter={(v) => `v${v}`} />
-            {compare.domains.map((d, i) => (
-              <Line
-                key={d.agent_id}
-                dataKey={d.agent_id}
-                name={`${d.name} (${d.domain})`}
-                stroke={SERIES_COLOR[i % SERIES_COLOR.length]}
-                strokeWidth={2}
-                dot={{ r: 2.5 }}
-                isAnimationActive={false}
-                connectNulls
-              />
-            ))}
-          </ComposedChart>
-        </ResponsiveContainer>
+      <p className="text-[11px] text-fg-mute">
+        playbook ablation · {ablation.domain} · v0 holdout pass@1
+      </p>
+      <div className="mt-2 flex flex-wrap gap-8">
+        <Stat
+          label="playbook off"
+          value={`${pct(ablation.playbook_off.holdout_mean)} ± ${pct(ablation.playbook_off.holdout_std)}`}
+        />
+        <Stat
+          label="playbook on"
+          value={`${pct(ablation.playbook_on.holdout_mean)} ± ${pct(ablation.playbook_on.holdout_std)}`}
+          tone="pass"
+        />
       </div>
-      <p className="mt-1 text-[11px] text-fg-mute">train pass@1 by version, one line per agent</p>
-
-      {compare.ablation ? (
-        <div className="mt-3 border-t border-line pt-2">
-          <p className="text-[11px] text-fg-mute">
-            playbook ablation · {compare.ablation.domain} · v0 holdout pass@1
-          </p>
-          <div className="mt-1 flex gap-6 text-[12px]">
-            <span>
-              <span className="text-fg-mute">playbook off </span>
-              <span className="tabular-nums text-fg">
-                {pct(compare.ablation.playbook_off.holdout_mean)} ± {pct(compare.ablation.playbook_off.holdout_std)}
-              </span>
-            </span>
-            <span>
-              <span className="text-fg-mute">playbook on </span>
-              <span className="tabular-nums text-pass">
-                {pct(compare.ablation.playbook_on.holdout_mean)} ± {pct(compare.ablation.playbook_on.holdout_std)}
-              </span>
-            </span>
-            <span className="text-fg-mute">
-              applied lessons: {compare.ablation.applied_lessons.join(", ")}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <p className="mt-2 text-[11px] text-fg-mute">
-          No ablation report yet (reports/ablation.json). Run scripts/playbook_ablation.py to
-          produce one.
-        </p>
-      )}
+      <p className="mt-2 text-[11px] text-fg-mute">
+        applied lessons:{" "}
+        {ablation.applied_lessons.length > 0 ? ablation.applied_lessons.join(", ") : "none"}
+      </p>
     </div>
   );
 }
