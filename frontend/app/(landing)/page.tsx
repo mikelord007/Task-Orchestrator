@@ -148,7 +148,7 @@ export default function LandingPage() {
             >
               <span className="block whitespace-nowrap">Builds the agents</span>
               <span className="block whitespace-nowrap">Improves the agents</span>
-              <span className="block whitespace-nowrap">Proves it gets better</span>
+              <span className="block whitespace-nowrap">Proves it got better</span>
             </h1>
             <div className="mt-10 flex flex-wrap items-center gap-7">
               <Link
