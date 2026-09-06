@@ -47,46 +47,40 @@ ABLATION = json.dumps(
 )
 
 
-def test_exports_current_as_baseline_when_every_fix_was_rejected():
+def test_keeps_current_metrics_null_when_summary_only_reports_evaluated_end():
     payload = export_landing_stats(SUMMARY, ABLATION, BUILD_LOG)
-    domain = payload["domain_a"]
 
-    assert domain["agent_id"] == "github-triage-itrs75"
-    assert domain["baseline_version"] == 0
-    assert domain["current_version"] == 0
-    assert domain["reported_end_version"] == 3
-    assert domain["trials"] == 3
-    assert domain["holdout"]["pass_at_1"] == {
-        "before": {"mean": 0.370, "std": 0.026},
-        "after": {"mean": 0.370, "std": 0.026},
-    }
-    assert domain["holdout"]["pass_pow_k"] == {
-        "k": 3,
-        "before": 0.056,
-        "after": 0.056,
-    }
-    assert domain["fixes"] == {"accepted": 0, "rejected": 3}
-    assert domain["tool_calls_per_task"] == {
+    assert payload["demo_agent_id"] == "github-triage-itrs75"
+    assert payload["domain"] == "github_triage"
+    assert payload["current_version"] is None
+    assert payload["trials"] == 3
+    assert payload["fixes"] == {"accepted": 0, "rejected": 3}
+    assert payload["tool_calls_per_task"] == {
         "split": "train",
-        "before": 4.86,
-        "after": 4.86,
-        "reported_end": 4.56,
+        "before": {"version": 0, "value": 4.86},
+        "after": {"version": None, "value": None},
     }
 
 
 def test_counts_unique_sessions_and_prs_from_build_log_only():
     payload = export_landing_stats(SUMMARY, ABLATION, BUILD_LOG)
 
-    assert payload["ao"] == {"sessions": 2, "prs": 2}
-    assert payload["_provenance"]["semantics"]["ao_sessions"].startswith("unique worker")
+    assert payload["ao_sessions"] == 2
+    assert payload["pr_count"] == 2
+    assert payload["provenance"]["semantics"]["ao_sessions"].startswith("unique worker")
 
 
 def test_preserves_valid_zero_and_excludes_agent_ids_from_ablation():
     payload = export_landing_stats(SUMMARY, ABLATION, BUILD_LOG)
 
-    assert payload["ablation"]["playbook_off"]["pass_at_1"] == 0.0
-    assert payload["ablation"]["applied_lesson_ids"] == []
-    assert "agent_ids" not in payload["ablation"]
+    observed = payload["provenance"]["unavailable_evidence"]["ablation"]
+    assert observed["playbook_off"]["pass_at_1"] == 0.0
+    assert observed["applied_lesson_ids"] == []
+    assert "agent_ids" not in observed
+    assert payload["ablation"] is None
+    assert payload["pass_at_1_by_version"] == []
+    assert payload["pass_pow_k_by_version"] == []
+    assert payload["markers"] == []
     assert payload["chart"] is None
 
 
@@ -94,9 +88,34 @@ def test_missing_sources_and_ambiguous_current_remain_null():
     accepted_summary = SUMMARY.replace("0 accepted, 3 rejected", "1 accepted, 2 rejected")
     payload = export_landing_stats(accepted_summary, None, None)
 
-    assert payload["domain_a"]["current_version"] is None
-    assert payload["domain_a"]["holdout"]["pass_at_1"]["after"] is None
-    assert payload["domain_a"]["tool_calls_per_task"]["after"] is None
+    assert payload["current_version"] is None
+    assert payload["tool_calls_per_task"]["after"] == {"version": None, "value": None}
     assert payload["ablation"] is None
-    assert payload["ao"] == {"sessions": None, "prs": None}
-    assert payload["_provenance"]["sources"]["ablation"]["available"] is False
+    assert payload["ao_sessions"] is None
+    assert payload["pr_count"] is None
+    assert payload["provenance"]["sources"]["ablation"]["available"] is False
+
+
+def test_ablation_is_exposed_only_when_applied_lessons_are_proven():
+    ablation = json.loads(ABLATION)
+    ablation["applied_lesson_ids"] = ["lesson-1"]
+
+    payload = export_landing_stats(SUMMARY, json.dumps(ablation), BUILD_LOG)
+
+    assert payload["ablation"] == {"with_lessons": 0.5, "without_lessons": 0.0}
+    assert payload["provenance"]["unavailable_evidence"]["ablation"]["applied_lesson_ids"] == [
+        "lesson-1"
+    ]
+
+
+def test_actual_current_version_is_corroboration_only():
+    payload = export_landing_stats(
+        SUMMARY,
+        ABLATION,
+        BUILD_LOG,
+        json.dumps({"agent_id": "github-triage-itrs75", "current_version": 0}),
+    )
+
+    assert payload["current_version"] is None
+    assert payload["provenance"]["corroborating_current_version"] == 0
+    assert payload["provenance"]["sources"]["domain_a_corroboration"]["available"] is True
