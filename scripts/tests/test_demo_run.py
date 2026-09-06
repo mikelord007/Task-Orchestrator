@@ -21,6 +21,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -400,3 +401,76 @@ class TestTopKeywords:
     def test_caps_at_limit(self):
         keywords = demo_run._top_keywords("alpha beta gamma delta epsilon zeta eta", limit=3)
         assert len(keywords) == 3
+
+
+# --------------------------------------------------------------------------
+# lazy W8b playbook scan hook
+# --------------------------------------------------------------------------
+
+
+class TestPlaybookScanHook:
+    def test_calls_scan_once_for_each_accepted_attempt(self, monkeypatch):
+        conn = sqlite3.connect(":memory:")
+        calls = []
+
+        def scan_and_record(received_conn):
+            calls.append(received_conn)
+            return {"recorded": 1, "skipped": 0, "last_event_id": len(calls)}
+
+        monkeypatch.setattr(demo_run, "_resolve_scan_and_record", lambda: scan_and_record)
+        result = SimpleNamespace(
+            attempts=[
+                SimpleNamespace(accepted=False),
+                SimpleNamespace(accepted=True),
+                SimpleNamespace(accepted=True),
+            ]
+        )
+        try:
+            scans = demo_run._scan_playbook_after_improve(conn, result)
+        finally:
+            conn.close()
+
+        assert calls == [conn, conn]
+        assert [scan["last_event_id"] for scan in scans] == [1, 2]
+
+    def test_rejected_attempt_does_not_resolve_or_scan(self, monkeypatch):
+        monkeypatch.setattr(
+            demo_run,
+            "_resolve_scan_and_record",
+            lambda: pytest.fail("scanner should not be resolved without an accepted attempt"),
+        )
+        conn = sqlite3.connect(":memory:")
+        try:
+            scans = demo_run._scan_playbook_after_improve(
+                conn, SimpleNamespace(attempts=[SimpleNamespace(accepted=False)])
+            )
+        finally:
+            conn.close()
+
+        assert scans == []
+
+    def test_missing_scan_helper_degrades_gracefully(self, monkeypatch, capsys):
+        monkeypatch.setattr(demo_run, "_resolve_scan_and_record", lambda: None)
+        conn = sqlite3.connect(":memory:")
+        try:
+            scans = demo_run._scan_playbook_after_improve(
+                conn, SimpleNamespace(attempts=[SimpleNamespace(accepted=True)])
+            )
+        finally:
+            conn.close()
+
+        assert scans == []
+        assert "skipping playbook lesson scan" in capsys.readouterr().out
+
+
+def test_playbook_ablation_uses_importable_module_command(tmp_path):
+    out_path = tmp_path / "ablation.json"
+    command = demo_run._playbook_ablation_command(out_path)
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "scripts.playbook_ablation",
+        "--out",
+        str(out_path),
+    ]

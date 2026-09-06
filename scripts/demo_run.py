@@ -12,15 +12,18 @@ Every number in ``reports/*.json`` and ``reports/summary.md`` is read back from
 the ledger (``backend.ledger.metrics``) after a real run -- nothing here is
 typed by hand (rule PLAN.md sec 2.8 / brief item "no fabricated numbers").
 
-Two pieces this script depends on are still landing in sibling branches while
-this one is written:
+The improvement loop is still landing in a sibling branch while this one is
+written, and the playbook scanner has an optional follow-up hook:
 
 * ``backend.improver.improve`` (W6, ``ws/w6-improver``) -- imported lazily
   inside ``cmd_domain_a`` so this module (and its report-writer tests) stays
   importable before that package exists.
-* ``scripts/playbook_ablation.py`` (W8, ``ws/w8-playbook``) -- invoked as a
-  subprocess from ``cmd_domain_b`` rather than imported, since it is owned by
-  another worker and its internal signature may still change before it merges.
+* ``scripts/playbook_ablation.py`` (W8) -- invoked as a subprocess from
+  ``cmd_domain_b`` rather than imported, so its CLI is the integration
+  boundary.
+* ``backend.playbook.scan_and_record`` (W8b, ``ws/w8b-scan-hook``) -- imported
+  lazily after an accepted improvement.  If W8b is absent, Domain A completes
+  and reports that lesson scanning was skipped.
 
 The report-writer functions (``build_domain_a_report``, ``select_compare_cases``,
 ``build_domain_b_report``, ``build_summary_markdown``, ``flag_regressions``,
@@ -659,6 +662,52 @@ def _resolve_improve():
     return improve
 
 
+def _resolve_scan_and_record():
+    """Lazy import of W8b's persistent playbook scanner.
+
+    W8b lands independently of this branch.  A missing helper must not make
+    the Domain A evidence run fail after an otherwise accepted improvement;
+    the run can be repeated once W8b is available to backfill the ledger.
+    """
+    try:
+        from backend.playbook import scan_and_record
+    except ImportError:
+        return None
+    return scan_and_record
+
+
+def _scan_playbook_after_improve(conn: sqlite3.Connection, improve_result: Any) -> list[Any]:
+    """Run W8b once for every accepted gate attempt in an improve result.
+
+    W6 currently accepts at most one candidate per ``improve`` call.  Keeping
+    this keyed to the individual attempt outcomes makes that condition
+    explicit and remains correct if W6 later returns more than one accepted
+    attempt.  W8b owns and persists its watermark, so callers intentionally do
+    not pass ``since_event_id``.
+    """
+    accepted_attempts = [
+        attempt
+        for attempt in getattr(improve_result, "attempts", ())
+        if bool(getattr(attempt, "accepted", False))
+    ]
+    if not accepted_attempts:
+        return []
+
+    scan_and_record = _resolve_scan_and_record()
+    if scan_and_record is None:
+        print(
+            "backend.playbook.scan_and_record is not available yet; skipping playbook lesson scan"
+        )
+        return []
+
+    results = []
+    for _attempt in accepted_attempts:
+        result = scan_and_record(conn)
+        results.append(result)
+        print(f"playbook lesson scan: {result}")
+    return results
+
+
 def cmd_domain_a(args: argparse.Namespace) -> int:
     from backend.architect.generate import generate
     from backend.db import init_db
@@ -703,6 +752,7 @@ def cmd_domain_a(args: argparse.Namespace) -> int:
         print(f"improving (max_attempts={args.max_attempts}) ...")
         improve_result = improve(agent_id, max_attempts=args.max_attempts)
         print(f"improve done: {improve_result}")
+        _scan_playbook_after_improve(conn, improve_result)
 
         report = build_domain_a_report(conn, agent_id, root=REPO_ROOT)
         _write_json(REPORTS_DIR / "domain_a.json", report)
@@ -710,6 +760,11 @@ def cmd_domain_a(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     return 0
+
+
+def _playbook_ablation_command(out_path: Path) -> list[str]:
+    """Use module execution so the repository root stays on ``sys.path``."""
+    return [sys.executable, "-m", "scripts.playbook_ablation", "--out", str(out_path)]
 
 
 def cmd_domain_b(args: argparse.Namespace) -> int:
@@ -720,10 +775,9 @@ def cmd_domain_b(args: argparse.Namespace) -> int:
     from backend.settings import eval_trials
 
     ablation_path = REPORTS_DIR / "ablation.json"
-    ablation_script = REPO_ROOT / "scripts" / "playbook_ablation.py"
     print("running scripts/playbook_ablation.py (W8) ...")
     subprocess.run(
-        [sys.executable, str(ablation_script), "--out", str(ablation_path)],
+        _playbook_ablation_command(ablation_path),
         check=True,
         cwd=REPO_ROOT,
     )
