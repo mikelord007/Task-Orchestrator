@@ -23,11 +23,17 @@ interface Row {
   trainBandLow?: number;
   trainBandHeight?: number;
   trainPowK?: number;
+  trainPowKErr?: [number, number];
+  trainPowKBandLow?: number;
+  trainPowKBandHeight?: number;
   holdoutMean?: number;
   holdoutErr?: [number, number];
   holdoutBandLow?: number;
   holdoutBandHeight?: number;
   holdoutPowK?: number;
+  holdoutPowKErr?: [number, number];
+  holdoutPowKBandLow?: number;
+  holdoutPowKBandHeight?: number;
 }
 
 const MARKER_LINE_COLOR: Record<Marker["kind"], string> = {
@@ -76,13 +82,11 @@ const LINE_PRIORITY: Marker["kind"][] = [
  * since Recharts has no reliable hover surface nested this deep in an SVG.
  */
 export default function PassRateChart({
-  trials,
   pass1,
   passK,
   markers = [],
   onJumpToFix,
 }: {
-  trials: number;
   pass1: RatePoint[];
   passK: RatePoint[];
   markers?: Marker[];
@@ -99,11 +103,12 @@ export default function PassRateChart({
 
   const rows = mergeRows(pass1, passK);
   const markersByVersion = groupByVersion(markers);
+  const trials = trialSummary(pass1, passK);
 
   return (
     <div>
       <p className="text-[11px] text-fg-mute">
-        trials = {trials} · solid = pass@1 (mean, shaded ±1σ, whiskers = min/max) · dashed = pass^k
+        {trials} · solid = pass@1 · dashed = pass^k · shaded = mean ±1σ · whiskers = min/max
       </p>
       <div className="mt-2 h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -147,6 +152,7 @@ export default function PassRateChart({
               fill="transparent"
               isAnimationActive={false}
               legendType="none"
+              tooltipType="none"
               connectNulls
             />
             <Area
@@ -156,7 +162,29 @@ export default function PassRateChart({
               fill={CHART_COLORS.train}
               fillOpacity={0.15}
               isAnimationActive={false}
-              name="train ±1σ"
+              legendType="none"
+              tooltipType="none"
+              connectNulls
+            />
+            <Area
+              dataKey="trainPowKBandLow"
+              stackId="trainPowKBand"
+              stroke="none"
+              fill="transparent"
+              isAnimationActive={false}
+              legendType="none"
+              tooltipType="none"
+              connectNulls
+            />
+            <Area
+              dataKey="trainPowKBandHeight"
+              stackId="trainPowKBand"
+              stroke="none"
+              fill={CHART_COLORS.train}
+              fillOpacity={0.1}
+              isAnimationActive={false}
+              legendType="none"
+              tooltipType="none"
               connectNulls
             />
             <Line
@@ -181,11 +209,19 @@ export default function PassRateChart({
               stroke={CHART_COLORS.train}
               strokeWidth={1.5}
               strokeDasharray="3 3"
-              dot={false}
+              dot={{ r: 2 }}
               isAnimationActive={false}
               name="train pass^k"
               connectNulls
-            />
+            >
+              <ErrorBar
+                dataKey="trainPowKErr"
+                width={4}
+                strokeWidth={1}
+                stroke={CHART_COLORS.train}
+                direction="y"
+              />
+            </Line>
             <Area
               dataKey="holdoutBandLow"
               stackId="holdoutBand"
@@ -193,6 +229,7 @@ export default function PassRateChart({
               fill="transparent"
               isAnimationActive={false}
               legendType="none"
+              tooltipType="none"
               connectNulls
             />
             <Area
@@ -202,7 +239,29 @@ export default function PassRateChart({
               fill={CHART_COLORS.holdout}
               fillOpacity={0.15}
               isAnimationActive={false}
-              name="holdout ±1σ"
+              legendType="none"
+              tooltipType="none"
+              connectNulls
+            />
+            <Area
+              dataKey="holdoutPowKBandLow"
+              stackId="holdoutPowKBand"
+              stroke="none"
+              fill="transparent"
+              isAnimationActive={false}
+              legendType="none"
+              tooltipType="none"
+              connectNulls
+            />
+            <Area
+              dataKey="holdoutPowKBandHeight"
+              stackId="holdoutPowKBand"
+              stroke="none"
+              fill={CHART_COLORS.holdout}
+              fillOpacity={0.1}
+              isAnimationActive={false}
+              legendType="none"
+              tooltipType="none"
               connectNulls
             />
             <Line
@@ -227,11 +286,19 @@ export default function PassRateChart({
               stroke={CHART_COLORS.holdout}
               strokeWidth={1.5}
               strokeDasharray="3 3"
-              dot={false}
+              dot={{ r: 2 }}
               isAnimationActive={false}
               name="holdout pass^k"
               connectNulls
-            />
+            >
+              <ErrorBar
+                dataKey="holdoutPowKErr"
+                width={4}
+                strokeWidth={1}
+                stroke={CHART_COLORS.holdout}
+                direction="y"
+              />
+            </Line>
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -242,6 +309,40 @@ export default function PassRateChart({
 
 function clamp01(x: number): number {
   return Math.min(1, Math.max(0, x));
+}
+
+function trialSummary(pass1: RatePoint[], passK: RatePoint[]): string {
+  const points = [...pass1, ...passK];
+  const versions = Array.from(new Set(points.map((p) => p.version))).sort((a, b) => a - b);
+  const countsByVersion = new Map<number, Set<number>>();
+  let hasUnknown = false;
+
+  for (const point of points) {
+    const counts = countsByVersion.get(point.version) ?? new Set<number>();
+    if (
+      typeof point.trials === "number" &&
+      Number.isFinite(point.trials) &&
+      point.trials > 0
+    ) {
+      counts.add(point.trials);
+    } else {
+      hasUnknown = true;
+    }
+    countsByVersion.set(point.version, counts);
+  }
+
+  const allCounts = new Set(Array.from(countsByVersion.values()).flatMap((counts) => [...counts]));
+  if (!hasUnknown && allCounts.size === 1) {
+    return `trials = ${[...allCounts][0]}`;
+  }
+  if (versions.length === 0) return "trials = —";
+
+  return `trials by version = ${versions
+    .map((version) => {
+      const counts = [...(countsByVersion.get(version) ?? [])].sort((a, b) => a - b);
+      return `v${version}: ${counts.length > 0 ? counts.join("/") : "—"}`;
+    })
+    .join(", ")}`;
 }
 
 function bandFields(
@@ -274,6 +375,8 @@ function mergeRows(pass1: RatePoint[], passK: RatePoint[]): Row[] {
     const holdoutK = passK.find((p) => p.version === version && p.split === "holdout");
     const trainBand = bandFields(train1?.mean, train1?.std);
     const holdoutBand = bandFields(holdout1?.mean, holdout1?.std);
+    const trainPowKBand = bandFields(trainK?.mean, trainK?.std);
+    const holdoutPowKBand = bandFields(holdoutK?.mean, holdoutK?.std);
     return {
       version,
       trainMean: train1?.mean,
@@ -281,11 +384,17 @@ function mergeRows(pass1: RatePoint[], passK: RatePoint[]): Row[] {
       trainBandLow: trainBand.low,
       trainBandHeight: trainBand.height,
       trainPowK: trainK?.mean,
+      trainPowKErr: errFields(trainK?.mean, trainK?.min, trainK?.max),
+      trainPowKBandLow: trainPowKBand.low,
+      trainPowKBandHeight: trainPowKBand.height,
       holdoutMean: holdout1?.mean,
       holdoutErr: errFields(holdout1?.mean, holdout1?.min, holdout1?.max),
       holdoutBandLow: holdoutBand.low,
       holdoutBandHeight: holdoutBand.height,
       holdoutPowK: holdoutK?.mean,
+      holdoutPowKErr: errFields(holdoutK?.mean, holdoutK?.min, holdoutK?.max),
+      holdoutPowKBandLow: holdoutPowKBand.low,
+      holdoutPowKBandHeight: holdoutPowKBand.height,
     };
   });
 }

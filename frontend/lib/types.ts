@@ -50,7 +50,7 @@ export interface RatePoint {
   min: number;
   max: number;
   /** Backend-only extras (backend/ledger/metrics.py); absent on mock data. */
-  trials?: number;
+  trials?: number | null;
   task_count?: number;
 }
 
@@ -387,16 +387,16 @@ export interface CreateIssueRequest {
  */
 export interface CostPoint {
   version: number;
-  cost_per_run: number;
+  cost_per_run: number | null;
   split?: Split;
-  cost_per_task?: number;
+  cost_per_task?: number | null;
 }
 
 /** latency_by_version (contracts/api.md); `split` is a backend-only extra. */
 export interface LatencyPoint {
   version: number;
-  p50_ms: number;
-  p95_ms: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
   split?: Split;
 }
 
@@ -422,7 +422,8 @@ export interface ToolStatsByVersionPoint {
   split: Split;
   calls: number;
   errors: number;
-  redundant: number;
+  /** `null` when transcript detail is unavailable, so redundancy cannot be measured. */
+  redundant: number | null;
   /** `null` when the harness recorded no token counters for this version (backend/ledger/metrics.py). */
   tool_tokens: number | null;
   latency_ms: number;
@@ -501,7 +502,7 @@ export interface Insights {
   domain?: string;
   current_version?: number;
   /** Latest run's trial count; the pass-rate chart's `trials = N` subtitle. */
-  trials?: number;
+  trials?: number | null;
   /** entry_id -> {hits, misses, uses} over every rule injection this agent has seen. */
   rule_stats?: Record<string, { hits: number; misses: number; uses: number }>;
 }

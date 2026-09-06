@@ -17,6 +17,7 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
   }
   const anyEstimated = rows.some((r) => r.tool_tokens_estimated);
   const tokensLabel = anyEstimated ? "tokens/task (est.)" : "tokens/task";
+  const redundantUnknown = rows.filter((r) => r.redundant === null).map((r) => r.version);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -35,6 +36,12 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        {redundantUnknown.length > 0 ? (
+          <p className="mt-1 text-[11px] text-fg-mute">
+            redundant/task = — at {versionList(redundantUnknown)} because transcript detail is
+            unavailable. Run train with transcript capture enabled to measure it.
+          </p>
+        ) : null}
       </div>
       <div>
         <p className="text-[11px] text-fg-mute">
@@ -66,4 +73,8 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
       </div>
     </div>
   );
+}
+
+function versionList(versions: number[]): string {
+  return [...new Set(versions)].sort((a, b) => a - b).map((v) => `v${v}`).join(", ");
 }

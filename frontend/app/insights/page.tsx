@@ -49,8 +49,6 @@ function Insights() {
   const foundAgent = agents.data?.find((a) => a.agent_id === agentId);
   /** `GET /agents` may not carry a display `name` yet; `goal` is always real backend data. */
   const agentName = foundAgent?.name ?? foundAgent?.goal ?? agentId;
-  /** Prefer the real backend's own trials field; mock data only carries it on RunSummary. */
-  const trials = insights.data?.trials ?? runs.data?.slice(-1)[0]?.trials ?? 0;
   const hasRunHistory = (insights.data?.pass_at_1_by_version.length ?? 0) > 0;
 
   const driftByVersion = useMemo(() => {
@@ -132,7 +130,6 @@ function Insights() {
               <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
             ) : (
               <PassRateChart
-                trials={trials}
                 pass1={insights.data?.pass_at_1_by_version ?? []}
                 passK={insights.data?.pass_pow_k_by_version ?? []}
                 markers={insights.data?.markers ?? []}

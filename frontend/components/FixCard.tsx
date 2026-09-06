@@ -7,12 +7,6 @@ import DiffView from "./DiffView";
 import MemoryEntries from "./MemoryEntries";
 import { LeverChip, Pill } from "./ui";
 
-const REJECT_REASON = {
-  regression: "a task that had been passing every trial (pass^k) started failing",
-  no_gain: "the candidate did not beat the current version's pass@1",
-  error: "the candidate could not be evaluated",
-} as const;
-
 /**
  * One improvement attempt, accepted or rejected. Shared by the agent Fixes tab,
  * the issue timeline and the insights page, so it takes its agent id explicitly
@@ -55,9 +49,7 @@ export default function FixCard({
 
           {!accepted ? (
             <div className="mt-2 border-l-2 border-fail/50 pl-3">
-              <p className="text-[12px] text-fail">
-                Gate rejected: {card.reason ? REJECT_REASON[card.reason] : "regression"}.
-              </p>
+              <p className="text-[12px] text-fail">Gate rejected this candidate.</p>
               {card.regressed_case_ids?.length ? (
                 <p className="mt-0.5 text-[11px] text-fg-dim">
                   Regressed: {card.regressed_case_ids.join(", ")}
