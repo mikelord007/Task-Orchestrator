@@ -80,3 +80,4 @@ Stall (22:23Z update): the shared account usage limit paused the orchestrator an
 | `task-orchestrator-5` | W4 — domains, fixtures, evaluators | `ws/w4-domains` | [#1](https://github.com/mikelord007/Task-Orchestrator/pull/1) | merged (45676a9) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-5` | W4b — github_triage negatives follow-up | `ws/w4b-negatives` | [#6](https://github.com/mikelord007/Task-Orchestrator/pull/6) | ready for review (CI green) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-6` | W5 — frontend shell | `ws/w5-frontend` | [#4](https://github.com/mikelord007/Task-Orchestrator/pull/4) | merged (5bb748a) | 2026-09-05 | 2026-09-06 |
+| `task-orchestrator-14` | W12 — README, setup, DEMO.md | `ws/w12-readme` | [#15](https://github.com/mikelord007/Task-Orchestrator/pull/15) | draft (CI pending); Results section is a placeholder pending W11's `reports/summary.md` | 2026-09-06 | 2026-09-06 03:47Z |
