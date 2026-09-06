@@ -13,7 +13,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.db import REPO_ROOT, init_db
-from backend.ledger.metrics import pass_at_1
 from backend.settings import env
 
 from .evaluator_reader import EvaluatorNotFoundError
@@ -72,12 +71,54 @@ def _package_view(package_dir: Path) -> dict:
         ) from exc
 
 
-def _agent_summary(conn, row) -> dict:
+def _latest_pass_stats(conn) -> dict[tuple[str, int, str], dict]:
+    """Read each current agent version's newest finished split in one query."""
+    rows = conn.execute(
+        """
+        WITH ranked AS (
+          SELECT e.agent_id,
+                 e.agent_version,
+                 json_extract(e.payload, '$.split') AS split,
+                 json_extract(e.payload, '$.pass_at_1') AS mean,
+                 json_extract(e.payload, '$.pass_rate_std') AS std,
+                 json_extract(e.payload, '$.pass_rate_min') AS minimum,
+                 json_extract(e.payload, '$.pass_rate_max') AS maximum,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY e.agent_id,
+                                e.agent_version,
+                                json_extract(e.payload, '$.split')
+                   ORDER BY e.id DESC
+                 ) AS recency
+          FROM events AS e
+          JOIN agents AS a
+            ON a.agent_id = e.agent_id
+           AND a.current_version = e.agent_version
+          WHERE e.kind = 'run_finished'
+            AND json_extract(e.payload, '$.split') IN ('train', 'holdout')
+        )
+        SELECT agent_id, agent_version, split, mean, std, minimum, maximum
+        FROM ranked
+        WHERE recency = 1
+        """
+    ).fetchall()
+    return {
+        (row["agent_id"], row["agent_version"], row["split"]): {
+            "mean": row["mean"],
+            "std": row["std"],
+            "min": row["minimum"],
+            "max": row["maximum"],
+        }
+        for row in rows
+    }
+
+
+def _agent_summary(row, latest_stats: dict[tuple[str, int, str], dict]) -> dict:
     summary = dict(row)
     summary["name"] = " ".join(summary["goal"].split()[:6]) or summary["agent_id"]
     for split in ("train", "holdout"):
-        stat = pass_at_1(conn, summary["agent_id"], summary["current_version"], split)
-        summary[f"latest_{split}"] = stat if stat["mean"] is not None else None
+        summary[f"latest_{split}"] = latest_stats.get(
+            (summary["agent_id"], summary["current_version"], split)
+        )
     return summary
 
 
@@ -108,7 +149,8 @@ def list_agents() -> list[dict]:
         # created_ts has second resolution, so two agents created within the
         # same second tie -- rowid (insertion order) breaks the tie.
         rows = conn.execute("SELECT * FROM agents ORDER BY created_ts DESC, rowid DESC").fetchall()
-        return [_agent_summary(conn, row) for row in rows]
+        latest_stats = _latest_pass_stats(conn)
+        return [_agent_summary(row, latest_stats) for row in rows]
     finally:
         conn.close()
 

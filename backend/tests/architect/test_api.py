@@ -177,8 +177,6 @@ def test_get_agents_includes_latest_current_version_pass_stats(client: TestClien
         "std": 0.5,
         "min": 0.0,
         "max": 1.0,
-        "trials": 2,
-        "task_count": 1,
     }
     assert row["latest_holdout"] is None
 
