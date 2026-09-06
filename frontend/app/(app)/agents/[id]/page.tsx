@@ -22,7 +22,7 @@ import PromptTab from "@/components/agent/PromptTab";
 import RunsTab from "@/components/agent/RunsTab";
 import { Button, Crumb, Empty, PageHeader, Pill, Td, Th } from "@/components/ui";
 
-const TABS = ["prompt", "tools", "memory", "runs", "fixes"] as const;
+const TABS = ["prompt", "tools", "memory", "history", "fixes"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function AgentPage() {
@@ -40,7 +40,13 @@ function AgentDetail() {
   const agentId = params.id;
 
   const versionParam = search.get("version");
-  const tab = (search.get("tab") as Tab) ?? "runs";
+  const requestedTab = search.get("tab");
+  const tab: Tab =
+    requestedTab === "runs"
+      ? "history"
+      : TABS.includes(requestedTab as Tab)
+        ? (requestedTab as Tab)
+        : "history";
 
   const agent = useAsync(
     () =>
@@ -92,7 +98,7 @@ function AgentDetail() {
     prompt: null,
     tools: a.tools.length,
     memory: a.memory.rules.length + a.memory.tool_notes.length + a.memory.episodes.length,
-    runs: runs.data?.length ?? null,
+    history: runs.data?.length ?? null,
     fixes: fixes.data?.length ?? null,
   };
 
@@ -166,6 +172,7 @@ function AgentDetail() {
             onClick={async () => {
               const { run_id } = await runAgent(agentId, { split: "train" });
               job.track(run_id, "Run train");
+              runs.reload();
             }}
           >
             Run train
@@ -175,6 +182,7 @@ function AgentDetail() {
             onClick={async () => {
               const { run_id } = await runAgent(agentId, { split: "holdout" });
               job.track(run_id, "Run holdout");
+              runs.reload();
             }}
             title={
               LIVE_MODEL_CALLS
@@ -255,11 +263,18 @@ function AgentDetail() {
 
         {tab === "memory" ? <MemoryTab memory={a.memory} /> : null}
 
-        {tab === "runs" ? (
+        {tab === "history" ? (
           runs.loading ? (
-            <p className="text-[12px] text-fg-mute">Loading runs…</p>
+            <p className="text-[12px] text-fg-mute">Loading history…</p>
+          ) : runs.error ? (
+            <Empty>Could not load run history: {runs.error}</Empty>
           ) : (
-            <RunsTab runs={runs.data ?? []} agentId={agentId} ruleText={ruleText} />
+            <RunsTab
+              runs={runs.data ?? []}
+              agentId={agentId}
+              ruleText={ruleText}
+              onTerminal={runs.reload}
+            />
           )
         ) : null}
 
