@@ -32,6 +32,42 @@ def test_startup_migrates_the_database(client: TestClient, db_file: Path):
         conn.close()
 
 
+def test_bearer_auth_protects_api_but_not_healthz(db_file: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setenv("API_AUTH_TOKEN", "deployment-secret")
+
+    with TestClient(create_app()) as protected:
+        assert protected.get("/healthz").status_code == 200
+
+        assert protected.post("/healthz").status_code == 401
+
+        unauthorized = protected.get("/agents")
+        assert unauthorized.status_code == 401
+        assert unauthorized.headers["www-authenticate"] == "Bearer"
+
+        preflight = protected.options(
+            "/agents",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert preflight.status_code == 200
+
+        authorized = protected.get("/agents", headers={"Authorization": "Bearer deployment-secret"})
+        assert authorized.status_code == 200
+
+
+def test_required_auth_fails_closed_without_token(db_file: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TO_DB_PATH", str(db_file))
+    monkeypatch.setenv("REQUIRE_API_AUTH", "true")
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+
+    with pytest.raises(RuntimeError, match="API_AUTH_TOKEN is empty"):
+        with TestClient(create_app()):
+            pass
+
+
 def test_discover_routers_finds_a_dummy_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A subpackage exposing `api.router` is found without editing app.py."""
     import importlib

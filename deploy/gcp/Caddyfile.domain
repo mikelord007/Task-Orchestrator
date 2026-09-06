@@ -1,0 +1,11 @@
+# Optional conventional-domain HTTPS. Point the hostname's A record at the
+# reserved IPv4 address and set API_ADDRESS to that hostname.
+{$API_ADDRESS} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+	reverse_proxy backend:8000
+}

@@ -8,12 +8,14 @@ import time
 import pytest
 
 from backend.runtime.jobs import (
+    INTERRUPTED_ERROR,
     STATUS_DONE,
     STATUS_ERROR,
     STATUS_QUEUED,
     STATUS_RUNNING,
     JobStore,
     default_connection_factory,
+    mark_incomplete_jobs_interrupted,
     run_in_background,
 )
 
@@ -71,6 +73,27 @@ def test_mark_failed_records_the_error(store):
     job = store.get(job_id)
     assert job.status == STATUS_ERROR
     assert job.error == "ValueError: boom"
+
+
+def test_restart_marks_only_incomplete_jobs_as_interrupted(store):
+    queued_id = store.create("a1", "run")
+    running_id = store.create("a1", "improve")
+    done_id = store.create("a1", "run")
+    store.mark_running(running_id)
+    store.mark_done(done_id, {"ok": True})
+
+    connection = store._connect()
+    try:
+        assert mark_incomplete_jobs_interrupted(connection) == 2
+    finally:
+        connection.close()
+
+    assert store.get(queued_id).status == STATUS_ERROR
+    assert store.get(queued_id).error == INTERRUPTED_ERROR
+    assert store.get(running_id).status == STATUS_ERROR
+    assert store.get(running_id).error == INTERRUPTED_ERROR
+    assert store.get(done_id).status == STATUS_DONE
+    assert store.get(done_id).error is None
 
 
 def test_mark_progress_sets_a_readable_step(store):

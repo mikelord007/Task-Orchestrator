@@ -33,7 +33,27 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_ERROR = "error"
 
+INTERRUPTED_ERROR = "Interrupted: backend restarted before this job completed"
+
 ConnectionFactory = Callable[[], Any]
+
+
+def mark_incomplete_jobs_interrupted(connection: Any) -> int:
+    """Mark work a prior process left behind as terminally interrupted.
+
+    Jobs execute on in-process daemon threads, so they cannot survive a
+    process or VM restart. Recording that fact on the next startup avoids
+    leaving clients polling ``queued``/``running`` forever. The production
+    deployment intentionally runs one application process; running multiple
+    processes against this store would make startup ownership ambiguous.
+    """
+    now = utcnow()
+    with connection:
+        cursor = connection.execute(
+            "UPDATE improve_jobs SET status = ?, error = ?, updated_ts = ? WHERE status IN (?, ?)",
+            (STATUS_ERROR, INTERRUPTED_ERROR, now, STATUS_QUEUED, STATUS_RUNNING),
+        )
+    return int(cursor.rowcount)
 
 
 def default_connection_factory(db: str | Path | None = None) -> ConnectionFactory:

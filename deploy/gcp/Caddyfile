@@ -1,0 +1,22 @@
+# Direct-IP HTTPS. Let's Encrypt requires the short-lived ACME profile for IP
+# certificates. API_ADDRESS must be the VM's reserved public IPv4 address.
+{
+	# IP-address clients commonly omit SNI. Docker DNAT also hides the public
+	# destination from Caddy, so select the reserved-IP certificate by default.
+	default_sni {$API_ADDRESS}
+}
+
+{$API_ADDRESS} {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+	reverse_proxy backend:8000
+}
