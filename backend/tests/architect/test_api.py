@@ -114,9 +114,7 @@ def test_get_agents_includes_frontend_summary_fields(client: TestClient):
     assert row["latest_holdout"] is None
 
 
-def test_get_agents_includes_latest_current_version_pass_stats(
-    client: TestClient, db_file: Path
-):
+def test_get_agents_includes_latest_current_version_pass_stats(client: TestClient, db_file: Path):
     _script_responses(_script())
     agent_id = client.post("/agents", json=_create_body()).json()["agent_id"]
     conn = init_db(db_file)
