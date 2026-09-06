@@ -164,7 +164,14 @@ async function proxy(request: Request, context: RouteContext): Promise<Response>
       },
     });
   } catch (cause) {
-    if (controller.signal.aborted) return error(504, "backend request timed out");
+    if (controller.signal.aborted) {
+      return error(
+        504,
+        request.method === "POST"
+          ? "backend response timed out; this request may still be processing"
+          : "backend request timed out",
+      );
+    }
     console.error("Backend proxy request failed", cause instanceof Error ? cause.message : "unknown error");
     return error(502, "backend request failed");
   } finally {

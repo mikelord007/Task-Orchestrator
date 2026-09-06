@@ -213,9 +213,9 @@ export interface TaskResult {
   tool_calls: number;
   tool_errors: number;
   rules_injected: string[];
-  transcript_path: string;
-  trace_url?: string;
-  drift_kind?: DriftKind;
+  transcript_path: string | null;
+  trace_url?: string | null;
+  drift_kind?: DriftKind | null;
 }
 
 /** RunSummary (contracts/api.md). GET /agents/{id}/runs -> RunSummary[]. */
@@ -225,8 +225,8 @@ export interface RunSummary {
   version: number;
   split: Split;
   trials: number;
-  started_ts: string;
-  finished_ts?: string;
+  started_ts: string | null;
+  finished_ts?: string | null;
   pass_at_1: number;
   pass_pow_k: number;
   total_cost_usd: number;
