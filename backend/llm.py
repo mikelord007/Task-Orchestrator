@@ -335,6 +335,7 @@ def complete(
         kwargs["max_tokens"] = min(requested, hard_max_tokens) if hard_max_tokens else requested
 
     reservation_id: str | None = None
+    provider_responded = False
     try:
         try:
             reservation_id = reserve_token_budget(_token_reservation_size(kwargs))
@@ -346,6 +347,7 @@ def complete(
         try:
             acquired = _claim_live_call_slot()
             response = client.chat.completions.create(**kwargs)
+            provider_responded = True
         except AssertionError:
             # A test-double's own assertion (e.g. FakeLLM's "script exhausted"),
             # not an LLM/provider error -- let it surface as itself rather than
@@ -384,4 +386,9 @@ def complete(
             "latency_ms": latency_ms,
         }
     finally:
-        release_token_reservation(reservation_id)
+        # Before a response exists, a provider failure has no reported usage
+        # to reconcile and capacity can be released. Once a response exists,
+        # malformed replies and persistence errors retain their conservative
+        # reservation so consumed quota cannot be reused.
+        if not provider_responded:
+            release_token_reservation(reservation_id)

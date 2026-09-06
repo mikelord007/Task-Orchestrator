@@ -92,6 +92,10 @@ async def _lifespan(app: FastAPI):
     try:
         conn = init_db()
         try:
+            if demo_limits_enabled():
+                from backend.demo_limits import recover_token_reservations
+
+                recover_token_reservations(conn)
             from backend.runtime.jobs import mark_incomplete_jobs_interrupted
 
             mark_incomplete_jobs_interrupted(conn)

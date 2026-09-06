@@ -199,6 +199,20 @@ def release_token_reservation(reservation_id: str | None) -> None:
         conn.close()
 
 
+def recover_token_reservations(connection: Any) -> int:
+    """Release reservations owned by the prior process during app startup.
+
+    Production runs one application process. Lifespan startup begins only
+    after the previous process and all of its provider calls have stopped, so
+    recovery cannot release capacity belonging to a live request.
+    """
+    if not enabled():
+        return 0
+    with connection:
+        cursor = connection.execute("DELETE FROM demo_model_token_reservations")
+    return int(cursor.rowcount)
+
+
 def record_usage(
     model: str,
     tokens_in: int,
@@ -213,7 +227,17 @@ def record_usage(
     conn = init_db()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        usage_ts = utcnow()
         if reservation_id is not None:
+            reservation = conn.execute(
+                "SELECT ts FROM demo_model_token_reservations WHERE reservation_id = ?",
+                (reservation_id,),
+            ).fetchone()
+            if reservation is None:
+                raise RuntimeError("model token reservation is missing")
+            # Charge the UTC day whose capacity was reserved even when the
+            # provider response arrives after midnight.
+            usage_ts = str(reservation["ts"])
             cursor = conn.execute(
                 "DELETE FROM demo_model_token_reservations WHERE reservation_id = ?",
                 (reservation_id,),
@@ -222,7 +246,7 @@ def record_usage(
                 raise RuntimeError("model token reservation is missing")
         conn.execute(
             "INSERT INTO demo_model_usage (ts, model, tokens_in, tokens_out) VALUES (?, ?, ?, ?)",
-            (utcnow(), model, tokens_in, tokens_out),
+            (usage_ts, model, tokens_in, tokens_out),
         )
         conn.commit()
     except Exception:

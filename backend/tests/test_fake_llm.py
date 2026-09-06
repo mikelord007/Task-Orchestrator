@@ -196,3 +196,59 @@ def test_failed_demo_call_releases_reserved_capacity(
     finally:
         conn.close()
     assert count == 0
+
+
+def test_completed_call_keeps_reservation_when_usage_persistence_fails(
+    fake: FakeLLM, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    from backend import demo_limits
+    from backend.db import init_db
+
+    monkeypatch.setenv("TO_DB_PATH", str(tmp_path / "persistence-error.sqlite3"))
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-bearer")
+    monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "1")
+    monkeypatch.setenv("DEMO_DAILY_TOKEN_LIMIT", "1000")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "20")
+    fake.push(text("completed", tokens_in=5, tokens_out=2))
+    monkeypatch.setattr(
+        demo_limits,
+        "record_usage",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ledger unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="ledger unavailable"):
+        llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
+
+    conn = init_db()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM demo_model_token_reservations").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_malformed_completed_reply_keeps_reserved_capacity(fake, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.db import init_db
+
+    monkeypatch.setenv("TO_DB_PATH", str(tmp_path / "malformed.sqlite3"))
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-bearer")
+    monkeypatch.setenv("PUBLIC_DEMO_LIMITS", "1")
+    monkeypatch.setenv("DEMO_DAILY_TOKEN_LIMIT", "1000")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "20")
+    monkeypatch.setattr(
+        fake.chat.completions,
+        "create",
+        lambda **_kwargs: SimpleNamespace(choices=[], usage=None, model="gpt-4o"),
+    )
+
+    with pytest.raises(IndexError):
+        llm.complete([{"role": "user", "content": "hi"}], "gpt-4o")
+
+    conn = init_db()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM demo_model_token_reservations").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1

@@ -13,6 +13,7 @@ from backend.demo_limits import (
     ensure_token_budget,
     hash_client,
     record_usage,
+    recover_token_reservations,
     release_token_reservation,
     reserve_token_budget,
 )
@@ -74,6 +75,42 @@ def test_recorded_usage_reconciles_its_reservation(limited_demo):
 
     with pytest.raises(DemoLimitExceeded, match="token"):
         ensure_token_budget()
+
+
+def test_startup_recovery_clears_only_prior_process_reservations(limited_demo):
+    from backend.db import init_db
+
+    reserve_token_budget(100)
+    conn = init_db()
+    try:
+        assert recover_token_reservations(conn) == 1
+        assert conn.execute("SELECT COUNT(*) FROM demo_model_token_reservations").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_usage_stays_on_the_reservations_utc_day(limited_demo):
+    from backend.db import init_db
+
+    reservation_id = reserve_token_budget(100)
+    reserved_ts = "2026-09-05T23:59:59Z"
+    conn = init_db()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE demo_model_token_reservations SET ts = ? WHERE reservation_id = ?",
+                (reserved_ts, reservation_id),
+            )
+    finally:
+        conn.close()
+
+    record_usage("demo-model", 60, 40, reservation_id=reservation_id)
+    conn = init_db()
+    try:
+        usage_ts = conn.execute("SELECT ts FROM demo_model_usage").fetchone()[0]
+    finally:
+        conn.close()
+    assert usage_ts == reserved_ts
 
 
 def test_workflow_concurrency_rejects_instead_of_queueing(limited_demo):
