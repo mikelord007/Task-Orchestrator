@@ -40,7 +40,8 @@ _SENSITIVE_KEY = re.compile(
 )
 _CONTENT_KEY = re.compile(
     r"(?:^|\.)(?:content|input\.value|output\.value|arguments|result|error\.message|"
-    r"exception\.(?:message|stacktrace)|(?:system_|user_)?prompt(?:_template)?)$",
+    r"exception\.(?:message|stacktrace)|status\.description|"
+    r"(?:system_|user_)?prompt(?:_template)?)$",
     re.I,
 )
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+(?![\w.-])")
