@@ -211,6 +211,30 @@ def _apply_memory(
 # --------------------------------------------------------------------------
 
 
+def _tool_modules(tools_dir: Path) -> dict[str, str]:
+    """``tool name -> module stem`` for every ``tools/*.py`` in the package.
+
+    ``backend.toolbox.registry.write_agent_tool`` names the file after the
+    tool, so the two normally match -- but an LLM-authored glue tool, or a
+    hand-written package, need not follow that convention, and a transcript
+    only ever records the *tool* name. Both spellings map to the stem so
+    either one finds the file to edit.
+    """
+    modules: dict[str, str] = {}
+    for path in sorted(tools_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        modules.setdefault(path.stem, path.stem)
+        try:
+            assign = _find_tool_assign(ast.parse(path.read_text(encoding="utf-8")))
+            declared = ast.literal_eval(assign.value).get("name") if assign is not None else None
+        except (OSError, SyntaxError, ValueError):
+            declared = None
+        if isinstance(declared, str) and declared:
+            modules[declared] = path.stem
+    return modules
+
+
 def _infer_target_tool(
     conn: sqlite3.Connection,
     agent_id: str,
@@ -219,8 +243,8 @@ def _infer_target_tool(
     tools_dir: Path,
     root: str | Path,
 ) -> str | None:
-    known = {p.stem for p in tools_dir.glob("*.py") if not p.name.startswith("_")}
-    if not known:
+    modules = _tool_modules(tools_dir)
+    if not modules:
         return None
 
     counts: Counter[str] = Counter()
@@ -234,16 +258,17 @@ def _infer_target_tool(
             continue
         for step in transcript.steps:
             kind = step.kind.value if hasattr(step.kind, "value") else step.kind
-            if kind == "tool_call" and step.tool in known:
+            if kind == "tool_call" and step.tool in modules:
                 counts[step.tool] += 1
     if counts:
-        return counts.most_common(1)[0][0]
+        return modules[counts.most_common(1)[0][0]]
 
     text = f"{diagnosis.metric_signal or ''} {diagnosis.proposed_change}".lower()
-    for name in known:
+    for name in sorted(modules, key=len, reverse=True):
         if name.lower() in text:
-            return name
-    return sorted(known)[0] if len(known) == 1 else None
+            return modules[name]
+    stems = set(modules.values())
+    return next(iter(stems)) if len(stems) == 1 else None
 
 
 def _find_tool_assign(tree: ast.Module) -> ast.Assign | None:
