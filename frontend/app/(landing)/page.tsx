@@ -1,191 +1,390 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import Brand from "@/components/Brand";
+import PassRateChart from "@/components/insights/PassRateChart";
+import { getInsights } from "@/lib/api";
+import type { Insights, Marker, RatePoint } from "@/lib/types";
+import landingStatsJson from "@/lib/landing-stats.json";
 
-const loop = [
-  ["01", "Generate", "We turn a goal, domain, and tool boundary into a versioned agent package."],
-  ["02", "Evaluate", "We run the configured task suite and keep uncertainty attached to every rate."],
-  ["03", "Reflect", "We diagnose graded failures from recorded runs, not from the agent’s self-report."],
-  ["04", "Improve", "We change one lever against a named failure group and preserve the evidence."],
-  ["05", "Gate", "We accept the candidate only when the regression checks hold."],
+const SOURCE_URL = "https://github.com/mikelord007/Task-Orchestrator";
+const DEMO_AGENT_ID = process.env.NEXT_PUBLIC_DEMO_AGENT_ID;
+
+const steps = [
+  ["Generate", "A goal, tools, and a grader become a versioned agent package."],
+  ["Run", "Every task, {k} trials. Uncertainty stays attached to every rate."],
+  ["Reflect", "The agent reads its recorded transcript and the grade. It is never asked how it did."],
+  ["Improve", "One lever per change: memory, tools, prompt, or orchestration."],
+  ["Gate", "The full suite runs on the candidate. If a stable task breaks, the change is rejected and kept on record."],
 ] as const;
 
-const levers = [
-  ["01 / memory", "Retain what works", "Convert graded failures into scoped rules and tool notes that can be retrieved on the next attempt."],
-  ["02 / tools", "Change what the agent can do", "Refine tool boundaries and behavior when execution, not instruction, limits the result."],
-  ["03 / prompt", "Clarify the operating rules", "Edit instructions when the evidence points to ambiguity, ordering, or missing constraints."],
-  ["04 / orchestration", "Recompose the work", "Adjust the sequence or division of work when the workflow itself creates the failure."],
+const differences = [
+  [
+    "Error bars, not accuracy.",
+    "Reports pass@1 and pass^k over repeated trials, on a holdout the improver never sees. Domain A uses real GitHub issues with a temporal split: train on the oldest, test on the newest.",
+  ],
+  [
+    "The gate says no.",
+    "Every candidate runs the whole suite. Regressions are rejected, and rejected fixes stay visible as evidence.",
+  ],
+  [
+    "Memory that corrects itself.",
+    "Rules and tool notes carry their evidence and hit/miss counts. A rule that misses more than it hits is demoted automatically.",
+  ],
+  [
+    "Every fix has a card.",
+    "Failing group → hypothesis → lever → the actual diff → before and after.",
+  ],
 ] as const;
 
-function DashboardLink({ secondary = false, accentArrow = false }: { secondary?: boolean; accentArrow?: boolean }) {
-  return (
-    <Link
-      prefetch={false}
-      href="/agents"
-      className={secondary
-        ? "inline-flex border border-line px-4 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-fg-dim hover:border-[#ff9783] hover:text-[#ff9783]"
-        : "inline-flex border border-fg bg-fg px-4 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink-900 hover:border-[#ff9783] hover:bg-[#ff9783]"}
-    >
-      <span><span className="hidden sm:inline">Open </span>dashboard</span><span aria-hidden="true" className={`ml-8 ${accentArrow ? "text-[#ff563c]" : "text-current"}`}>→</span>
-    </Link>
-  );
+interface LandingStats {
+  domain_a: {
+    current_version?: number | null;
+    trials?: number | null;
+    holdout?: {
+      pass_at_1?: {
+        before?: { mean?: number | null; std?: number | null } | null;
+        after?: { mean?: number | null; std?: number | null } | null;
+      } | null;
+      pass_pow_k?: {
+        k?: number | null;
+        before?: number | null;
+        after?: number | null;
+      } | null;
+    } | null;
+    fixes?: { accepted?: number | null; rejected?: number | null } | null;
+    tool_calls_per_task?: {
+      split?: string | null;
+      before?: number | null;
+      after?: number | null;
+    } | null;
+  };
+  ao: { sessions?: number | null; prs?: number | null };
+  ablation?: {
+    playbook_off?: { pass_at_1?: number | null } | null;
+    playbook_on?: { pass_at_1?: number | null } | null;
+    applied_lesson_ids?: string[] | null;
+  } | null;
+  chart?: {
+    pass_at_1_by_version?: RatePoint[];
+    pass_pow_k_by_version?: RatePoint[];
+    markers?: Marker[];
+  } | null;
 }
 
-function EmptySystemRecord() {
-  return (
-    <aside aria-label="Evaluation record preview" className="border border-line-soft bg-ink-700">
-      <header className="flex items-center justify-between gap-4 border-b-2 border-line-soft px-5 py-4">
-        <span className="small-label text-fg">Evaluation record</span>
-        <span className="border border-line bg-ink-600 px-2 py-1 font-mono text-[10px] uppercase text-fg-mute">No run selected</span>
-      </header>
-      <div className="grid gap-5 p-5 sm:p-6">
-        <div>
-          <p className="small-label">Agent package</p>
-          <div className="mt-2 border border-dashed border-fg-mute bg-ink-600 px-3 py-4 font-mono text-[12px] text-fg-mute">awaiting a recorded package</div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="small-label">Train / pass@1</p>
-            <p className="metric-value mt-2 text-3xl text-fg-mute">—</p>
-          </div>
-          <div>
-            <p className="small-label">Holdout / pass@1</p>
-            <p className="metric-value mt-2 text-3xl text-fg-mute">—</p>
-          </div>
-        </div>
-        <div className="border border-dashed border-fg-mute bg-ink-600 p-4">
-          <p className="small-label">Version trace</p>
-          <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 font-mono text-[11px]">
-            <span className="text-fg-mute">v0</span><span className="h-4 border border-dashed border-fg-mute" />
-            <span className="text-fg-mute">v1</span><span className="h-4 border border-dashed border-fg-mute" />
-          </div>
-        </div>
-      </div>
-      <footer className="flex justify-between gap-4 border-t-2 border-line-soft px-5 py-4 font-mono text-[10px] uppercase tracking-[0.08em] text-fg-mute sm:px-6">
-        <span>Observed events → derived metrics</span>
-        <span>00 / empty</span>
-      </footer>
-    </aside>
-  );
+const fallback = landingStatsJson as LandingStats;
+
+function finite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function percent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function decimal(value: number): string {
+  return value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function currentVersion(points: RatePoint[], preferred?: number | null): number | null {
+  if (finite(preferred)) return preferred;
+  if (points.length === 0) return null;
+  return Math.max(...points.map((point) => point.version));
+}
+
+function transition(
+  points: RatePoint[],
+  version: number | null,
+  split: "train" | "holdout",
+): { before: RatePoint; after: RatePoint } | null {
+  if (version === null || version === 0) return null;
+  const before = points.find((point) => point.version === 0 && point.split === split);
+  const after = points.find((point) => point.version === version && point.split === split);
+  return before && after ? { before, after } : null;
+}
+
+function liveToolCalls(
+  insights: Insights,
+): LandingStats["domain_a"]["tool_calls_per_task"] {
+  const train = insights.tool_stats_by_version
+    .filter((point) => point.split === "train" && finite(point.calls))
+    .sort((a, b) => a.version - b.version);
+  if (train.length < 2) return null;
+  return {
+    split: "train",
+    before: train[0].calls,
+    after: train[train.length - 1].calls,
+  };
+}
+
+function statCell(label: string, value: string) {
+  return { label, value };
 }
 
 export default function LandingPage() {
+  const [live, setLive] = useState<Insights | null>(null);
+
+  useEffect(() => {
+    if (!DEMO_AGENT_ID) return;
+    let cancelled = false;
+    getInsights(DEMO_AGENT_ID)
+      .then((value) => {
+        if (!cancelled) setLive(value);
+      })
+      .catch(() => {
+        // The checked-in evidence remains visible when the live demo agent is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const evidence = useMemo(() => {
+    const liveHasChart =
+      (live?.pass_at_1_by_version.length ?? 0) > 0 &&
+      (live?.pass_pow_k_by_version.length ?? 0) > 0;
+    const pass1 = liveHasChart
+      ? live!.pass_at_1_by_version
+      : (fallback.chart?.pass_at_1_by_version ?? []);
+    const passK = liveHasChart
+      ? live!.pass_pow_k_by_version
+      : (fallback.chart?.pass_pow_k_by_version ?? []);
+    const version = currentVersion(
+      pass1,
+      liveHasChart ? live?.current_version : fallback.domain_a.current_version,
+    );
+    const trialCount =
+      (liveHasChart && finite(live?.trials) ? live.trials : null) ??
+      (finite(fallback.domain_a.trials) ? fallback.domain_a.trials : null);
+    const liveMarkers = live?.markers ?? [];
+    const liveFixes = liveHasChart && live
+      ? {
+          accepted: liveMarkers.filter((marker) => marker.kind === "fix_accepted").length,
+          rejected: liveMarkers.filter((marker) => marker.kind === "fix_rejected").length,
+        }
+      : null;
+    return {
+      pass1,
+      passK,
+      markers: liveHasChart ? liveMarkers : (fallback.chart?.markers ?? []),
+      version,
+      trials: trialCount,
+      fixes: liveFixes ?? fallback.domain_a.fixes ?? null,
+      toolCalls:
+        (liveHasChart && live ? liveToolCalls(live) : null) ??
+        fallback.domain_a.tool_calls_per_task ??
+        null,
+    };
+  }, [live]);
+
+  const stats = useMemo(() => {
+    const cells: { label: string; value: string }[] = [];
+    const liveHoldoutPass1 = transition(evidence.pass1, evidence.version, "holdout");
+    const liveHoldoutPassK = transition(evidence.passK, evidence.version, "holdout");
+    const fallbackPass1 = fallback.domain_a.holdout?.pass_at_1;
+    const fallbackPassK = fallback.domain_a.holdout?.pass_pow_k;
+    const pass1Before = liveHoldoutPass1?.before ?? fallbackPass1?.before;
+    const pass1After = liveHoldoutPass1?.after ?? fallbackPass1?.after;
+    if (
+      finite(pass1Before?.mean) &&
+      finite(pass1Before.std) &&
+      finite(pass1After?.mean) &&
+      finite(pass1After.std)
+    ) {
+      cells.push(
+        statCell(
+          "Holdout pass@1 · GitHub triage",
+          `${percent(pass1Before.mean)} ± ${percent(pass1Before.std)} → ${percent(pass1After.mean)} ± ${percent(pass1After.std)}`,
+        ),
+      );
+    }
+    const passKBefore = liveHoldoutPassK?.before.mean ?? fallbackPassK?.before;
+    const passKAfter = liveHoldoutPassK?.after.mean ?? fallbackPassK?.after;
+    const passKTrials =
+      (liveHoldoutPassK && evidence.trials) ?? fallbackPassK?.k ?? evidence.trials;
+    if (finite(passKBefore) && finite(passKAfter) && finite(passKTrials)) {
+      cells.push(
+        statCell(
+          `Holdout pass^${passKTrials}`,
+          `${percent(passKBefore)} → ${percent(passKAfter)}`,
+        ),
+      );
+    }
+    if (finite(evidence.fixes?.accepted) && finite(evidence.fixes?.rejected)) {
+      cells.push(
+        statCell(
+          "Fixes accepted / rejected",
+          `${evidence.fixes.accepted} / ${evidence.fixes.rejected}`,
+        ),
+      );
+    }
+    const toolBefore = evidence.toolCalls?.before;
+    const toolAfter = evidence.toolCalls?.after;
+    if (finite(toolBefore) && finite(toolAfter)) {
+      cells.push(statCell("Tool calls per task", `${decimal(toolBefore)} → ${decimal(toolAfter)}`));
+    }
+    if (finite(fallback.ao.sessions)) {
+      cells.push(statCell("AO sessions", String(fallback.ao.sessions)));
+    }
+    return cells;
+  }, [evidence]);
+
+  const ablation = fallback.ablation;
+  const hasAblation =
+    (ablation?.applied_lesson_ids?.length ?? 0) > 0 &&
+    finite(ablation?.playbook_on?.pass_at_1) &&
+    finite(ablation?.playbook_off?.pass_at_1);
+
   return (
     <div className="min-h-screen overflow-x-clip bg-ink-800">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-fg focus:p-3 focus:text-ink-900">Skip to content</a>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-fg focus:p-3 focus:text-ink-900"
+      >
+        Skip to content
+      </a>
       <header className="border-b-2 border-line-soft bg-ink-900">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-6 px-5 py-5 sm:px-8 lg:px-12">
           <Brand />
-          <nav aria-label="Landing navigation" className="flex items-center gap-5 font-mono text-[10px] uppercase tracking-[0.08em]">
-            <a href="#method" className="hidden text-fg-mute hover:text-[#ff9783] sm:block">Method</a>
-            <a href="#levers" className="hidden text-fg-mute hover:text-[#ff9783] md:block">Levers</a>
-            <DashboardLink secondary />
+          <nav
+            aria-label="Landing navigation"
+            className="flex items-center gap-5 font-mono text-[10px] font-bold uppercase tracking-[0.08em]"
+          >
+            <Link href="/agents" className="text-fg-dim hover:text-[#ff9783]">
+              Dashboard →
+            </Link>
+            <a href={SOURCE_URL} className="text-fg-dim hover:text-[#ff9783]">
+              Source
+            </a>
           </nav>
         </div>
       </header>
 
       <main id="main">
-        <section className="mx-auto grid max-w-[1440px] min-w-0 gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[minmax(0,1.12fr)_minmax(360px,.88fr)] lg:items-end lg:gap-16 lg:px-12 lg:py-24">
-          <div className="min-w-0">
-            <p className="eyebrow">Agent improvement / evidence first</p>
-            <span aria-hidden="true" className="mt-6 block h-1 w-16 bg-[#ff563c]" />
-            <h1 className="display-type mt-7 max-w-[900px] text-[clamp(3.25rem,8vw,7.75rem)] text-fg">Build the agent. Measure the change.</h1>
-            <p className="mt-7 max-w-2xl text-lg leading-[1.42] text-fg-body sm:text-xl">We turn a goal into a versioned agent, learn from its recorded failures, and test each candidate before it becomes current.</p>
-            <div className="mt-9 flex flex-wrap gap-4">
-              <DashboardLink accentArrow />
-              <a href="#method" className="inline-flex border border-line px-4 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-fg-dim hover:border-[#ff9783] hover:text-[#ff9783]">Read the method</a>
-            </div>
-          </div>
-          <EmptySystemRecord />
-        </section>
-
-        <div className="border-y-2 border-line-soft bg-ink-900">
-          <div className="mx-auto grid max-w-[1440px] divide-y divide-line-soft px-5 font-mono text-[11px] uppercase tracking-[0.06em] text-fg-mute sm:grid-cols-3 sm:divide-x sm:divide-y-0 sm:px-8 lg:px-12">
-            <p className="py-5 sm:pr-6">Regression-gated changes</p>
-            <p className="py-5 sm:px-6">Append-only evidence</p>
-            <p className="py-5 sm:pl-6">Versioned agent packages</p>
-          </div>
-        </div>
-
-        <section id="method" aria-labelledby="method-title" className="scroll-mt-4 border-b-2 border-line-soft">
-          <div className="mx-auto max-w-[1440px] px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
-            <p className="eyebrow">01 / Improvement loop</p>
-            <div className="mt-5 grid gap-6 lg:grid-cols-2 lg:items-end">
-              <h2 id="method-title" className="display-type max-w-2xl text-4xl text-fg sm:text-6xl">One change. One gate. A record that remains.</h2>
-              <p className="max-w-xl text-base text-fg-dim sm:text-lg">The loop connects each intervention to the failures behind it and keeps rejected work visible as evidence.</p>
-            </div>
-            <ol className="mt-12 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-              {loop.map(([number, title, copy]) => (
-                <li key={number} className="flex flex-col border border-line-soft bg-ink-700 p-6">
-                  <span className="small-label">{number} / 05</span>
-                  <h3 className="mt-10 font-sans text-2xl font-bold text-fg">{title}</h3>
-                  <p className="mt-4 text-sm leading-[1.45] text-fg-dim">{copy}</p>
-                  <span aria-hidden="true" className="mt-auto pt-8 font-mono text-lg text-fg-mute">{number === "05" ? "■" : "→"}</span>
-                </li>
-              ))}
-            </ol>
-            <footer className="mt-8 flex flex-wrap justify-between gap-4 border-t-2 border-line-soft pt-5 font-mono text-[11px] uppercase tracking-[0.06em] text-fg-mute">
-              <span>Accepted candidate → next current version</span>
-              <span>Rejected candidate → prior version remains</span>
-            </footer>
-          </div>
-        </section>
-
-        <section id="levers" aria-labelledby="levers-title" className="scroll-mt-4 border-b-2 border-line-soft bg-ink-900">
-          <div className="mx-auto max-w-[1440px] px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
-            <p className="eyebrow">02 / Four levers</p>
-            <h2 id="levers-title" className="display-type mt-5 max-w-3xl text-4xl text-fg sm:text-6xl">The prompt is one part of the system.</h2>
-            <div className="mt-12 grid gap-4 md:grid-cols-2">
-              {levers.map(([label, title, copy]) => (
-                <article key={label} className="border border-line-soft bg-ink-700 p-7 sm:p-8">
-                  <p className="small-label">{label}</p>
-                  <h3 className="mt-10 font-sans text-3xl font-bold text-fg">{title}</h3>
-                  <p className="mt-4 max-w-xl text-base leading-[1.45] text-fg-dim">{copy}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section aria-labelledby="evidence-title" className="border-b-2 border-line-soft">
-          <div className="mx-auto grid max-w-[1440px] gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[.8fr_1.2fr] lg:px-12 lg:py-20">
-            <div>
-              <p className="eyebrow">03 / Evidence model</p>
-              <h2 id="evidence-title" className="display-type mt-5 text-4xl text-fg sm:text-6xl">Every claim keeps its paper trail.</h2>
-            </div>
-            <div className="border-y-2 border-line-soft">
-              {[
-                ["Ledger", "Observed events are stored first. Metrics and statuses are derived from queries over that record."],
-                ["Evaluation", "Expected answers stay outside the agent input while evaluators grade the recorded output."],
-                ["Uncertainty", "Repeated trials keep variance visible instead of collapsing performance into a single unqualified score."],
-                ["Playbook", "Accepted fixes can become reusable lessons with their source agent and evidence attached."],
-              ].map(([title, copy], index) => (
-                <article key={title} className="grid gap-3 border-b border-line-soft py-6 last:border-b-0 sm:grid-cols-[80px_1fr]">
-                  <span className="small-label">0{index + 1}</span>
-                  <div><h3 className="font-sans text-xl font-bold text-fg">{title}</h3><p className="mt-2 max-w-2xl text-sm text-fg-dim">{copy}</p></div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-[#ff563c]">
+        <section aria-labelledby="hero-title" className="border-b-2 border-line-soft">
           <div className="mx-auto max-w-[1440px] px-5 py-14 sm:px-8 lg:px-12 lg:py-20">
-            <p className="small-label text-ink-900">Regression gate / decision rule</p>
-            <p className="display-type mt-5 max-w-6xl text-4xl text-ink-900 sm:text-6xl lg:text-7xl">A failed candidate is evidence, not the next version.</p>
+            <p className="eyebrow">Track 1 · Automated Agent Engineering · built with AO</p>
+            <h1
+              id="hero-title"
+              className="display-type mt-7 max-w-[1180px] text-[clamp(2.75rem,6.5vw,6.8rem)] text-fg"
+            >
+              Give it a goal, tools, and a grader. It builds the agent and proves each improvement.
+            </h1>
+            <p className="mt-7 max-w-[900px] text-base leading-[1.55] text-fg-body sm:text-lg">
+              Task Orchestrator generates an agent, runs it against a task suite with repeated trials,
+              reflects on its recorded failures, changes one lever at a time, and rejects any change
+              that regresses. Every number on this page is derived from its append-only ledger.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-5">
+              <Link
+                href="/agents"
+                className="inline-flex border border-fg bg-fg px-4 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink-900 hover:border-[#ff9783] hover:bg-[#ff9783]"
+              >
+                Open dashboard →
+              </Link>
+              <a
+                href={SOURCE_URL}
+                className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-fg-dim underline decoration-line underline-offset-4 hover:text-[#ff9783]"
+              >
+                View source
+              </a>
+            </div>
+
+            {stats.length > 0 ? (
+              <dl className="mt-12 grid border-x border-t border-line-soft sm:grid-cols-2 xl:grid-cols-5">
+                {stats.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="min-w-0 border-b border-line-soft p-5 sm:p-6 sm:odd:border-r xl:border-r xl:last:border-r-0"
+                  >
+                    <dt className="small-label text-fg-mute">{stat.label}</dt>
+                    <dd className="mt-4 break-words font-mono text-xl font-bold tabular-nums text-fg sm:text-2xl">
+                      {stat.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {finite(evidence.trials) ? (
+              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute">
+                Domain A holdout · trials = {evidence.trials} · the improver never sees holdout tasks
+              </p>
+            ) : null}
+
+            {evidence.pass1.length > 0 ? (
+              <div className="mt-10 border border-line-soft bg-ink-700 p-5 sm:p-6">
+                <PassRateChart
+                  pass1={evidence.pass1}
+                  passK={evidence.passK}
+                  markers={evidence.markers}
+                />
+              </div>
+            ) : null}
           </div>
         </section>
 
-        <section className="border-b-2 border-line-soft bg-ink-900">
-          <div className="mx-auto grid max-w-[1440px] gap-8 px-5 py-16 sm:px-8 lg:grid-cols-[1fr_auto] lg:items-end lg:px-12 lg:py-20">
-            <div><p className="eyebrow">04 / Control surface</p><h2 className="display-type mt-5 max-w-3xl text-4xl text-fg sm:text-6xl">Inspect the system from its real data.</h2></div>
-            <DashboardLink />
+        <section aria-labelledby="how-title" className="border-b-2 border-line-soft bg-ink-900">
+          <div className="mx-auto max-w-[1440px] px-5 py-14 sm:px-8 lg:px-12 lg:py-18">
+            <h2 id="how-title" className="display-type text-4xl text-fg sm:text-5xl">
+              How it works
+            </h2>
+            <div className="mt-9 grid border-x border-t border-line-soft md:grid-cols-2 xl:grid-cols-5">
+              {steps.map(([label, copy]) => (
+                <article
+                  key={label}
+                  className="border-b border-line-soft p-5 md:odd:border-r xl:border-r xl:last:border-r-0"
+                >
+                  <p className="text-sm leading-[1.5] text-fg-dim">
+                    <strong className="font-sans text-base text-fg">{label}</strong> —{" "}
+                    {copy.replace("{k}", finite(evidence.trials) ? String(evidence.trials) : "k")}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="different-title" className="border-b-2 border-line-soft">
+          <div className="mx-auto max-w-[1440px] px-5 py-14 sm:px-8 lg:px-12 lg:py-18">
+            <h2 id="different-title" className="display-type text-4xl text-fg sm:text-5xl">
+              What&apos;s different
+            </h2>
+            <div className="mt-9 grid gap-4 md:grid-cols-2">
+              {differences.map(([title, copy]) => (
+                <article key={title} className="border border-line-soft bg-ink-700 p-6 sm:p-7">
+                  <h3 className="font-sans text-2xl font-bold text-fg">{title}</h3>
+                  <p className="mt-4 max-w-2xl text-sm leading-[1.55] text-fg-dim">{copy}</p>
+                </article>
+              ))}
+            </div>
+            <p className="mt-7 max-w-[1100px] text-sm leading-[1.55] text-fg-mute">
+              Two domains: GitHub issue triage (real API, four consolidated tools, cached for
+              deterministic evals) and support ticket triage, where the playbook transfers lessons
+              from the first domain.
+              {hasAblation
+                ? ` — ${percent(ablation!.playbook_on!.pass_at_1!)} with lessons vs ${percent(ablation!.playbook_off!.pass_at_1!)} without.`
+                : null}
+            </p>
           </div>
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-[1440px] flex-wrap justify-between gap-4 px-5 py-7 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute sm:px-8 lg:px-12">
-        <span>Task Orchestrator / public demonstration</span>
-        <a href="https://github.com/mikelord007/Task-Orchestrator" className="text-[#ff563c] hover:text-[#ff9783]">View source</a>
+      <footer className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-7 font-mono text-[10px] uppercase tracking-[0.06em] text-fg-mute sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
+        {finite(fallback.ao.sessions) && finite(fallback.ao.prs) ? (
+          <span>
+            Built in 30 hours with AO · {fallback.ao.sessions} worker sessions · {fallback.ao.prs} PRs
+          </span>
+        ) : null}
+        <span className="flex items-center gap-5">
+          <Link href="/agents" className="hover:text-[#ff9783]">
+            Dashboard
+          </Link>
+          <span aria-hidden="true">·</span>
+          <a href={SOURCE_URL} className="hover:text-[#ff9783]">
+            Source
+          </a>
+        </span>
       </footer>
     </div>
   );

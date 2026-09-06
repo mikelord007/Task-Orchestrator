@@ -18,7 +18,8 @@ const archivo = Archivo({
 
 export const metadata: Metadata = {
   title: "Task Orchestrator",
-  description: "Build agents from evidence. Measure, improve, and gate every change.",
+  description:
+    "Builds an agent from a goal, tools, and a grader, then proves each improvement with pass@1, pass^k, and a regression gate. Built with AO.",
   icons: {
     icon: [{ url: "/brand/task-orchestrator-favicon.svg", type: "image/svg+xml" }],
   },
