@@ -265,19 +265,23 @@ def test_scan_and_record_does_not_advance_cursor_when_scan_fails(
 def test_scan_and_record_explicit_lower_cursor_does_not_rewind_stored_cursor(
     tmp_path, conn, make_complete
 ):
-    for version in range(1, 8):
-        _seed_proposal(conn, to_version=version)
-    complete, _fake = make_complete([])
     playbook_path = tmp_path / "lessons.jsonl"
-    advanced = scan_and_record(
-        conn,
-        since_event_id=7,
-        playbook_path=playbook_path,
-        complete=complete,
+    _seed_fix(conn, to_version=1)
+    _seed_fix(conn, to_version=2)
+    accepted_ids = [
+        row["id"]
+        for row in conn.execute("SELECT id FROM events WHERE kind = 'fix_accepted'").fetchall()
+    ]
+    second_response = _extraction_response(
+        trigger="agent repeats a tool call without changing its arguments",
+        lesson="Cap identical retries and require the next attempt to change approach.",
     )
+    complete, fake = make_complete([_extraction_response(), second_response, second_response])
+
+    advanced = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
     replayed = scan_and_record(
         conn,
-        since_event_id=3,
+        since_event_id=accepted_ids[0],
         playbook_path=playbook_path,
         complete=complete,
     )
@@ -285,9 +289,11 @@ def test_scan_and_record_explicit_lower_cursor_does_not_rewind_stored_cursor(
     cursor = conn.execute(
         "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
     ).fetchone()
-    assert advanced.last_event_id == 7
-    assert replayed.last_event_id == 3  # proves the explicit starting point was honored
-    assert cursor["last_event_id"] == 7
+    assert advanced.last_event_id == accepted_ids[1]
+    assert replayed.skipped_duplicate_event_ids == [accepted_ids[1]]
+    assert replayed.last_event_id == accepted_ids[1]
+    assert cursor["last_event_id"] == accepted_ids[1]
+    assert fake.call_count == 3
 
 
 def test_scan_and_record_clamps_forward_cursor_to_observed_ledger(tmp_path, conn, make_complete):
