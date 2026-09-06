@@ -1,4 +1,5 @@
 import { allowRequest } from "./policy";
+import { trustedVercelClientIp } from "./trustedClientIp";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -121,6 +122,7 @@ async function proxy(request: Request, context: RouteContext): Promise<Response>
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   request.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  const clientIp = trustedVercelClientIp(request.headers);
 
   try {
     const upstreamResponse = await fetch(upstream, {
@@ -129,6 +131,7 @@ async function proxy(request: Request, context: RouteContext): Promise<Response>
       headers: {
         Accept: "application/json, text/plain;q=0.9",
         Authorization: `Bearer ${bearer}`,
+        ...(clientIp ? { "X-Demo-Client-IP": clientIp } : {}),
         ...(body?.byteLength ? { "Content-Type": "application/json" } : {}),
       },
       cache: "no-store",
