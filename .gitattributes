@@ -1,0 +1,6 @@
+# Normalize line endings on commit. Prevents phantom whole-file diffs
+# when the repo is touched from both Windows and WSL.
+* text=auto
+
+# Always LF for files executed on Linux
+*.sh text eol=lf
