@@ -30,23 +30,24 @@ def _candidates(text: str) -> list[str]:
             if inner and inner not in out:
                 out.append(inner)
 
+    # Try the complete response before repairing prose with a brace slice.  If
+    # it is valid non-object JSON, the caller should reject it as-is instead of
+    # accepting an object nested inside it (for example, [{"a": 1}]).
+    if candidate not in out:
+        out.append(candidate)
+
     start = candidate.find("{")
     end = candidate.rfind("}")
     if start != -1 and end != -1 and end > start:
         sliced = candidate[start : end + 1]
         if sliced not in out:
             out.append(sliced)
-
-    if candidate not in out:
-        out.append(candidate)
     return out
 
 
 def extract_json_object(text: str) -> dict:
     """Parse ``text`` as a JSON object, tolerating a fenced block or stray prose around it."""
     first_error: json.JSONDecodeError | None = None
-    non_object: str | None = None
-
     for candidate in _candidates(text):
         try:
             parsed = json.loads(candidate)
@@ -56,11 +57,8 @@ def extract_json_object(text: str) -> dict:
             continue
         if isinstance(parsed, dict):
             return parsed
-        if non_object is None:
-            non_object = type(parsed).__name__
+        raise JSONExtractionError(f"expected a JSON object, got {type(parsed).__name__}")
 
-    if non_object is not None:
-        raise JSONExtractionError(f"expected a JSON object, got {non_object}")
     raise JSONExtractionError(
         f"could not parse a JSON object from the response ({first_error})"
     ) from first_error

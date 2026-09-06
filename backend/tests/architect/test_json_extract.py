@@ -24,6 +24,18 @@ def test_rejects_a_non_object_top_level():
         extract_json_object("[1, 2, 3]")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[{"a": 1}]',
+        '```json\n[{"a": 1}]\n```',
+    ],
+)
+def test_rejects_an_object_nested_in_a_top_level_array(text):
+    with pytest.raises(JSONExtractionError, match="expected a JSON object, got list"):
+        extract_json_object(text)
+
+
 def test_rejects_unparseable_text():
     with pytest.raises(JSONExtractionError):
         extract_json_object("not json at all")
