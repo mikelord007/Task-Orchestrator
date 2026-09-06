@@ -6,7 +6,7 @@ import { USE_MOCKS } from "@/lib/api";
 
 const LINKS = [
   { href: "/agents", label: "agents" },
-  { href: "/issues", label: "issues" },
+  { href: "/issues", label: "issues", unavailable: true },
   { href: "/insights", label: "insights" },
 ];
 
@@ -22,6 +22,23 @@ export default function Nav() {
       <ul className="mt-7 space-y-px">
         {LINKS.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+
+          if (link.unavailable) {
+            return (
+              <li key={link.href}>
+                <button
+                  type="button"
+                  disabled
+                  title="Issue tracking is unavailable in this build"
+                  className="block w-full cursor-not-allowed border-l-2 border-transparent py-1 pl-2.5 text-left text-[12px] text-fg-mute opacity-60"
+                >
+                  <span className="block">{link.label}</span>
+                  <span className="block text-[9px]">unavailable in this build</span>
+                </button>
+              </li>
+            );
+          }
+
           return (
             <li key={link.href}>
               <Link

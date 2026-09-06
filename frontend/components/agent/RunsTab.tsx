@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { createIssue } from "@/lib/api";
 import type { RunSummary, Split, TaskResult } from "@/lib/types";
 import { num, pct, shortTs, usd, ms } from "@/lib/format";
 import PassStrip from "@/components/PassStrip";
@@ -176,7 +175,7 @@ function TaskRow({
       </Td>
       <Td>
         <PassStrip passed={task.passed_by_trial} />
-        {failed ? <GraderDisagreeButton agentId={agentId} run={run} task={task} /> : null}
+        {failed ? <GraderDisagreeButton /> : null}
       </Td>
       <Td className="text-right tabular-nums text-fg-dim">{num(task.score, 2)}</Td>
       <Td className="text-right tabular-nums text-fg-dim">{usd(task.cost_usd)}</Td>
@@ -217,44 +216,15 @@ function TaskRow({
   );
 }
 
-/**
- * Files a lever=grader issue for review, per addendum J: a grader fix is
- * excluded from the agent's improvement curve. This is a doubt about the
- * verdict, not a claim the agent is right.
- */
-function GraderDisagreeButton({
-  agentId,
-  run,
-  task,
-}: {
-  agentId: string;
-  run: RunSummary;
-  task: TaskResult;
-}) {
-  const [state, setState] = useState<"idle" | "busy" | "sent">("idle");
-
-  if (state === "sent") {
-    return <span className="ml-2 text-[10px] text-fg-mute">reported</span>;
-  }
-
+function GraderDisagreeButton() {
   return (
     <button
-      onClick={async () => {
-        setState("busy");
-        const failedTrials = task.passed_by_trial.filter((p) => !p).length;
-        await createIssue({
-          agent_id: agentId,
-          title: `Grader disagreed: ${task.case_id}`,
-          body: `Filed from the runs table. Task ${task.case_id} at v${run.version} (${run.split}) failed ${failedTrials} of ${run.trials} trials, score ${task.score.toFixed(2)}. Reviewing whether the grader's verdict is correct for this task, not whether the agent is.`,
-          tags: ["grader-bug"],
-        });
-        setState("sent");
-      }}
-      disabled={state === "busy"}
-      title="Open an issue doubting the grader's verdict on this task, not the agent's output"
-      className="ml-2 text-[10px] text-fg-mute underline decoration-dotted underline-offset-2 hover:text-drift disabled:opacity-50"
+      type="button"
+      disabled
+      title="Grader review filing is unavailable in this build"
+      className="ml-2 cursor-not-allowed text-[10px] text-fg-mute opacity-60"
     >
-      grader disagreed?
+      grader disagreed? · unavailable in this build
     </button>
   );
 }
