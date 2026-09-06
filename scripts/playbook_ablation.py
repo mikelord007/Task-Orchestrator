@@ -14,9 +14,13 @@ This is a demo artifact (contracts/playbook.md "Ablation"): a flat or negative
 result is written as-is, never massaged. `GET /insights/compare` reads this
 file verbatim if present.
 
+Run from the repo root (matches `backend.runtime.evaluation.run_eval`'s own
+`agents`/`evaluators`/`runs` relative defaults, which this script's call does
+not override -- see `_resolve_run_eval`):
+
     uv run --project backend python scripts/playbook_ablation.py
 
-Requires `backend.runtime.eval.run_eval` (W2) and a real or FakeLLM-backed
+Requires `backend.runtime.evaluation.run_eval` (W2) and a real or FakeLLM-backed
 `backend.llm.complete` to be usable end to end; `run_ablation()` below takes
 both as injectable arguments so it can be exercised offline in tests.
 """
@@ -49,11 +53,18 @@ class RunEvalFn(Protocol):
 
 
 def _resolve_run_eval() -> RunEvalFn:
-    """Lazy import: W2's runtime eval harness (`backend/runtime/`, PLAN.md 4.5,
-    PLAN_ADDENDUM.md §B) is a separate, not-yet-merged workstream. Importing it
-    only when actually running the ablation keeps this module importable --
-    and its logic testable with a stub -- before that package exists."""
-    from backend.runtime.eval import run_eval  # type: ignore[import-not-found]
+    """Lazy import of W2's eval harness (`backend/runtime/evaluation.py`).
+
+    Imported only when actually running the ablation (not at module load
+    time) so this module -- and its tests -- stay independent of whichever
+    workstream lands `backend/runtime/` last; a stub takes its place in tests.
+    `run_eval`'s own signature is `(agent_id, version=None, split="train",
+    trials=None, *, ...)` with everything past `trials` optional and
+    defaulting to plain relative `agents`/`evaluators`/`runs` directories --
+    this module calls it with exactly those four positional args, so it must
+    be run with the repo root as the working directory.
+    """
+    from backend.runtime.evaluation import run_eval
 
     return run_eval
 
@@ -140,6 +151,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Where to write the report (default: reports/ablation.json)",
     )
     args = parser.parse_args(argv)
+
+    if not (Path.cwd() / "contracts").is_dir():
+        raise SystemExit(
+            f"run this from the repo root (cwd is {Path.cwd()}): "
+            "run_eval resolves 'agents'/'evaluators'/'runs' relative to the "
+            "working directory, and it won't find what generate() just wrote otherwise"
+        )
 
     conn = init_db()
     try:
