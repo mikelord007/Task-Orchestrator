@@ -36,8 +36,9 @@ import type {
 export * from "./types";
 
 export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "1";
+export const LIVE_MODEL_CALLS = process.env.NEXT_PUBLIC_LIVE_MODEL_CALLS === "1";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/backend";
 
 export class ApiError extends Error {
   constructor(

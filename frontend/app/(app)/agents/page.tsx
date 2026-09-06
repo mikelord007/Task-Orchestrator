@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { createAgent, listAgents, listEvaluators } from "@/lib/api";
+import { createAgent, listAgents, listEvaluators, LIVE_MODEL_CALLS } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import Stat from "@/components/Stat";
 import { Button, Empty, Field, PageHeader, Panel, Pill, inputClass } from "@/components/ui";
@@ -19,7 +19,12 @@ export default function AgentsPage() {
         title="Agents"
         subtitle="Each agent is a versioned package. A version is only ever added, never edited in place."
         right={
-          <Button variant="primary" onClick={() => setFormOpen((v) => !v)}>
+          <Button
+            variant="primary"
+            disabled={!LIVE_MODEL_CALLS}
+            onClick={() => setFormOpen((v) => !v)}
+            title={LIVE_MODEL_CALLS ? undefined : "Unavailable: no model provider credentials are configured"}
+          >
             {formOpen ? "Close" : "New agent"}
           </Button>
         }
@@ -46,8 +51,8 @@ export default function AgentsPage() {
           <Empty>Could not reach the backend: {agents.error}</Empty>
         ) : (agents.data?.length ?? 0) === 0 ? (
           <Empty>
-            No agents yet. Press <b className="text-fg">New agent</b> to generate a v0 package from
-            a goal, a tool set and an evaluator.
+            No agents are stored in the live backend. Generating a new one is unavailable because
+            no model provider credentials are configured.
           </Empty>
         ) : (
           <div className="grid gap-4 xl:grid-cols-2">

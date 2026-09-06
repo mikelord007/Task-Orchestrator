@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
-import { getAgent, getAgentVersion, improveAgent, listFixes, listRuns, runAgent } from "@/lib/api";
+import {
+  getAgent,
+  getAgentVersion,
+  improveAgent,
+  listFixes,
+  listRuns,
+  LIVE_MODEL_CALLS,
+  runAgent,
+} from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import { useJob } from "@/lib/useJob";
 import FixCard from "@/components/FixCard";
@@ -154,7 +162,7 @@ function AgentDetail() {
 
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={job.active}
+            disabled={job.active || !LIVE_MODEL_CALLS}
             onClick={async () => {
               const { run_id } = await runAgent(agentId, { split: "train" });
               job.track(run_id, "Run train");
@@ -163,23 +171,31 @@ function AgentDetail() {
             Run train
           </Button>
           <Button
-            disabled={job.active}
+            disabled={job.active || !LIVE_MODEL_CALLS}
             onClick={async () => {
               const { run_id } = await runAgent(agentId, { split: "holdout" });
               job.track(run_id, "Run holdout");
             }}
-            title="Holdout is never shown to the improver; it is only run for reporting."
+            title={
+              LIVE_MODEL_CALLS
+                ? "Holdout is never shown to the improver; it is only run for reporting."
+                : "Unavailable: no model provider credentials are configured"
+            }
           >
             Run holdout
           </Button>
           <Button
             variant="primary"
-            disabled={job.active}
+            disabled={job.active || !LIVE_MODEL_CALLS}
             onClick={async () => {
               const { job_id } = await improveAgent(agentId, { max_attempts: 3 });
               job.track(job_id, "Improve");
             }}
-            title="Diagnose the top failure groups, patch one lever, gate the result."
+            title={
+              LIVE_MODEL_CALLS
+                ? "Diagnose the top failure groups, patch one lever, gate the result."
+                : "Unavailable: no model provider credentials are configured"
+            }
           >
             Improve
           </Button>
