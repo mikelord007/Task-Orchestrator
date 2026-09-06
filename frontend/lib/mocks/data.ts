@@ -1189,7 +1189,13 @@ function insightsA(): Insights {
     },
     markers: [
       { version: 0, kind: "issue_opened", ts: "2026-09-06T05:44:00Z" },
-      { version: 0, kind: "drift_detected", ts: "2026-09-06T05:29:00Z" },
+      {
+        version: 0,
+        kind: "drift_cluster",
+        ts: "2026-09-06T05:29:00Z",
+        count: 3,
+        count_by_kind: { loop: 2, budget: 1 },
+      },
       {
         version: 1,
         kind: "fix_accepted",
@@ -1295,15 +1301,11 @@ export const COMPARE_DOMAINS: InsightsCompare = {
   ],
   ablation: {
     domain: "ticket_triage",
-    playbook_off: {
-      agent_id: "ticket-triage-00",
-      holdout: { mean: 0.4167, std: 0.0589, min: 0.3333, max: 0.5 },
-    },
-    playbook_on: {
-      agent_id: AGENT_B,
-      holdout: { mean: 0.5833, std: 0.0417, min: 0.5, max: 0.6667 },
-    },
+    trials: TRIALS,
+    playbook_off: { pass_at_1: 0.4167, pass_pow_k: 0.3333, std: 0.0589 },
+    playbook_on: { pass_at_1: 0.5833, pass_pow_k: 0.5, std: 0.0417 },
     applied_lesson_ids: ["l-001", "l-003"],
+    agent_ids: { playbook_off: "ticket-triage-00", playbook_on: AGENT_B },
   },
 };
 

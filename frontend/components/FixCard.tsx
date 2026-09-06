@@ -7,12 +7,6 @@ import DiffView from "./DiffView";
 import MemoryEntries from "./MemoryEntries";
 import { LeverChip, Pill } from "./ui";
 
-const REJECT_REASON = {
-  regression: "a task that had been passing every trial (pass^k) started failing",
-  no_gain: "the candidate did not beat the current version's pass@1",
-  error: "the candidate could not be evaluated",
-} as const;
-
 /**
  * One improvement attempt, accepted or rejected. Shared by the agent Fixes tab,
  * the issue timeline and the insights page, so it takes its agent id explicitly
@@ -27,12 +21,13 @@ export default function FixCard({
   agentId: string;
   defaultExpanded?: boolean;
 }) {
-  const [showDetail, setShowDetail] = useState(defaultExpanded);
   const accepted = card.status === "accepted";
   const isMemory = card.lever === "memory" && (card.memory_entries?.length ?? 0) > 0;
+  const [showMemory, setShowMemory] = useState(defaultExpanded && isMemory);
+  const [showDiff, setShowDiff] = useState(defaultExpanded && !isMemory);
 
   return (
-    <article className="border-t border-line py-4">
+    <article id={`fix-${card.to_version}`} className="scroll-mt-4 border-t border-line py-4">
       <header className="flex flex-wrap items-center gap-2">
         <Pill tone={accepted ? "pass" : "fail"}>{card.status}</Pill>
         <LeverChip lever={card.lever} />
@@ -54,9 +49,7 @@ export default function FixCard({
 
           {!accepted ? (
             <div className="mt-2 border-l-2 border-fail/50 pl-3">
-              <p className="text-[12px] text-fail">
-                Gate rejected: {card.reason ? REJECT_REASON[card.reason] : "regression"}.
-              </p>
+              <p className="text-[12px] text-fail">Gate rejected this candidate.</p>
               {card.regressed_case_ids?.length ? (
                 <p className="mt-0.5 text-[11px] text-fg-dim">
                   Regressed: {card.regressed_case_ids.join(", ")}
@@ -71,24 +64,33 @@ export default function FixCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
-          onClick={() => setShowDetail((v) => !v)}
+          onClick={() => (isMemory ? setShowMemory((v) => !v) : setShowDiff((v) => !v))}
           className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
         >
-          {showDetail ? "hide" : isMemory ? "show memory entries" : "show diff"}
+          {isMemory
+            ? showMemory
+              ? "hide memory entries"
+              : "show memory entries"
+            : showDiff
+              ? "hide diff"
+              : "show diff"}
         </button>
+        {isMemory ? (
+          <button
+            onClick={() => setShowDiff((v) => !v)}
+            className="rounded-xs border border-line px-2 py-0.5 text-[11px] text-fg-dim hover:border-fg-mute hover:text-fg"
+          >
+            {showDiff ? "hide diff" : "show diff"}
+          </button>
+        ) : null}
         <span className="text-[11px] text-fg-mute">{card.diff_summary}</span>
         {card.files_touched.length ? (
           <span className="text-[11px] text-fg-mute">{card.files_touched.join("  ")}</span>
         ) : null}
       </div>
 
-      {showDetail ? (
-        isMemory ? (
-          <MemoryEntries entries={card.memory_entries!} />
-        ) : (
-          <DiffView agentId={agentId} toVersion={card.to_version} />
-        )
-      ) : null}
+      {showMemory && isMemory ? <MemoryEntries entries={card.memory_entries!} /> : null}
+      {showDiff ? <DiffView agentId={agentId} toVersion={card.to_version} /> : null}
     </article>
   );
 }
@@ -214,4 +216,3 @@ function BeforeAfter({ card }: { card: FixCardData }) {
     </table>
   );
 }
-

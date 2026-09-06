@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { getInsights, getInsightsCompare, getPlaybook, listAgents, listFixes, listRuns } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import FixCard from "@/components/FixCard";
@@ -15,7 +15,7 @@ import MemoryGrowthChart from "@/components/insights/MemoryGrowthChart";
 import PassRateChart from "@/components/insights/PassRateChart";
 import PlaybookPanel from "@/components/insights/PlaybookPanel";
 import ToolEfficiencyChart from "@/components/insights/ToolEfficiencyChart";
-import { Empty, PageHeader, Panel, Pill } from "@/components/ui";
+import { Empty, inputClass, PageHeader, Panel, Pill } from "@/components/ui";
 
 export default function InsightsPage() {
   return (
@@ -46,9 +46,28 @@ function Insights() {
   const compare = useAsync(() => getInsightsCompare(), []);
   const playbook = useAsync(() => getPlaybook(), []);
 
-  const agentName = agents.data?.find((a) => a.agent_id === agentId)?.name ?? agentId;
-  /** Insights carries no trials field (contracts/api.md); read it off the most recent run instead. */
-  const trials = runs.data?.slice(-1)[0]?.trials;
+  const foundAgent = agents.data?.find((a) => a.agent_id === agentId);
+  /** `GET /agents` may not carry a display `name` yet; `goal` is always real backend data. */
+  const agentName = foundAgent?.name ?? foundAgent?.goal ?? agentId;
+  const hasRunHistory = (insights.data?.pass_at_1_by_version.length ?? 0) > 0;
+
+  const driftByVersion = useMemo(() => {
+    const byVersion = insights.data?.drift.count_by_version;
+    if (byVersion) {
+      return Object.entries(byVersion)
+        .map(([version, count]) => ({ version: Number(version), count }))
+        .sort((a, b) => a.version - b.version);
+    }
+    return (runs.data ?? [])
+      .filter((r) => r.split === "train")
+      .slice()
+      .sort((a, b) => a.version - b.version)
+      .map((r) => ({ version: r.version, count: r.drift_count }));
+  }, [insights.data, runs.data]);
+
+  function jumpToFix(toVersion: number) {
+    document.getElementById(`fix-${toVersion}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <div className="mx-auto max-w-[1360px] px-6 py-5">
@@ -64,10 +83,12 @@ function Insights() {
             >
               {agents.data.map((a) => (
                 <option key={a.agent_id} value={a.agent_id}>
-                  {a.name}
+                  {a.name ?? a.goal}
                 </option>
               ))}
             </select>
+          ) : !agents.loading ? (
+            <AgentIdField initial={agentId ?? ""} onGo={(id) => router.replace(`/insights?agent=${id}`)} />
           ) : undefined
         }
       />
@@ -76,7 +97,8 @@ function Insights() {
         <p className="mt-4 text-[12px] text-fg-mute">Loading agents…</p>
       ) : !agentId ? (
         <Empty>
-          No agents yet. Create one under Agents, run a split, and its charts appear here.
+          No agents yet. Create one under Agents, run a split, and its charts appear here — or
+          type a known agent id above.
         </Empty>
       ) : (
         <>
@@ -91,14 +113,14 @@ function Insights() {
           <div className="mt-4 flex flex-wrap gap-8">
             <Stat
               label="tasks graduated"
-              value={String(insights.data?.graduated_count ?? "—")}
+              value={hasRunHistory ? String(insights.data?.graduated_count ?? "—") : "—"}
               tone="pass"
               size="lg"
             />
             <div className="min-w-[140px]">
               <div className="text-[11px] text-fg-mute">flagged tasks</div>
               <div className="mt-1 text-xl tabular-nums text-fg">
-                {insights.data?.flagged_tasks.length ?? "—"}
+                {hasRunHistory ? (insights.data?.flagged_tasks.length ?? "—") : "—"}
               </div>
             </div>
           </div>
@@ -108,19 +130,19 @@ function Insights() {
               <p className="py-3 text-[12px] text-fg-mute">Loading…</p>
             ) : (
               <PassRateChart
-                trials={trials ?? 0}
                 pass1={insights.data?.pass_at_1_by_version ?? []}
                 passK={insights.data?.pass_pow_k_by_version ?? []}
+                markers={insights.data?.markers ?? []}
+                onJumpToFix={jumpToFix}
               />
             )}
           </Panel>
 
-          <Panel title="Cost, latency and pass@1-vs-cost">
+          <Panel title="Cost and latency">
             {insights.data ? (
               <CostLatencyChart
                 cost={insights.data.cost_by_version}
                 latency={insights.data.latency_by_version}
-                pass1={insights.data.pass_at_1_by_version}
               />
             ) : (
               <Empty>No runs yet.</Empty>
@@ -128,14 +150,17 @@ function Insights() {
           </Panel>
 
           <Panel title="Fixes, regressions and issues">
-            {insights.data ? (
+            {insights.data && hasRunHistory ? (
               <FixesSummary
                 fixesByLever={insights.data.fixes_by_lever}
                 regressionsCaught={insights.data.regressions_caught}
                 issues={insights.data.issues}
               />
             ) : (
-              <Empty>No fixes yet.</Empty>
+              <Empty>
+                No improvement evidence yet. Run the train split, then start an improve attempt
+                to populate fixes, caught regressions, and linked issues.
+              </Empty>
             )}
           </Panel>
 
@@ -153,7 +178,7 @@ function Insights() {
 
           <Panel title="Drift">
             {insights.data ? (
-              <DriftPanel drift={insights.data.drift} runs={runs.data ?? []} />
+              <DriftPanel drift={insights.data.drift} byVersion={driftByVersion} />
             ) : (
               <Empty>No data yet.</Empty>
             )}
@@ -189,5 +214,38 @@ function Insights() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * `GET /agents` is not wired up yet on every deployment (still merging as of
+ * this writing), so this page must stay usable by direct agent id — this
+ * text field is the fallback for the agent dropdown while that endpoint is
+ * unavailable; once it lands, `agents.data` is non-empty and this never
+ * renders.
+ */
+function AgentIdField({ initial, onGo }: { initial: string; onGo: (agentId: string) => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onGo(value.trim());
+      }}
+      className="flex items-center gap-1.5"
+    >
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="agent id"
+        className={`${inputClass} mt-0 w-40`}
+      />
+      <button
+        type="submit"
+        className="rounded-xs border border-line px-2 py-1.5 text-[12px] text-fg-dim hover:border-fg-mute hover:text-fg"
+      >
+        go
+      </button>
+    </form>
   );
 }

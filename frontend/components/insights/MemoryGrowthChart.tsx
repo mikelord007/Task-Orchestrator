@@ -33,6 +33,15 @@ export default function MemoryGrowthChart({ points }: { points: MemoryByVersionP
             <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
             <Bar yAxisId="count" dataKey="rules" stackId="mem" fill={CHART_COLORS.pass} fillOpacity={0.75} name="rules" radius={[0, 0, 0, 0]} />
             <Bar yAxisId="count" dataKey="tool_notes" stackId="mem" fill={CHART_COLORS.train} fillOpacity={0.75} name="tool notes" radius={[2, 2, 0, 0]} />
+            <Bar
+              yAxisId="count"
+              dataKey="demotions"
+              fill={CHART_COLORS.drift}
+              fillOpacity={0.9}
+              name="demotions at version"
+              barSize={6}
+              radius={[2, 2, 0, 0]}
+            />
             <Line
               yAxisId="confidence"
               dataKey="mean_confidence"
@@ -47,8 +56,9 @@ export default function MemoryGrowthChart({ points }: { points: MemoryByVersionP
         </ResponsiveContainer>
       </div>
       <p className="mt-1 text-[11px] text-fg-mute">
-        bars = rule + tool-note count (left axis) · line = mean confidence (right axis) ·{" "}
-        {totalDemotions} demotion{totalDemotions === 1 ? "" : "s"} to date
+        stacked bars = rule + tool-note count (left axis) · amber bars = demotions at that version ·
+        line = mean confidence (right axis) · {totalDemotions} demotion
+        {totalDemotions === 1 ? "" : "s"} to date
       </p>
     </div>
   );

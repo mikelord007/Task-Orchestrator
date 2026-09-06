@@ -55,7 +55,7 @@ Merge order: **W1 → W2 → W3 → W4 → W5.**
 | W6 improver | not started | will spawn after Phase 1 merges with PLAN.md block + addendum (§E reflection first, §K tools lever, gate on pass^k) |
 | W7 issues | not started | will spawn after W1, W2 merge; text-only, grader-bug path |
 | W8 playbook | not started | unchanged; spawn after W1, W3 |
-| W9 insights | not started | spawn after W1; §B chart, memory growth, tool efficiency, graduated counter, saturation banner |
+| W9 insights (task-orchestrator-11) | draft PR #12 open | wired to real W1 endpoints; markers/ErrorBar band on the pass-rate chart; degrades gracefully where `/agents`, `/agents/{id}/runs`, `/playbook` are not yet merged |
 | W10 routing | not started | shrunk to per-step model field + one measured routing change; first on the cut list |
 | W11 evidence, W12 README/DEMO | not started | spawn in Phase 3; every pass rate as pass@1 and pass^k with ± |
 
@@ -80,6 +80,7 @@ Stall (22:23Z update): the shared account usage limit paused the orchestrator an
 | `task-orchestrator-5` | W4 — domains, fixtures, evaluators | `ws/w4-domains` | [#1](https://github.com/mikelord007/Task-Orchestrator/pull/1) | merged (45676a9) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-5` | W4b — github_triage negatives follow-up | `ws/w4b-negatives` | [#6](https://github.com/mikelord007/Task-Orchestrator/pull/6) | ready for review (CI green) | 2026-09-05 | 2026-09-05 |
 | `task-orchestrator-6` | W5 — frontend shell | `ws/w5-frontend` | [#4](https://github.com/mikelord007/Task-Orchestrator/pull/4) | merged (5bb748a) | 2026-09-05 | 2026-09-06 |
-| `task-orchestrator-12` | W8 — playbook + Domain B ablation | `ws/w8-playbook` | [#13](https://github.com/mikelord007/Task-Orchestrator/pull/13) | draft, tests green locally | 2026-09-06 | — |
+| `task-orchestrator-12` | W8 — playbook + Domain B ablation | `ws/w8-playbook` | [#13](https://github.com/mikelord007/Task-Orchestrator/pull/13) | merged (aaeee49) | 2026-09-06 | — |
 | `task-orchestrator-9` | W1c — ledger SQLite connection thread handoff | `ws/w1c-conn-thread` | [#20](https://github.com/mikelord007/Task-Orchestrator/pull/20) | ready for review, CI green | 2026-09-06 06:03Z | 2026-09-06 06:14Z |
 | `task-orchestrator-2` | W6 — improver (reflection, diagnose, patch, gate, improve loop) | `ws/w6-improver` | [#17](https://github.com/mikelord007/Task-Orchestrator/pull/17) | ready for review (723 backend tests green, ruff clean) | 2026-09-06 | 2026-09-06 |
+| `task-orchestrator-11` | W9 — insights charts + compare page | `ws/w9-insights` | [#12](https://github.com/mikelord007/Task-Orchestrator/pull/12) | ready for review; seeded/empty verification and review fixes complete | 2026-09-06 | 2026-09-06 03:38Z |

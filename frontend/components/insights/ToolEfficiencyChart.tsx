@@ -15,6 +15,9 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
   if (rows.length === 0) {
     return <Empty>No tool-call stats yet. They appear once a train run completes.</Empty>;
   }
+  const anyEstimated = rows.some((r) => r.tool_tokens_estimated);
+  const tokensLabel = anyEstimated ? "tokens/task (est.)" : "tokens/task";
+  const redundantUnknown = rows.filter((r) => r.redundant === null).map((r) => r.version);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -33,9 +36,17 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        {redundantUnknown.length > 0 ? (
+          <p className="mt-1 text-[11px] text-fg-mute">
+            redundant/task = — at {versionList(redundantUnknown)} because transcript detail is
+            unavailable. Run train with transcript capture enabled to measure it.
+          </p>
+        ) : null}
       </div>
       <div>
-        <p className="text-[11px] text-fg-mute">tool-response tokens / latency per task (train)</p>
+        <p className="text-[11px] text-fg-mute">
+          tool-response tokens / latency per task (train){anyEstimated ? " · tokens estimated" : ""}
+        </p>
         <div className="mt-1 h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={rows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
@@ -44,7 +55,17 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
               <YAxis yAxisId="tokens" tick={axisTick} tickLine={false} axisLine={false} width={30} />
               <YAxis yAxisId="ms" orientation="right" tick={axisTick} tickLine={false} axisLine={false} width={34} />
               <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
-              <Line yAxisId="tokens" dataKey="tool_tokens" stroke={CHART_COLORS.holdout} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} name="tokens/task" />
+              <Line
+                yAxisId="tokens"
+                dataKey="tool_tokens"
+                stroke={CHART_COLORS.holdout}
+                strokeWidth={2}
+                strokeDasharray={anyEstimated ? "4 2" : undefined}
+                dot={{ r: 2.5 }}
+                isAnimationActive={false}
+                name={tokensLabel}
+                connectNulls
+              />
               <Line yAxisId="ms" dataKey="latency_ms" stroke={CHART_COLORS.pass} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="ms/task" />
             </ComposedChart>
           </ResponsiveContainer>
@@ -52,4 +73,8 @@ export default function ToolEfficiencyChart({ points }: { points: ToolStatsByVer
       </div>
     </div>
   );
+}
+
+function versionList(versions: number[]): string {
+  return [...new Set(versions)].sort((a, b) => a - b).map((v) => `v${v}`).join(", ");
 }

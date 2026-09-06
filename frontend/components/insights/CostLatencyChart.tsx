@@ -1,126 +1,111 @@
 "use client";
 
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  ComposedChart,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-  ZAxis,
-} from "recharts";
-import type { CostPoint, LatencyPoint, RatePoint } from "@/lib/types";
+import { Bar, BarChart, CartesianGrid, Cell, Line, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { CostPoint, LatencyPoint } from "@/lib/types";
 import { usd } from "@/lib/format";
 import { Empty } from "@/components/ui";
 import { CHART_COLORS, axisTick, tooltipStyle } from "./chart-common";
 
-/** Cost per run and p50/p95 latency by version, plus pass@1 vs cost so accuracy and cost read together. */
+/**
+ * Cost per run and p50/p95 latency by version (train split). The pass@1-vs-cost
+ * scatter was cut under time pressure (PLAN_ADDENDUM.md sec M cut order); the
+ * pass-rate band and this chart together still answer whether cost moves with
+ * accuracy, just not on one plot.
+ */
 export default function CostLatencyChart({
   cost,
   latency,
-  pass1,
 }: {
   cost: CostPoint[];
   latency: LatencyPoint[];
-  pass1: RatePoint[];
 }) {
-  if (cost.length === 0) {
-    return <Empty>No cost recorded yet. It appears once a split has been run.</Empty>;
-  }
-
-  const costRows = cost.map((c) => ({ version: c.version, cost: c.cost_per_run }));
-  const latencyRows = latency.map((l) => ({ version: l.version, p50: l.p50_ms, p95: l.p95_ms }));
-  const scatterRows = pass1
-    .filter((p) => p.split === "train")
-    .map((p) => {
-      const c = cost.find((x) => x.version === p.version);
-      return c ? { version: p.version, cost: c.cost_per_run, pass1: p.mean } : null;
-    })
-    .filter((r): r is { version: number; cost: number; pass1: number } => r !== null)
-    .sort((a, b) => a.version - b.version);
+  const costTrain = cost.filter((c) => (c.split ?? "train") === "train");
+  const latencyTrain = latency.filter((l) => (l.split ?? "train") === "train");
+  const costRows = costTrain.flatMap((c) =>
+    c.cost_per_run === null ? [] : [{ version: c.version, cost: c.cost_per_run }],
+  );
+  const latencyRows = latencyTrain.filter((l) => l.p50_ms !== null || l.p95_ms !== null);
+  const missingCost = costTrain.filter((c) => c.cost_per_run === null).map((c) => c.version);
+  const missingP50 = latencyTrain.filter((l) => l.p50_ms === null).map((l) => l.version);
+  const missingP95 = latencyTrain.filter((l) => l.p95_ms === null).map((l) => l.version);
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2">
       <div>
         <p className="text-[11px] text-fg-mute">cost per run</p>
-        <div className="mt-1 h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={costRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
-              <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} tickFormatter={(v) => usd(v)} />
-              <Tooltip {...tooltipStyle} formatter={(v: number) => usd(v)} labelFormatter={(v) => `v${v}`} />
-              <Bar dataKey="cost" radius={[2, 2, 0, 0]}>
-                {costRows.map((r) => (
-                  <Cell key={r.version} fill={CHART_COLORS.train} fillOpacity={0.75} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {costRows.length === 0 ? (
+          <Empty>
+            No cost measurement is available. Run train with cost reporting enabled to populate
+            this chart.
+          </Empty>
+        ) : (
+          <>
+            <div className="mt-1 h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={costRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                  <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
+                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                  <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} tickFormatter={(v) => usd(v)} />
+                  <Tooltip {...tooltipStyle} formatter={(v: number) => usd(v)} labelFormatter={(v) => `v${v}`} />
+                  <Bar dataKey="cost" radius={[2, 2, 0, 0]}>
+                    {costRows.map((r) => (
+                      <Cell key={r.version} fill={CHART_COLORS.train} fillOpacity={0.75} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {missingCost.length > 0 ? (
+              <UnknownNote>
+                cost = — at {versionList(missingCost)}. Run train with cost reporting enabled to
+                measure it.
+              </UnknownNote>
+            ) : null}
+          </>
+        )}
       </div>
 
       <div>
         <p className="text-[11px] text-fg-mute">p50 / p95 latency (ms)</p>
-        <div className="mt-1 h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={latencyRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
-              <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
-              <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} />
-              <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
-              <Line dataKey="p50" stroke={CHART_COLORS.pass} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} name="p50" />
-              <Line dataKey="p95" stroke={CHART_COLORS.mute} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="p95" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-[11px] text-fg-mute">pass@1 vs cost per run (train, by version)</p>
-        <div className="mt-1 h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke={CHART_COLORS.grid} />
-              <XAxis
-                dataKey="cost"
-                type="number"
-                tickFormatter={(v) => usd(v)}
-                tick={axisTick}
-                tickLine={false}
-                axisLine={{ stroke: CHART_COLORS.grid }}
-                name="cost per run"
-              />
-              <YAxis
-                dataKey="pass1"
-                type="number"
-                domain={[0, 1]}
-                tickFormatter={(v) => `${Math.round(v * 100)}`}
-                tick={axisTick}
-                tickLine={false}
-                axisLine={false}
-                width={28}
-                name="pass@1"
-              />
-              <ZAxis range={[60, 60]} />
-              <Tooltip
-                {...tooltipStyle}
-                formatter={(value: number, name: string) =>
-                  name === "pass1" ? [`${(value * 100).toFixed(1)}`, "pass@1"] : [usd(value), "cost/run"]
-                }
-                labelFormatter={() => ""}
-              />
-              <Scatter data={scatterRows} fill={CHART_COLORS.holdout} isAnimationActive={false} />
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
+        {latencyRows.length === 0 ? (
+          <Empty>
+            No latency measurement is available. Run train with latency reporting enabled to
+            populate this chart.
+          </Empty>
+        ) : (
+          <>
+            <div className="mt-1 h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={latencyRows} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                  <CartesianGrid stroke={CHART_COLORS.grid} vertical={false} />
+                  <XAxis dataKey="version" tickFormatter={(v) => `v${v}`} tick={axisTick} tickLine={false} axisLine={{ stroke: CHART_COLORS.grid }} />
+                  <YAxis tick={axisTick} tickLine={false} axisLine={false} width={34} />
+                  <Tooltip {...tooltipStyle} labelFormatter={(v) => `v${v}`} />
+                  <Line dataKey="p50_ms" stroke={CHART_COLORS.pass} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} name="p50" />
+                  <Line dataKey="p95_ms" stroke={CHART_COLORS.mute} strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 2 }} isAnimationActive={false} name="p95" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            {missingP50.length > 0 || missingP95.length > 0 ? (
+              <UnknownNote>
+                {[missingP50.length > 0 ? `p50 = — at ${versionList(missingP50)}` : null,
+                  missingP95.length > 0 ? `p95 = — at ${versionList(missingP95)}` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+                . Run train with latency reporting enabled to measure the missing values.
+              </UnknownNote>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function versionList(versions: number[]): string {
+  return [...new Set(versions)].sort((a, b) => a - b).map((v) => `v${v}`).join(", ");
+}
+
+function UnknownNote({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 text-[11px] text-fg-mute">{children}</p>;
 }
