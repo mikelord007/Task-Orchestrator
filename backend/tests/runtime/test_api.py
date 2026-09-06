@@ -162,6 +162,28 @@ def test_a_task_that_hit_drift_reports_its_kind(ledger):
     assert summaries[0]["tasks"][0]["drift_kind"] == "loop"
 
 
+def test_passed_by_trial_is_padded_to_trials_and_missing_a_trial_does_not_shift_later_ones(
+    ledger,
+):
+    """3 trials, but trial 1's case_result never arrived (a crashed future).
+    passed_by_trial must be [True, False, True] - not [True, True] shifted
+    left as if trial 2 were trial 1."""
+    ledger.emit(
+        "run_started",
+        agent_id="toy",
+        agent_version=0,
+        run_id="run_gap",
+        split="train",
+        case_count=1,
+        trials=3,
+    )
+    seed_case_result(ledger, run_id="run_gap", case_id="t1", trial=0, passed=True)
+    seed_case_result(ledger, run_id="run_gap", case_id="t1", trial=2, passed=True)
+
+    summaries = list_runs("toy", read_events=ledger.read)
+    assert summaries[0]["tasks"][0]["passed_by_trial"] == [True, False, True]
+
+
 def test_runs_are_ordered_newest_first(ledger):
     for run_id in ("run_1", "run_2"):
         ledger.emit(

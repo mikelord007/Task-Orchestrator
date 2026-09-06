@@ -18,7 +18,9 @@ UNKNOWN_SIGNATURE = "unknown_failure"
 BAD_OUTPUT_SIGNATURE = "bad_output"
 
 _NUMBERS = re.compile(r"\d+")
-_NON_SIGNIFICANT = re.compile(r"[^a-z0-9|,_ ]+")
+# No digits in the allowed set: _NUMBERS.sub() above already strips every
+# digit run, so a digit never reaches this pattern.
+_NON_SIGNIFICANT = re.compile(r"[^a-z|,_ ]+")
 _WHITESPACE = re.compile(r"\s+")
 
 
