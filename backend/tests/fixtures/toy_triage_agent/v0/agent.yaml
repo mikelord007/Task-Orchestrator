@@ -1,0 +1,12 @@
+name: toy_triage
+version: 0
+domain: toy
+model_strong: strong-model
+model_cheap: cheap-model
+orchestration: single
+tools:
+  - lookup_ticket
+  - always_fails
+routing:
+  plan: strong
+  act: strong
