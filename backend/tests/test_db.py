@@ -7,7 +7,15 @@ import pytest
 
 from backend.db import applied_migrations, connect, db_path, init_db, migrate
 
-EXPECTED_TABLES = {"events", "agents", "issues", "lessons", "improve_jobs", "schema_migrations"}
+EXPECTED_TABLES = {
+    "events",
+    "agents",
+    "issues",
+    "lessons",
+    "improve_jobs",
+    "playbook_scan_cursors",
+    "schema_migrations",
+}
 
 
 def _tables(conn) -> set[str]:
@@ -19,7 +27,7 @@ def test_migrations_apply_on_a_fresh_db(db_file: Path):
     conn = init_db(db_file)
     try:
         assert EXPECTED_TABLES <= _tables(conn)
-        assert applied_migrations(conn) == [1]
+        assert applied_migrations(conn) == [1, 2]
     finally:
         conn.close()
 

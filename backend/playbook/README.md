@@ -18,32 +18,46 @@ Its exact signature is:
 
 ```python
 def scan_and_record(
-    conn: sqlite3.Connection, since_event_id: int | None = None
-) -> dict[str, int]
+    conn: sqlite3.Connection,
+    *,
+    since_event_id: int | None = None,
+    playbook_path: str | Path = DEFAULT_PLAYBOOK_PATH,
+    complete: CompleteFn | None = None,
+    model: str | None = None,
+) -> ScanResult
 ```
 
-The return value has this shape:
+It returns the existing `ScanResult` dataclass:
 
 ```text
-{"recorded": int, "skipped": int, "last_event_id": int}
+ScanResult(
+    lessons: list[dict],
+    skipped_duplicate_event_ids: list[int],
+    skipped_unusable_event_ids: list[int],
+    last_event_id: int,
+)
 ```
 
-- `recorded` is the number of lessons appended during this call.
-- `skipped` is the number of new `fix_accepted` events that did not append a
-  lesson, including duplicates, unusable model output, and events without a
-  matching `fix_proposed`.
-- `last_event_id` is the persisted, exclusive event cursor.
+- `lessons` contains the lesson rows appended during this call.
+- `skipped_duplicate_event_ids` identifies accepted fixes whose extracted
+  lesson was already represented in the playbook.
+- `skipped_unusable_event_ids` identifies accepted fixes whose model output
+  could not produce a valid lesson.
+- `last_event_id` is the scan's exclusive event cursor; a successful helper
+  call persists it monotonically.
 
 With `since_event_id=None`, the helper resumes from the watermark in the
-database's `playbook_scan_state` table. It persists the returned watermark
-only after `scan()` finishes, so an interrupted scan is retried. Passing an
-explicit event id can seed or advance the watermark, but cannot rewind stored
-state. Use the lower-level `scan()` API when deliberately replaying older
-events or when the caller needs to own its own watermark.
+database's `playbook_scan_cursors` table. An explicit event id overrides that
+starting point for the call. The stored cursor advances only after `scan()`
+returns successfully, so an interrupted scan is retried, and the cursor never
+moves backward.
 
-The helper writes to `TO_PLAYBOOK_PATH` when set, otherwise to
-`<repo>/playbook/lessons.jsonl`. Repeated calls against the same database are
-incremental and do not extract or record the same accepted fix again.
+Migration `0002_playbook_scan_cursor.sql` creates the cursor table. This table
+stores a **processing cursor**, not derived agent status or a cached metric: it
+is operational bookkeeping in the same category as `schema_migrations`.
+Evaluation and display state remain derived exclusively from the append-only
+ledger. Repeated calls against the same database are incremental and do not
+extract or record the same accepted fix again.
 
 The lower-level contract remains:
 

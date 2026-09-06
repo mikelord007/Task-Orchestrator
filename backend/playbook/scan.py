@@ -17,16 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from backend.architect.llm_client import CompleteFn
-from backend.db import REPO_ROOT
 from backend.ledger.query import Event, events
-from backend.settings import env
 
 from .extract import LessonExtractionError, extract_lesson
 from .record import DEFAULT_PLAYBOOK_PATH, record_lesson
 
 __all__ = ["ScanResult", "scan", "scan_and_record"]
 
-_SCAN_STATE_KEY = "fix_accepted"
+_SCAN_CURSOR_KEY = "fix_accepted"
 
 
 @dataclass
@@ -135,23 +133,10 @@ def scan(
     return result
 
 
-def _ensure_scan_state(conn: sqlite3.Connection) -> None:
-    """Create the playbook-owned cursor store on databases that predate it."""
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS playbook_scan_state (
-          stream        TEXT PRIMARY KEY,
-          last_event_id INTEGER NOT NULL CHECK (last_event_id >= 0)
-        )
-        """
-    )
-
-
 def _persisted_watermark(conn: sqlite3.Connection) -> int:
-    _ensure_scan_state(conn)
     row = conn.execute(
-        "SELECT last_event_id FROM playbook_scan_state WHERE stream = ?",
-        (_SCAN_STATE_KEY,),
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = ?",
+        (_SCAN_CURSOR_KEY,),
     ).fetchone()
     return int(row[0]) if row is not None else 0
 
@@ -159,47 +144,40 @@ def _persisted_watermark(conn: sqlite3.Connection) -> int:
 def _save_watermark(conn: sqlite3.Connection, event_id: int) -> None:
     conn.execute(
         """
-        INSERT INTO playbook_scan_state (stream, last_event_id)
+        INSERT INTO playbook_scan_cursors (stream, last_event_id)
         VALUES (?, ?)
         ON CONFLICT(stream) DO UPDATE SET
-          last_event_id = MAX(playbook_scan_state.last_event_id, excluded.last_event_id)
+          last_event_id = MAX(playbook_scan_cursors.last_event_id, excluded.last_event_id)
         """,
-        (_SCAN_STATE_KEY, event_id),
+        (_SCAN_CURSOR_KEY, event_id),
     )
     conn.commit()
 
 
-def _configured_playbook_path() -> Path:
-    return Path(env("TO_PLAYBOOK_PATH") or REPO_ROOT / "playbook" / "lessons.jsonl")
-
-
-def scan_and_record(conn: sqlite3.Connection, since_event_id: int | None = None) -> dict[str, int]:
+def scan_and_record(
+    conn: sqlite3.Connection,
+    *,
+    since_event_id: int | None = None,
+    playbook_path: str | Path = DEFAULT_PLAYBOOK_PATH,
+    complete: CompleteFn | None = None,
+    model: str | None = None,
+) -> ScanResult:
     """Scan accepted fixes and persist the cursor for the next invocation.
 
-    ``None`` resumes from the cursor stored in ``playbook_scan_state``. An
-    explicit cursor may move the starting point forward, but never rewinds a
-    cursor already stored for this database; callers that intentionally need
-    to replay older events should use :func:`scan` directly.
+    ``None`` resumes from the cursor stored in ``playbook_scan_cursors``. An
+    explicit cursor overrides the stored starting point for this call. The
+    stored cursor advances only after :func:`scan` returns successfully and
+    never moves backward.
     """
     persisted = _persisted_watermark(conn)
-    requested = 0 if since_event_id is None else since_event_id
-    watermark = max(persisted, requested)
+    watermark = persisted if since_event_id is None else since_event_id
 
     result = scan(
         conn,
         since_event_id=watermark,
-        playbook_path=_configured_playbook_path(),
+        playbook_path=playbook_path,
+        complete=complete,
+        model=model,
     )
-    processed = [
-        event
-        for event in events(conn, kind="fix_accepted")
-        if watermark < event.id <= result.last_event_id
-    ]
-    last_event_id = max(persisted, result.last_event_id)
-    _save_watermark(conn, last_event_id)
-
-    return {
-        "recorded": len(result.lessons),
-        "skipped": len(processed) - len(result.lessons),
-        "last_event_id": last_event_id,
-    }
+    _save_watermark(conn, result.last_event_id)
+    return result

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import json
+
+import pytest
 
 from backend.ledger.emit import emit
 from backend.playbook import scan_and_record
@@ -145,10 +148,9 @@ def test_scan_skips_a_fix_accepted_with_no_matching_fix_proposed(tmp_path, conn,
     assert result.last_event_id > 0  # still advances the watermark past it
 
 
-def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete, monkeypatch):
+def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_complete):
     playbook_path = tmp_path / "lessons.jsonl"
-    monkeypatch.setenv("TO_PLAYBOOK_PATH", str(playbook_path))
-    _complete, fake = make_complete(
+    complete, fake = make_complete(
         [
             _extraction_response(),
             _extraction_response(
@@ -158,44 +160,96 @@ def test_scan_and_record_persists_incremental_watermark(tmp_path, conn, make_com
         ]
     )
     _seed_fix(conn, to_version=1)
-    first = scan_and_record(conn)
+    first = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
     first_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
-    repeated = scan_and_record(conn)
+    repeated = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
     repeated_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
     _seed_fix(conn, to_version=2)
-    second = scan_and_record(conn)
+    second = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
     second_lines = playbook_path.read_text(encoding="utf-8").splitlines()
 
-    assert set(first) == {"recorded", "skipped", "last_event_id"}
-    assert repeated == {"recorded": 0, "skipped": 0, "last_event_id": first["last_event_id"]}
-    assert set(second) == {"recorded", "skipped", "last_event_id"}
-    assert first["recorded"] == 1
-    assert first["skipped"] == 0
-    assert second["recorded"] == 1
-    assert second["skipped"] == 0
-    assert second["last_event_id"] > first["last_event_id"]
+    assert len(first.lessons) == 1
+    assert repeated.lessons == []
+    assert repeated.last_event_id == first.last_event_id
+    assert len(second.lessons) == 1
+    assert second.last_event_id > first.last_event_id
     assert len(first_lines) == 1
     assert repeated_lines == first_lines
     assert len(second_lines) == 2
     assert second_lines[0] == first_lines[0]
     assert fake.call_count == 2  # one call for each new fix, never the first fix twice
+    cursor = conn.execute(
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
+    ).fetchone()
+    assert cursor["last_event_id"] == second.last_event_id
 
 
-def test_scan_and_record_reports_new_duplicate_as_skipped(
-    tmp_path, conn, make_complete, monkeypatch
-):
-    monkeypatch.setenv("TO_PLAYBOOK_PATH", str(tmp_path / "lessons.jsonl"))
-    _complete, fake = make_complete([_extraction_response(), _extraction_response()])
+def test_scan_and_record_reports_new_duplicate_as_skipped(tmp_path, conn, make_complete):
+    playbook_path = tmp_path / "lessons.jsonl"
+    complete, fake = make_complete([_extraction_response(), _extraction_response()])
 
     _seed_fix(conn, to_version=1)
-    first = scan_and_record(conn)
+    first = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
     _seed_fix(conn, to_version=2)
-    second = scan_and_record(conn)
+    second = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
 
-    assert first["recorded"] == 1
-    assert first["skipped"] == 0
-    assert second["recorded"] == 0
-    assert second["skipped"] == 1
+    assert len(first.lessons) == 1
+    assert second.lessons == []
+    assert second.skipped_duplicate_event_ids
+    assert second.skipped_unusable_event_ids == []
     assert fake.call_count == 2
+
+
+def test_scan_and_record_does_not_advance_cursor_when_scan_fails(
+    tmp_path, conn, make_complete, monkeypatch
+):
+    complete, _fake = make_complete([])
+    initial = scan_and_record(
+        conn,
+        since_event_id=7,
+        playbook_path=tmp_path / "lessons.jsonl",
+        complete=complete,
+    )
+    assert initial.last_event_id == 7
+
+    scan_module = importlib.import_module("backend.playbook.scan")
+
+    def fail_scan(*args, **kwargs):
+        raise RuntimeError("scan failed")
+
+    monkeypatch.setattr(scan_module, "scan", fail_scan)
+    with pytest.raises(RuntimeError, match="scan failed"):
+        scan_and_record(conn, since_event_id=11)
+
+    cursor = conn.execute(
+        "SELECT last_event_id FROM playbook_scan_cursors WHERE stream = 'fix_accepted'"
+    ).fetchone()
+    assert cursor["last_event_id"] == 7
+
+
+def test_scan_and_record_explicit_cursor_overrides_persisted_start(tmp_path, conn, make_complete):
+    playbook_path = tmp_path / "lessons.jsonl"
+    complete, fake = make_complete([_extraction_response()])
+    _seed_fix(conn, to_version=1)
+    accepted_id = conn.execute("SELECT id FROM events WHERE kind = 'fix_accepted'").fetchone()["id"]
+
+    skipped = scan_and_record(
+        conn,
+        since_event_id=accepted_id,
+        playbook_path=playbook_path,
+        complete=complete,
+    )
+    replayed = scan_and_record(
+        conn,
+        since_event_id=0,
+        playbook_path=playbook_path,
+        complete=complete,
+    )
+    incremental = scan_and_record(conn, playbook_path=playbook_path, complete=complete)
+
+    assert skipped.lessons == []
+    assert len(replayed.lessons) == 1
+    assert incremental.lessons == []
+    assert fake.call_count == 1

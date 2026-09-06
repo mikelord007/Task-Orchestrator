@@ -27,7 +27,7 @@ def test_startup_migrates_the_database(client: TestClient, db_file: Path):
     client.get("/healthz")
     conn = connect(db_file)
     try:
-        assert applied_migrations(conn) == [1]
+        assert applied_migrations(conn) == [1, 2]
     finally:
         conn.close()
 
