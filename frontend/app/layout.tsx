@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
-import Nav from "@/components/Nav";
 import "./globals.css";
 
 const plexMono = IBM_Plex_Mono({
@@ -25,12 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plexMono.variable} ${plexSans.variable}`}>
-      <body className="min-h-screen bg-ink-900 text-fg">
-        <div className="flex min-h-screen">
-          <Nav />
-          <main className="min-w-0 flex-1">{children}</main>
-        </div>
-      </body>
+      <body className="min-h-screen bg-ink-900 text-fg">{children}</body>
     </html>
   );
 }
