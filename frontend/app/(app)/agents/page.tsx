@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createAgent, listAgents, listEvaluators, LIVE_MODEL_CALLS } from "@/lib/api";
+import {
+  findUniqueCreatedAgent,
+  isCreateAgentTimeout,
+  type AgentCreationFingerprint,
+} from "@/lib/createAgentReconciliation";
 import { useAsync } from "@/lib/useAsync";
 import Stat from "@/components/Stat";
 import { Button, Empty, Field, PageHeader, Panel, Pill, inputClass } from "@/components/ui";
@@ -121,6 +126,15 @@ function NewAgentForm({
   const [usePlaybook, setUsePlaybook] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const evaluator = useMemo(
     () => evaluators.find((e) => e.evaluator_id === evaluatorId) ?? evaluators[0],
@@ -133,17 +147,39 @@ function NewAgentForm({
     if (!evaluator) return;
     setBusy(true);
     setError(null);
+    setPending(null);
+    const submitted = {
+      goal,
+      domain: evaluator.domain,
+      tools,
+      evaluator_id: evaluator.evaluator_id,
+      use_playbook: usePlaybook,
+    };
+    let existingAgentIds: ReadonlySet<string> | null = null;
     try {
-      const created = await createAgent({
-        goal,
-        domain: evaluator.domain,
-        tools,
-        evaluator_id: evaluator.evaluator_id,
-        use_playbook: usePlaybook,
-      });
+      // This read makes later timeout reconciliation safe: an older agent
+      // with the same goal must never be mistaken for this paid POST.
+      existingAgentIds = new Set((await listAgents()).map((agent) => agent.agent_id));
+      const created = await createAgent(submitted);
       onCreated();
       router.push(`/agents/${created.agent_id}`);
     } catch (err) {
+      if (isCreateAgentTimeout(err) && existingAgentIds) {
+        setPending(
+          "The browser stopped waiting, but the backend may still be generating this agent. Do not submit again — checking the dashboard for completion…",
+        );
+        const created = await reconcileTimedOutCreation(submitted, existingAgentIds, mounted);
+        if (!mounted.current) return;
+        if (created) {
+          onCreated();
+          router.push(`/agents/${created.agent_id}`);
+          return;
+        }
+        setPending(
+          "The outcome is still unknown. Refresh the Agents dashboard and verify whether the agent exists before considering another submission.",
+        );
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
@@ -253,15 +289,42 @@ function NewAgentForm({
             </span>
           </label>
           <Button type="submit" variant="primary" disabled={busy || !goal || tools.length === 0}>
-            {busy ? "Generating v0…" : "Generate v0"}
+            {pending ? "Checking for agent…" : busy ? "Generating v0…" : "Generate v0"}
           </Button>
           {tools.length === 0 ? (
             <span className="text-[11px] text-fg-mute">Pick at least one tool.</span>
           ) : null}
         </div>
 
+        {pending ? (
+          <p className="md:col-span-2 text-[12px] leading-5 text-fg-dim" role="status">
+            {pending}
+          </p>
+        ) : null}
         {error ? <p className="md:col-span-2 text-[12px] text-fail">{error}</p> : null}
       </form>
     </Panel>
   );
+}
+
+const RECONCILE_INTERVAL_MS = 2_000;
+const RECONCILE_TIMEOUT_MS = 4 * 60_000;
+
+async function reconcileTimedOutCreation(
+  submitted: AgentCreationFingerprint,
+  existingAgentIds: ReadonlySet<string>,
+  mounted: { readonly current: boolean },
+) {
+  const deadline = Date.now() + RECONCILE_TIMEOUT_MS;
+  while (mounted.current && Date.now() < deadline) {
+    try {
+      const created = findUniqueCreatedAgent(await listAgents(), existingAgentIds, submitted);
+      if (created) return created;
+    } catch {
+      // A transient read failure says nothing about the POST outcome. Keep
+      // reconciling without replaying the non-idempotent create request.
+    }
+    await new Promise((resolve) => setTimeout(resolve, RECONCILE_INTERVAL_MS));
+  }
+  return null;
 }
