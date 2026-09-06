@@ -1295,15 +1295,9 @@ export const COMPARE_DOMAINS: InsightsCompare = {
   ],
   ablation: {
     domain: "ticket_triage",
-    playbook_off: {
-      agent_id: "ticket-triage-00",
-      holdout: { mean: 0.4167, std: 0.0589, min: 0.3333, max: 0.5 },
-    },
-    playbook_on: {
-      agent_id: AGENT_B,
-      holdout: { mean: 0.5833, std: 0.0417, min: 0.5, max: 0.6667 },
-    },
-    applied_lesson_ids: ["l-001", "l-003"],
+    playbook_off: { holdout_mean: 0.4167, holdout_std: 0.0589 },
+    playbook_on: { holdout_mean: 0.5833, holdout_std: 0.0417 },
+    applied_lessons: ["l-001", "l-003"],
   },
 };
 

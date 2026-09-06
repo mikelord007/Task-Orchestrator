@@ -49,6 +49,9 @@ export interface RatePoint {
   std: number;
   min: number;
   max: number;
+  /** Backend-only extras (backend/ledger/metrics.py); absent on mock data. */
+  trials?: number;
+  task_count?: number;
 }
 
 export type Json = Record<string, unknown>;
@@ -96,7 +99,13 @@ export interface AgentMemory {
   episodes: Episode[];
 }
 
-/** A memory entry as carried on a lever=memory fix card (this workstream's UI shape, not a contract type). */
+/**
+ * A memory entry as carried on a lever=memory fix card. `id` is this
+ * workstream's UI-facing field; the real backend (backend/ledger/metrics.py
+ * `fix_cards`) names it `entry_id` and carries no `change` field (a rule's
+ * `demoted` flag stands in for it instead) — `api.ts` normalizes both onto
+ * this shape so components only ever see `id`/`change`.
+ */
 export interface MemoryEntryChange {
   id: string;
   kind: "rule" | "tool_note" | "episode";
@@ -105,6 +114,7 @@ export interface MemoryEntryChange {
   rule?: string;
   scope_keywords?: string[];
   confidence?: number;
+  demoted?: boolean;
   /** kind=tool_note */
   tool?: string;
   note?: string;
@@ -114,6 +124,8 @@ export interface MemoryEntryChange {
   evidence_case_ids?: string[];
   source?: "reflection" | "issue";
   created_version?: number;
+  /** Backend-only: the memory's own version field, distinct from created_version. */
+  version?: number;
 }
 
 /* ------------------------------------------------------------------ agents */
@@ -240,6 +252,12 @@ export interface CompareSide {
   rules_injected: string[];
   tool_calls: number;
   tokens: number;
+  /** Backend-only extras (backend/ledger/metrics.py `compare`); absent on mock data. */
+  version?: number;
+  trial?: number;
+  passed?: boolean;
+  score?: number;
+  transcript_path?: string;
 }
 
 /** Compare (contracts/api.md). GET /agents/{id}/compare?case_id= */
@@ -361,17 +379,25 @@ export interface CreateIssueRequest {
 
 /* ---------------------------------------------------------------- insights */
 
-/** cost_by_version (contracts/api.md): no split, no total — cost_per_run only. */
+/**
+ * cost_by_version (contracts/api.md): cost_per_run only is frozen; the
+ * backend also emits `split` and `cost_per_task` (backend/ledger/metrics.py),
+ * absent on mock data, so charts must not assume every version has only one
+ * row.
+ */
 export interface CostPoint {
   version: number;
   cost_per_run: number;
+  split?: Split;
+  cost_per_task?: number;
 }
 
-/** latency_by_version (contracts/api.md). */
+/** latency_by_version (contracts/api.md); `split` is a backend-only extra. */
 export interface LatencyPoint {
   version: number;
   p50_ms: number;
   p95_ms: number;
+  split?: Split;
 }
 
 /** memory_by_version: rules + tool notes count and mean confidence per version. */
@@ -381,6 +407,8 @@ export interface MemoryByVersionPoint {
   tool_notes: number;
   mean_confidence: number | null;
   demotions: number;
+  /** Backend-only: cumulative rules written before demotions are subtracted. */
+  rules_written?: number;
 }
 
 /**
@@ -399,20 +427,50 @@ export interface ToolStatsByVersionPoint {
   latency_ms: number;
 }
 
-/** drift (contracts/api.md): no per-version breakdown on this endpoint. */
+/**
+ * drift (contracts/api.md). The backend also keys a `count_by_version` map
+ * (backend/ledger/metrics.py `drift_stats`), absent on mock data — the drift
+ * panel's by-version chart prefers it and falls back to summing `RunSummary`
+ * rows when it is not present.
+ */
 export interface DriftStats {
   count_by_kind: Partial<Record<DriftKind, number>>;
   tokens_saved: number;
   cases_recovered_by_nudge: number;
+  count_by_version?: Record<string, number>;
 }
 
-/** Marker (contracts/api.md): chart annotation, no derived label. */
+/**
+ * Marker (contracts/api.md gives only `{version, ts, kind, lever?,
+ * diagnosis?}`); the real backend (backend/ledger/metrics.py `markers`) emits
+ * five concrete kinds, one drift marker per version (`drift_cluster`, not one
+ * per event — drift is too dense to annotate individually) plus kind-specific
+ * fields this workstream's UI reads for the hover/click behavior on the
+ * pass-rate chart.
+ */
 export interface Marker {
   version: number;
   ts: string;
-  kind: "issue_opened" | "fix_accepted" | "fix_rejected" | "drift_detected";
+  kind: "issue_opened" | "fix_accepted" | "fix_rejected" | "memory_demoted" | "drift_cluster";
   lever?: Lever;
   diagnosis?: string;
+  hypothesis?: string;
+  metric_signal?: string;
+  /** kind=issue_opened */
+  issue_id?: string;
+  title?: string;
+  source?: IssueSource;
+  /** kind=fix_accepted | fix_rejected */
+  to_version?: number;
+  from_version?: number;
+  reason?: "regression" | "no_gain" | "error";
+  /** kind=memory_demoted */
+  entry_id?: string;
+  hits?: number;
+  misses?: number;
+  /** kind=drift_cluster */
+  count?: number;
+  count_by_kind?: Partial<Record<DriftKind, number>>;
 }
 
 /** GET /insights/{agent_id} -> Insights (contracts/api.md). */
@@ -435,19 +493,35 @@ export interface Insights {
   /** case_ids stuck at 0% for the last 3 versions. */
   flagged_tasks: string[];
   markers: Marker[];
+  /** Backend-only extras, absent on mock data. */
+  agent_id?: string;
+  domain?: string;
+  current_version?: number;
+  /** Latest run's trial count; the pass-rate chart's `trials = N` subtitle. */
+  trials?: number;
+  /** entry_id -> {hits, misses, uses} over every rule injection this agent has seen. */
+  rule_stats?: Record<string, { hits: number; misses: number; uses: number }>;
 }
 
+/**
+ * `reports/ablation.json` verbatim (backend/tests/ledger/seed.py is the
+ * canonical producer today; `scripts/playbook_ablation.py`, W8, writes the
+ * real one later with the same shape). Flat mean/std, not a full `RateStat`
+ * — there is no min/max because the ablation runs holdout once per side.
+ */
 export interface AblationReport {
   domain: string;
-  playbook_off: { agent_id: string; holdout: RateStat };
-  playbook_on: { agent_id: string; holdout: RateStat };
-  applied_lesson_ids: string[];
+  playbook_off: { holdout_mean: number; holdout_std: number };
+  playbook_on: { holdout_mean: number; holdout_std: number };
+  applied_lessons: string[];
 }
 
 /**
  * GET /insights/compare -> per-domain series + reports/ablation.json if
  * present. Exact shape is this workstream's inference (api.md gives only the
- * one-line description).
+ * one-line description); the wire response groups by domain
+ * (`{by_domain: {[domain]: [...]}}`, backend/ledger/metrics.py
+ * `insights_compare`) — `api.ts` flattens it into this array.
  */
 export interface InsightsCompare {
   domains: {

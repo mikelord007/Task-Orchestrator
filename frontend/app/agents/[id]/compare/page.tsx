@@ -2,10 +2,10 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
-import { compareCase, getAgent, listRuns } from "@/lib/api";
+import { compareCase, getAgent, listFixes, listRuns } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import type { CompareSide, Json } from "@/lib/types";
-import { compactTokens } from "@/lib/format";
+import { compactTokens, pct } from "@/lib/format";
 import { Crumb, Empty, PageHeader, Pill } from "@/components/ui";
 
 export default function ComparePage() {
@@ -25,6 +25,10 @@ function Compare() {
 
   const agent = useAsync(() => getAgent(agentId), [agentId]);
   const runs = useAsync(() => listRuns(agentId), [agentId]);
+  // GET /agents/{id} and GET /agents/{id}/runs may not be wired up yet (still
+  // merging as of this writing); the fixes list is real today and doubles as
+  // a source of case ids and rule text so this page stays useful either way.
+  const fixes = useAsync(() => listFixes(agentId), [agentId]);
   const result = useAsync(
     () => (caseId ? compareCase(agentId, caseId) : Promise.resolve(null)),
     [agentId, caseId],
@@ -33,14 +37,23 @@ function Compare() {
   const cases = useMemo(() => {
     const seen = new Set<string>();
     for (const run of runs.data ?? []) for (const t of run.tasks) seen.add(t.case_id);
+    for (const card of fixes.data ?? []) {
+      for (const id of card.failing_group.case_ids) seen.add(id);
+      for (const id of card.regressed_case_ids ?? []) seen.add(id);
+    }
     return Array.from(seen).sort();
-  }, [runs.data]);
+  }, [runs.data, fixes.data]);
 
   const ruleText = useMemo(() => {
     const map: Record<string, string> = {};
     for (const rule of agent.data?.memory.rules ?? []) map[rule.id] = rule.rule;
+    for (const card of fixes.data ?? []) {
+      for (const entry of card.memory_entries ?? []) {
+        if (entry.kind === "rule" && entry.rule) map[entry.id] = entry.rule;
+      }
+    }
     return map;
-  }, [agent.data]);
+  }, [agent.data, fixes.data]);
 
   function pick(id: string) {
     router.replace(`/agents/${agentId}/compare?case_id=${encodeURIComponent(id)}`, {
@@ -154,7 +167,15 @@ function Column({
   return (
     <section className="bg-ink-900 px-3 py-3">
       <header className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
-        <h2 className="text-[13px] text-fg">{title}</h2>
+        <div className="flex items-baseline gap-1.5">
+          <h2 className="text-[13px] text-fg">{title}</h2>
+          {side?.passed !== undefined ? (
+            <Pill tone={side.passed ? "pass" : "fail"}>
+              {side.passed ? "passed" : "failed"}
+              {side.score !== undefined ? ` · ${pct(side.score, 0)}` : ""}
+            </Pill>
+          ) : null}
+        </div>
         {side ? (
           <span className="text-[11px] tabular-nums text-fg-mute">
             {side.tool_calls} tool calls · {compactTokens(side.tokens)} tokens

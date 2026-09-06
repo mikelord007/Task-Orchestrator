@@ -26,6 +26,7 @@ import type {
   JobResponse,
   LedgerEvent,
   Lesson,
+  MemoryEntryChange,
   RunRequest,
   RunResponse,
   RunSummary,
@@ -132,10 +133,29 @@ export async function compareCase(agentId: string, caseId: string): Promise<Comp
   );
 }
 
+/**
+ * Wire shape of one `memory_entries` item from `backend/ledger/metrics.py
+ * fix_cards`: `entry_id` (not `id`) and no `change` field — a rule's
+ * `demoted` flag stands in for it. `normalizeMemoryEntry` below maps this
+ * onto `MemoryEntryChange` so components only ever see `id`/`change`.
+ */
+type RawMemoryEntry = Omit<MemoryEntryChange, "id" | "change"> & { entry_id: string };
+
+function normalizeMemoryEntry(raw: RawMemoryEntry): MemoryEntryChange {
+  const { entry_id, ...rest } = raw;
+  return { ...rest, id: entry_id, change: raw.demoted ? "demoted" : "added" };
+}
+
 /** GET /agents/{id}/fixes */
 export async function listFixes(agentId: string): Promise<FixCard[]> {
   if (USE_MOCKS) return mocks.listFixes(agentId);
-  return request<FixCard[]>(`/agents/${encodeURIComponent(agentId)}/fixes`);
+  const raw = await request<(Omit<FixCard, "memory_entries"> & {
+    memory_entries?: RawMemoryEntry[];
+  })[]>(`/agents/${encodeURIComponent(agentId)}/fixes`);
+  return raw.map((card) => ({
+    ...card,
+    memory_entries: card.memory_entries?.map(normalizeMemoryEntry),
+  }));
 }
 
 /** GET /agents/{id}/fixes/{to_version}/diff -> text/plain unified diff */
@@ -189,10 +209,39 @@ export async function getInsights(agentId: string): Promise<Insights> {
   return request<Insights>(`/insights/${encodeURIComponent(agentId)}`);
 }
 
+/**
+ * Wire shape of `GET /insights/compare` (`backend/ledger/metrics.py
+ * insights_compare`): grouped by domain name, not a flat array, and each row
+ * carries `goal` rather than a display `name`.
+ */
+interface RawInsightsCompare {
+  by_domain: Record<
+    string,
+    {
+      agent_id: string;
+      goal?: string | null;
+      domain: string;
+      pass_at_1_by_version: InsightsCompare["domains"][number]["pass_at_1_by_version"];
+    }[]
+  >;
+  ablation: InsightsCompare["ablation"];
+}
+
 /** GET /insights/compare */
 export async function getInsightsCompare(): Promise<InsightsCompare> {
   if (USE_MOCKS) return mocks.getInsightsCompare();
-  return request<InsightsCompare>("/insights/compare");
+  const raw = await request<RawInsightsCompare>("/insights/compare");
+  return {
+    domains: Object.values(raw.by_domain)
+      .flat()
+      .map((d) => ({
+        agent_id: d.agent_id,
+        name: d.goal || d.agent_id,
+        domain: d.domain,
+        pass_at_1_by_version: d.pass_at_1_by_version,
+      })),
+    ablation: raw.ablation,
+  };
 }
 
 /* ---------------------------------------------------- playbook and events */

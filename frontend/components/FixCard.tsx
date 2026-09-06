@@ -32,7 +32,7 @@ export default function FixCard({
   const isMemory = card.lever === "memory" && (card.memory_entries?.length ?? 0) > 0;
 
   return (
-    <article className="border-t border-line py-4">
+    <article id={`fix-${card.to_version}`} className="scroll-mt-4 border-t border-line py-4">
       <header className="flex flex-wrap items-center gap-2">
         <Pill tone={accepted ? "pass" : "fail"}>{card.status}</Pill>
         <LeverChip lever={card.lever} />

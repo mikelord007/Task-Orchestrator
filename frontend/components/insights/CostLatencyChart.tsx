@@ -30,16 +30,19 @@ export default function CostLatencyChart({
   latency: LatencyPoint[];
   pass1: RatePoint[];
 }) {
-  if (cost.length === 0) {
+  const costTrain = cost.filter((c) => (c.split ?? "train") === "train");
+  const latencyTrain = latency.filter((l) => (l.split ?? "train") === "train");
+
+  if (costTrain.length === 0) {
     return <Empty>No cost recorded yet. It appears once a split has been run.</Empty>;
   }
 
-  const costRows = cost.map((c) => ({ version: c.version, cost: c.cost_per_run }));
-  const latencyRows = latency.map((l) => ({ version: l.version, p50: l.p50_ms, p95: l.p95_ms }));
+  const costRows = costTrain.map((c) => ({ version: c.version, cost: c.cost_per_run }));
+  const latencyRows = latencyTrain.map((l) => ({ version: l.version, p50: l.p50_ms, p95: l.p95_ms }));
   const scatterRows = pass1
     .filter((p) => p.split === "train")
     .map((p) => {
-      const c = cost.find((x) => x.version === p.version);
+      const c = costTrain.find((x) => x.version === p.version);
       return c ? { version: p.version, cost: c.cost_per_run, pass1: p.mean } : null;
     })
     .filter((r): r is { version: number; cost: number; pass1: number } => r !== null)

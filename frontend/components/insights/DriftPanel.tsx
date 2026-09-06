@@ -1,24 +1,27 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, Line, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { DriftStats, RunSummary } from "@/lib/types";
+import type { DriftStats } from "@/lib/types";
 import { compactTokens } from "@/lib/format";
 import { Empty } from "@/components/ui";
 import { CHART_COLORS, axisTick, tooltipStyle } from "./chart-common";
 
 /**
  * Drift by kind, tokens saved by aborting, tasks recovered by a nudge, and the
- * count falling by version. The by-version breakdown is not part of the
- * `/insights` drift shape (contracts/api.md); it is derived here from each
- * run's `drift_count` (GET /agents/{id}/runs), train split only.
+ * count falling by version. `byVersion` is supplied by the page: the real
+ * backend carries it on `drift.count_by_version`
+ * (backend/ledger/metrics.py `drift_stats`); the page falls back to summing
+ * `GET /agents/{id}/runs` (train split) when that key is absent, which is
+ * what mock data exercises.
  */
-export default function DriftPanel({ drift, runs }: { drift: DriftStats; runs: RunSummary[] }) {
+export default function DriftPanel({
+  drift,
+  byVersion,
+}: {
+  drift: DriftStats;
+  byVersion: { version: number; count: number }[];
+}) {
   const kindRows = Object.entries(drift.count_by_kind).map(([kind, count]) => ({ kind, count }));
-  const byVersion = runs
-    .filter((r) => r.split === "train")
-    .slice()
-    .sort((a, b) => a.version - b.version)
-    .map((r) => ({ version: r.version, count: r.drift_count }));
   const hasAny = kindRows.length > 0 || byVersion.length > 0;
 
   if (!hasAny) {

@@ -61,17 +61,17 @@ export default function DomainComparison({ compare }: { compare: InsightsCompare
             <span>
               <span className="text-fg-mute">playbook off </span>
               <span className="tabular-nums text-fg">
-                {pct(compare.ablation.playbook_off.holdout.mean)} ± {pct(compare.ablation.playbook_off.holdout.std)}
+                {pct(compare.ablation.playbook_off.holdout_mean)} ± {pct(compare.ablation.playbook_off.holdout_std)}
               </span>
             </span>
             <span>
               <span className="text-fg-mute">playbook on </span>
               <span className="tabular-nums text-pass">
-                {pct(compare.ablation.playbook_on.holdout.mean)} ± {pct(compare.ablation.playbook_on.holdout.std)}
+                {pct(compare.ablation.playbook_on.holdout_mean)} ± {pct(compare.ablation.playbook_on.holdout_std)}
               </span>
             </span>
             <span className="text-fg-mute">
-              applied lessons: {compare.ablation.applied_lesson_ids.join(", ")}
+              applied lessons: {compare.ablation.applied_lessons.join(", ")}
             </span>
           </div>
         </div>
