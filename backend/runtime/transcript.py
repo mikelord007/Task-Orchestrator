@@ -248,8 +248,11 @@ class Transcript:
             result=None if is_error else result,
             error=result if is_error else None,
             # See _estimate_tokens: an approximation, not a measurement - the
-            # API gives no exact per-tool-call token attribution.
+            # API gives no exact per-tool-call token attribution. Flagged
+            # explicitly so a consumer (W1's tool_call_stats, W9's charts)
+            # never reads it as measured.
             tokens_in=_estimate_tokens(result),
+            tokens_estimated=True,
             call_id=call_id,
             duration_ms=duration_ms,
         )

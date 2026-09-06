@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -100,8 +101,32 @@ def parse_tool_call(raw: Any) -> tuple[str | None, str, dict[str, Any]]:
     return (str(call_id) if call_id is not None else None), name, args
 
 
-def parse_final_json(text: str | None) -> Any:
-    """Tolerant JSON parse of the final answer. ``None`` means unparseable."""
+def to_openai_tool_call(call_id: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """OpenAI wire format for one tool call: ``{id, type, function: {name,
+    arguments}}`` with ``arguments`` a JSON *string*.
+
+    ``backend.llm.complete()`` returns tool calls in a simplified shape
+    (``arguments`` already a parsed dict) for the harness's convenience, but
+    that is not a valid assistant message to echo back on the next turn - a
+    real OpenAI-compatible endpoint 400s on it. This is what actually goes
+    into ``messages``.
+    """
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(args, default=str)},
+    }
+
+
+def parse_final_json(text: str | None) -> dict[str, Any] | None:
+    """Tolerant JSON parse of the final answer. ``None`` means unparseable.
+
+    Only a JSON *object* counts as a real answer: the grader and
+    ``contracts.transcript.Transcript.final_output`` both expect a dict, and a
+    bare top-level array has no evaluator that scores it. A model that answers
+    with an array is treated exactly like one that answers with malformed
+    JSON - a ``bad_output`` failure, not a runtime crash.
+    """
     if not text:
         return None
     candidate = _FENCE.sub("", text.strip()).strip()
@@ -112,7 +137,7 @@ def parse_final_json(text: str | None) -> Any:
             parsed = json.loads(attempt)
         except (json.JSONDecodeError, ValueError):
             continue
-        if isinstance(parsed, (dict, list)):
+        if isinstance(parsed, dict):
             return parsed
     return None
 
@@ -194,13 +219,23 @@ def run_loop(
             phase=phase,
         )
 
-        assistant: dict[str, Any] = {"role": "assistant", "content": response.text}
-        if response.tool_calls:
-            assistant["tool_calls"] = response.tool_calls
-        messages.append(assistant)
-
+        parsed_calls: list[tuple[str, str, dict[str, Any]]] = []
         for raw_call in response.tool_calls:
             call_id, name, args = parse_tool_call(raw_call)
+            # A real API always assigns a call id; a fallback exists only for
+            # test-scripted calls that omit one, and it must be reused below
+            # so the assistant's tool_calls and the tool-role reply agree.
+            call_id = call_id or f"call_{uuid.uuid4().hex[:8]}"
+            parsed_calls.append((call_id, name, args))
+
+        assistant: dict[str, Any] = {"role": "assistant", "content": response.text}
+        if parsed_calls:
+            assistant["tool_calls"] = [
+                to_openai_tool_call(call_id, name, args) for call_id, name, args in parsed_calls
+            ]
+        messages.append(assistant)
+
+        for call_id, name, args in parsed_calls:
             transcript.record_tool_call(
                 tool=name,
                 args=args,
@@ -227,6 +262,26 @@ def run_loop(
             messages.append(
                 {"role": "tool", "tool_call_id": call_id, "name": name, "content": text}
             )
+            # Checked after every tool return, not only once per turn: a
+            # turn with several slow tool calls must not run past the
+            # timeout just because the cooperative check only ran at the top
+            # of the loop (D8).
+            timeout = watchdog.check_timeout(transcript)
+            if timeout is not None:
+                _handle(timeout, transcript, messages, on_drift, result)
+                return result
+
+        if not response.tool_calls:
+            parsed = parse_final_json(response.text)
+            if parsed is not None:
+                # A valid answer wins even if this very turn also crossed the
+                # token/step budget: the case succeeded, so there is nothing
+                # for drift to flag (D7) - checked before watchdog.check()
+                # deliberately, so a budget/step_limit trigger never discards
+                # a real answer the model already produced.
+                result.final_text = response.text
+                result.final_output = parsed
+                return result
 
         decision = watchdog.check(transcript)
         if decision is not None:
@@ -236,13 +291,12 @@ def run_loop(
             continue
 
         if not response.tool_calls:
-            parsed = parse_final_json(response.text)
             # Off-task detection only ever inspects "act" phase messages, so
             # the grace period below only applies there; a planning call (or
             # any non-"act" phase) always terminates on its own text.
-            if parsed is not None or not watchdog.expected_keys or phase != "act":
+            if not watchdog.expected_keys or phase != "act":
                 result.final_text = response.text
-                result.final_output = parsed
+                result.final_output = None
                 return result
             # Unparseable, no tool call, but off-task detection is active and
             # has not (yet) decided - give the model another turn so the

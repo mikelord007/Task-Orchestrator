@@ -55,10 +55,13 @@ def test_update_status_and_current_step(store):
 
 def test_mark_done_stores_the_result_as_json(store):
     job_id = store.create("a1", "run")
+    store.mark_progress(job_id, 3, 3)
     store.mark_done(job_id, {"run_id": "run_123", "pass_at_1": 1.0})
     job = store.get(job_id)
     assert job.status == STATUS_DONE
-    assert job.current_step == "done"
+    assert job.step_label() == "done"
+    # The last mark_progress before completion already reported done == total.
+    assert job.progress() == {"done": 3, "total": 3}
     assert job.result == {"run_id": "run_123", "pass_at_1": 1.0}
 
 
@@ -73,7 +76,25 @@ def test_mark_failed_records_the_error(store):
 def test_mark_progress_sets_a_readable_step(store):
     job_id = store.create("a1", "run")
     store.mark_progress(job_id, 3, 12)
-    assert store.get(job_id).current_step == "3/12 cases"
+    job = store.get(job_id)
+    assert job.progress() == {"done": 3, "total": 12}
+    assert job.step_label() == "3/12 cases"
+
+
+def test_progress_defaults_to_zero_before_any_progress_is_reported(store):
+    job_id = store.create("a1", "run")
+    assert store.get(job_id).progress() == {"done": 0, "total": 0}
+
+
+def test_payload_matches_the_frontend_job_shape(store):
+    job_id = store.create("a1", "run")
+    store.mark_progress(job_id, 1, 4)
+    payload = store.get(job_id).payload()
+    assert payload["job_id"] == job_id
+    assert payload["kind"] == "run"
+    assert payload["status"] == STATUS_QUEUED
+    assert payload["progress"] == {"done": 1, "total": 4}
+    assert "result" in payload and "error" in payload
 
 
 def test_get_returns_none_for_an_unknown_job(store):
@@ -103,7 +124,8 @@ def test_run_in_background_reports_progress_and_success(store):
         time.sleep(0.01)
     job = store.get(job_id)
     assert job.status == STATUS_DONE
-    assert job.current_step == "done"
+    assert job.step_label() == "done"
+    assert job.progress() == {"done": 3, "total": 3}
     assert job.result == {"ok": True}
 
 

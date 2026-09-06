@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.runtime.evaluation import DEFAULT_RUNS_DIR, LoadedPackage, run_eval
 from backend.runtime.events import EmitFn, ReadEventsFn, default_read_events
-from backend.runtime.jobs import Job, JobStore, default_store, run_in_background
+from backend.runtime.jobs import JobStore, default_store, run_in_background
 from backend.runtime.loop import CompleteFn
 from backend.runtime.package import DEFAULT_AGENTS_DIR
 from backend.runtime.scoring import DEFAULT_EVALUATORS_DIR
@@ -222,12 +222,23 @@ def list_runs(agent_id: str, *, read_events: ReadEventsFn | None = None) -> list
 # -- routes ---------------------------------------------------------------
 
 
+VALID_SPLITS = ("train", "holdout")
+
+
 class RunRequest(BaseModel):
     split: str = "train"
 
 
 @router.post("/agents/{agent_id}/run")
 def post_agent_run(agent_id: str, body: RunRequest) -> dict[str, str]:
+    if body.split not in VALID_SPLITS:
+        raise HTTPException(
+            status_code=422, detail=f"split must be one of {VALID_SPLITS}, got {body.split!r}"
+        )
+    from backend.runtime.store import resolve_agent
+
+    if not resolve_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"no such agent: {agent_id}")
     return {"run_id": start_run(agent_id, body.split)}
 
 
@@ -237,8 +248,8 @@ def get_agent_runs(agent_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str) -> Job:
+def get_job(job_id: str) -> dict[str, Any]:
     job = default_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"no such job: {job_id}")
-    return job
+    return job.payload()

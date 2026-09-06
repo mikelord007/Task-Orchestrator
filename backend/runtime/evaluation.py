@@ -69,7 +69,7 @@ from backend.runtime.signature import (
     missing_expected_keys,
 )
 from backend.runtime.store import resolve_agent
-from backend.runtime.transcript import Transcript
+from backend.runtime.transcript import Transcript, transcript_path
 from contracts.context import case_scope
 
 DEFAULT_RUNS_DIR = Path("runs")
@@ -324,6 +324,85 @@ def run_case(
     return _CaseRun(transcript=transcript, decisions=decisions)
 
 
+def _finalize_case(transcript: Transcript, runs_dir: Path | str) -> CaseOutcome:
+    """Write the transcript and build its ``case_result`` payload."""
+    path = transcript.write(runs_dir)
+    return CaseOutcome(
+        case_id=transcript.case_id,
+        trial=transcript.trial,
+        passed=bool(transcript.passed),
+        score=float(transcript.score or 0.0),
+        tokens_in=transcript.tokens_in,
+        tokens_out=transcript.tokens_out,
+        cost_usd=round(transcript.cost_usd, 8),
+        latency_ms=transcript.latency_ms,
+        steps=transcript.step_count,
+        tool_calls=transcript.tool_calls,
+        tool_errors=transcript.tool_errors,
+        rules_injected=list(transcript.rules_injected),
+        transcript_path=path,
+        trace_url=transcript.trace_url,
+        failure_signature=transcript.failure_signature,
+        drift_event_id=transcript.drift_event_id,
+    )
+
+
+def _failed_outcome(transcript: Transcript, runs_dir: Path | str, exc: Exception) -> CaseOutcome:
+    """A ``case_result`` for a task that blew up finalizing (writing the
+    transcript, an emit validation error, ...) - one bad task must not kill
+    the run (D9). The intended transcript path is still reported even though
+    the file itself may not have been written."""
+    path = str(
+        transcript_path(runs_dir, transcript.run_id, transcript.case_id, transcript.trial)
+    ).replace("\\", "/")
+    return CaseOutcome(
+        case_id=transcript.case_id,
+        trial=transcript.trial,
+        passed=False,
+        score=0.0,
+        tokens_in=transcript.tokens_in,
+        tokens_out=transcript.tokens_out,
+        cost_usd=round(transcript.cost_usd, 8),
+        latency_ms=transcript.latency_ms,
+        steps=transcript.step_count,
+        tool_calls=transcript.tool_calls,
+        tool_errors=transcript.tool_errors,
+        rules_injected=list(transcript.rules_injected),
+        transcript_path=path,
+        trace_url=transcript.trace_url,
+        failure_signature=failure_signature(
+            score_notes=f"runtime error finalizing case: {type(exc).__name__}: {exc}"
+        ),
+        drift_event_id=transcript.drift_event_id,
+    )
+
+
+def _hard_timeout_outcome(
+    *, run_id: str, case_id: str, trial: int, runs_dir: Path | str, timeout_s: int
+) -> CaseOutcome:
+    """A ``case_result`` for a task whose thread never returned at all within
+    ``hard_timeout_s`` (D8) - there is no :class:`Transcript` to read back
+    from since ``run_case`` itself never finished, so this is a minimal,
+    zeroed record rather than a written transcript."""
+    path = str(transcript_path(runs_dir, run_id, case_id, trial)).replace("\\", "/")
+    return CaseOutcome(
+        case_id=case_id,
+        trial=trial,
+        passed=False,
+        score=0.0,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        latency_ms=timeout_s * 1000,
+        steps=0,
+        tool_calls=0,
+        tool_errors=0,
+        rules_injected=[],
+        transcript_path=path,
+        failure_signature=drift_signature("budget"),
+    )
+
+
 # -- the run ------------------------------------------------------------
 
 
@@ -406,65 +485,87 @@ def run_eval(
     done = 0
     total = len(tasks)
 
+    # A generous margin over the per-case cooperative timeout: the backstop
+    # below only fires for a call that check_timeout() could never preempt
+    # (a blocking network call, a genuinely hung tool) - it should be rare.
+    hard_timeout_s = knobs.case_timeout_s + 30
+
     with ThreadPoolExecutor(max_workers=max(1, knobs.eval_concurrency)) as pool:
         futures = [
-            pool.submit(
-                run_case,
-                package=package,
-                case=case,
-                trial=trial,
-                run_id=run_id,
-                knobs=knobs,
-                scorer=scorer,
-                complete=complete,
-                rules=memory.rules,
-                tool_notes=memory.tool_notes,
-                demoted_ids=demoted_ids,
-                model_strong=model_strong,
-                model_cheap=model_cheap,
+            (
+                case,
+                trial,
+                pool.submit(
+                    run_case,
+                    package=package,
+                    case=case,
+                    trial=trial,
+                    run_id=run_id,
+                    knobs=knobs,
+                    scorer=scorer,
+                    complete=complete,
+                    rules=memory.rules,
+                    tool_notes=memory.tool_notes,
+                    demoted_ids=demoted_ids,
+                    model_strong=model_strong,
+                    model_cheap=model_cheap,
+                ),
             )
             for case, trial in tasks
         ]
-        for future in futures:
-            case_run = future.result()
-            transcript = case_run.transcript
-            # Ledger writes happen here, on the calling thread only.
-            for decision in case_run.decisions:
-                drift_count += 1
-                if decision.action == ACTION_ABORT:
-                    tokens_saved += max(0, knobs.drift_token_budget - decision.tokens_at_detection)
-                # payload=: drift_detected.kind collides with emit()'s own
-                # positional "kind" name, so it must go through payload=, not
-                # **kwargs (backend/ledger/emit.py rejects the bare keyword).
-                emitted = emit(
-                    "drift_detected",
+        for case, trial, future in futures:
+            try:
+                case_run = future.result(timeout=hard_timeout_s)
+            except TimeoutError:
+                # D8: the cooperative check inside run_case runs between LLM
+                # calls and after every tool return, but cannot preempt a
+                # single call that never returns at all (e.g. a genuinely
+                # hung blocking network call) - this is that hard backstop.
+                outcome = _hard_timeout_outcome(
+                    run_id=run_id,
+                    case_id=str(case.get("id")),
+                    trial=trial,
+                    runs_dir=runs_dir,
+                    timeout_s=hard_timeout_s,
+                )
+                outcomes.append(outcome)
+                emit(
+                    "case_result",
                     agent_id=agent_id,
                     agent_version=version,
                     run_id=run_id,
-                    payload=decision.to_event_payload(
-                        case_id=transcript.case_id, trial=transcript.trial
-                    ),
+                    **outcome.payload(),
                 )
-                _attach_event_id(transcript, decision, event_id_of(emitted))
-            path = transcript.write(runs_dir)
-            outcome = CaseOutcome(
-                case_id=transcript.case_id,
-                trial=transcript.trial,
-                passed=bool(transcript.passed),
-                score=float(transcript.score or 0.0),
-                tokens_in=transcript.tokens_in,
-                tokens_out=transcript.tokens_out,
-                cost_usd=round(transcript.cost_usd, 8),
-                latency_ms=transcript.latency_ms,
-                steps=transcript.step_count,
-                tool_calls=transcript.tool_calls,
-                tool_errors=transcript.tool_errors,
-                rules_injected=list(transcript.rules_injected),
-                transcript_path=path,
-                trace_url=transcript.trace_url,
-                failure_signature=transcript.failure_signature,
-                drift_event_id=transcript.drift_event_id,
-            )
+                done += 1
+                if progress is not None:
+                    progress(done, total)
+                continue
+            transcript = case_run.transcript
+            try:
+                # Ledger writes happen here, on the calling thread only.
+                for decision in case_run.decisions:
+                    drift_count += 1
+                    if decision.action == ACTION_ABORT:
+                        tokens_saved += max(
+                            0, knobs.drift_token_budget - decision.tokens_at_detection
+                        )
+                    # payload=: drift_detected.kind collides with emit()'s own
+                    # positional "kind" name, so it must go through payload=,
+                    # not **kwargs (backend/ledger/emit.py rejects the bare
+                    # keyword).
+                    emitted = emit(
+                        "drift_detected",
+                        agent_id=agent_id,
+                        agent_version=version,
+                        run_id=run_id,
+                        payload=decision.to_event_payload(
+                            case_id=transcript.case_id, trial=transcript.trial
+                        ),
+                    )
+                    _attach_event_id(transcript, decision, event_id_of(emitted))
+                outcome = _finalize_case(transcript, runs_dir)
+            except Exception as exc:  # noqa: BLE001 - one bad task must not kill the run
+                outcome = _failed_outcome(transcript, runs_dir, exc)
             outcomes.append(outcome)
             emit(
                 "case_result",
@@ -548,20 +649,38 @@ def _attach_event_id(transcript: Transcript, decision: DriftDecision, event_id: 
 def _stable_set_from_ledger(
     read_events: ReadEventsFn, agent_id: str, version: int, split: str, trials: int
 ) -> set[str]:
-    """Stable pass set of an earlier version, read back from ``case_result`` rows."""
+    """Stable pass set of an earlier version's *latest train run only*.
+
+    Pooling ``case_result`` rows across every run at that version (as an
+    earlier revision of this function did) conflates separate runs - a
+    holdout run's rows, or an older re-run's flaky trial - with the one run
+    that actually defines "stable at v<N-1>". Only the most recent
+    ``run_finished`` for (agent, version, split) counts.
+    """
+    try:
+        finished = read_events(agent_id=agent_id, kind="run_finished")
+    except Exception:  # noqa: BLE001 - an unreadable ledger must not block a run
+        return set()
+    latest_run_id: str | None = None
+    for row in finished:
+        if row.get("agent_version") != version:
+            continue
+        if (row.get("payload") or {}).get("split") != split:
+            continue
+        latest_run_id = row.get("run_id")  # rows are oldest-first; keep the last match
+    if latest_run_id is None:
+        return set()
+
     try:
         rows = read_events(agent_id=agent_id, kind="case_result")
-    except Exception:  # noqa: BLE001 - an unreadable ledger must not block a run
+    except Exception:  # noqa: BLE001
         return set()
     by_case: dict[str, list[bool]] = {}
     for row in rows:
+        if row.get("run_id") != latest_run_id:
+            continue
         payload = row.get("payload") or {}
-        if row.get("agent_version") != version:
-            continue
         case_id = str(payload.get("case_id"))
-        trial = payload.get("trial", payload.get("repeat"))
-        if trial is None:
-            continue
         by_case.setdefault(case_id, []).append(bool(payload.get("passed")))
     return {
         case_id for case_id, results in by_case.items() if len(results) >= trials and all(results)

@@ -11,8 +11,10 @@ Schema (``backend/migrations/0001_init.sql``)::
                  issue_id, current_step, result, error, created_ts, updated_ts)
 
 ``status`` is one of ``queued | running | done | error``. There is no numeric
-progress column - progress is reported as a short human-readable
-``current_step`` (e.g. ``"12/40 cases"``), matching what the migration models.
+progress column, so ``current_step`` (TEXT) holds a small JSON object,
+``{"label": str, "done": int, "total": int}`` - :meth:`Job.progress` reads
+``done``/``total`` back out in the ``{done, total}`` shape the frontend
+(``frontend/lib/types.ts``) expects from ``GET /jobs/{id}``.
 """
 
 from __future__ import annotations
@@ -78,6 +80,39 @@ class Job:
             created_ts=row["created_ts"],
             updated_ts=row["updated_ts"],
         )
+
+    def _step(self) -> dict[str, Any]:
+        if not self.current_step:
+            return {}
+        try:
+            parsed = json.loads(self.current_step)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def progress(self) -> dict[str, int]:
+        """``{done, total}`` (``frontend/lib/types.ts`` ``Job.progress``)."""
+        step = self._step()
+        return {"done": int(step.get("done") or 0), "total": int(step.get("total") or 0)}
+
+    def step_label(self) -> str | None:
+        """Human-readable step name, when one was set (e.g. a future
+        ``improve`` job's "diagnosing"/"patching"/"gating")."""
+        label = self._step().get("label")
+        return str(label) if label else None
+
+    def payload(self) -> dict[str, Any]:
+        """``GET /jobs/{id}`` response body."""
+        return {
+            "job_id": self.job_id,
+            "agent_id": self.agent_id,
+            "kind": self.kind,
+            "status": self.status,
+            "progress": self.progress(),
+            "step_label": self.step_label(),
+            "result": self.result,
+            "error": self.error,
+        }
 
 
 class JobStore:
@@ -168,22 +203,37 @@ class JobStore:
             connection.close()
         return Job.from_row(row) if row is not None else None
 
+    @staticmethod
+    def _encode_step(label: str, done: int = 0, total: int = 0) -> str:
+        return json.dumps({"label": label, "done": done, "total": total})
+
     def mark_running(self, job_id: str) -> None:
-        self.update(job_id, status=STATUS_RUNNING, current_step="starting")
+        self.update(job_id, status=STATUS_RUNNING, current_step=self._encode_step("starting"))
 
     def mark_progress(self, job_id: str, done: int, total: int) -> None:
-        self.update(job_id, current_step=f"{done}/{total} cases")
+        self.update(job_id, current_step=self._encode_step(f"{done}/{total} cases", done, total))
 
     def mark_done(self, job_id: str, result: Any) -> None:
+        # Keep whatever done/total mark_progress last reported (a completed
+        # run's last progress call already reports done == total).
+        job = self.get(job_id)
+        progress = job.progress() if job is not None else {"done": 0, "total": 0}
         self.update(
             job_id,
             status=STATUS_DONE,
-            current_step="done",
+            current_step=self._encode_step("done", progress["done"], progress["total"]),
             result=result if result is not None else {},
         )
 
     def mark_failed(self, job_id: str, error: str) -> None:
-        self.update(job_id, status=STATUS_ERROR, current_step="error", error=error)
+        job = self.get(job_id)
+        progress = job.progress() if job is not None else {"done": 0, "total": 0}
+        self.update(
+            job_id,
+            status=STATUS_ERROR,
+            current_step=self._encode_step("error", progress["done"], progress["total"]),
+            error=error,
+        )
 
 
 default_store = JobStore()

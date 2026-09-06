@@ -303,6 +303,94 @@ def test_case_timeout_is_recorded_as_a_budget_drift(
     assert all(o.failure_signature == "drift:budget" for o in summary.cases)
 
 
+def test_case_timeout_is_also_checked_between_tool_calls_within_one_turn(
+    toy_package, evaluator_path, knobs
+):
+    """D8: a turn with several tool calls must not run past the timeout just
+    because the cooperative check only ran once, at the top of the loop.
+    Real wall-clock timing can't deterministically land "between" two
+    near-instant fake tool calls, so this drives run_loop directly with a
+    watchdog stub that reports "expired" starting on its second call."""
+    from backend.runtime.drift import DriftDecision
+    from backend.runtime.loop import run_loop
+    from backend.runtime.transcript import Transcript
+
+    class ExpiresOnSecondCheck:
+        expected_keys: list[str] = []
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def check_timeout(self, transcript):
+            self.calls += 1
+            if self.calls < 2:
+                return None
+            return DriftDecision(
+                kind="budget",
+                action="abort",
+                evidence={"reason": "case_timeout"},
+                tokens_at_detection=transcript.tokens_used,
+                step=transcript.step_count,
+            )
+
+        def check(self, transcript):
+            return None
+
+    def two_tool_calls_then_answer(messages, model, tools=None):
+        turn = sum(1 for m in messages if m.get("role") == "assistant")
+        if turn == 0:
+            return {
+                "text": "",
+                "tool_calls": [
+                    {"id": "c1", "name": "lookup_ticket", "arguments": {"ticket_id": "t1"}},
+                    {"id": "c2", "name": "lookup_ticket", "arguments": {"ticket_id": "t1"}},
+                ],
+                "usage": {"tokens_in": 10, "tokens_out": 10},
+            }
+        return {
+            "text": answer("t1"),
+            "tool_calls": [],
+            "usage": {"tokens_in": 10, "tokens_out": 10},
+        }
+
+    transcript = Transcript(run_id="run_x", agent_id="toy", agent_version=0, case_id="t1", trial=0)
+    watchdog = ExpiresOnSecondCheck()
+    result = run_loop(
+        package=toy_package,
+        transcript=transcript,
+        messages=[{"role": "user", "content": "Case id: t1"}],
+        knobs=knobs,
+        watchdog=watchdog,
+        complete=two_tool_calls_then_answer,
+        model="strong",
+    )
+    assert result.aborted is True
+    # Exactly one tool_return happened before the second check_timeout()
+    # call aborted the case - not a whole extra turn later.
+    tool_returns = [s for s in transcript.steps if s["kind"] == "tool_return"]
+    assert len(tool_returns) == 1
+    assert not any(
+        s["kind"] == "response" and s.get("text") == answer("t1") for s in transcript.steps
+    )
+
+
+def test_hard_timeout_outcome_is_a_zeroed_failed_case_result(tmp_path):
+    """D8's backstop for a call future.result() itself had to time out on -
+    a pure function, so no need to actually block for the timeout in a test."""
+    from backend.runtime.evaluation import _hard_timeout_outcome
+
+    outcome = _hard_timeout_outcome(
+        run_id="run_hung", case_id="t1", trial=0, runs_dir=tmp_path / "runs", timeout_s=150
+    )
+    assert outcome.case_id == "t1"
+    assert outcome.trial == 0
+    assert outcome.passed is False
+    assert outcome.failure_signature == "drift:budget"
+    assert outcome.transcript_path == str(tmp_path / "runs" / "run_hung" / "t1.t0.json").replace(
+        "\\", "/"
+    )
+
+
 def test_step_limit_aborts_a_runaway_case(toy_package, evaluator_path, ledger, knobs, tmp_path):
     # Different args every turn, so `loop` cannot fire and `step_limit` must.
     def always_new_call(case_id: str, turn: int, messages: list[dict[str, Any]]):
@@ -369,6 +457,33 @@ def test_a_flaky_case_produces_spread_and_leaves_the_stable_set(
     assert results["t1"].count(True) == 2
 
 
+def test_outbound_tool_calls_use_openai_wire_format(
+    toy_package, evaluator_path, ledger, knobs, tmp_path
+):
+    """The assistant message echoed back on the *next* turn must carry
+    tool_calls as {id, type: "function", function: {name, arguments: <json
+    string>}} - backend.llm.complete()'s own simplified return shape
+    (arguments already a dict) 400s a real OpenAI-compatible endpoint if
+    replayed verbatim."""
+    summary, _ = run(
+        toy_package, evaluator_path, ledger, knobs, tmp_path, lookup_then_answer, trials=1
+    )
+    data = json.loads(Path(summary.cases[0].transcript_path).read_text(encoding="utf-8"))
+    requests = [s for s in data["steps"] if s["kind"] == "request"]
+    assert len(requests) == 2
+    # The second request's message history includes the first turn's
+    # assistant message, tool_calls and all.
+    assistant_messages = [m for m in requests[1]["messages"] if m.get("role") == "assistant"]
+    assert len(assistant_messages) == 1
+    tool_calls = assistant_messages[0]["tool_calls"]
+    assert len(tool_calls) == 1
+    call = tool_calls[0]
+    assert call["type"] == "function"
+    assert call["function"]["name"] == "lookup_ticket"
+    assert isinstance(call["function"]["arguments"], str)
+    assert json.loads(call["function"]["arguments"]) == {"ticket_id": "t1"}
+
+
 def test_a_trial_never_sees_another_trials_messages(
     toy_package, evaluator_path, ledger, knobs, tmp_path
 ):
@@ -414,6 +529,24 @@ def test_a_stable_task_does_not_graduate_twice_across_versions(
         seed_case_result(
             ledger, run_id="run_prior", case_id="t3", trial=trial, passed=trial == 0, score=0.0
         )
+    ledger.emit(
+        "run_finished",
+        agent_id="toy",
+        agent_version=0,
+        run_id="run_prior",
+        split="train",
+        trials=3,
+        pass_at_1=2 / 3,
+        pass_pow_k=2 / 3,
+        pass_rate_std=0.0,
+        pass_rate_min=2 / 3,
+        pass_rate_max=2 / 3,
+        total_cost_usd=0.0,
+        p50_latency_ms=0,
+        p95_latency_ms=0,
+        drift_count=0,
+        tokens_saved_by_drift=0,
+    )
 
     toy_package.version = 1
     summary, _ = run(
@@ -430,6 +563,79 @@ def test_a_stable_task_does_not_graduate_twice_across_versions(
     assert summary.graduated_case_ids == ["t3"]
     graduated = [e["payload"] for e in ledger.of_kind("task_graduated") if e["agent_version"] == 1]
     assert {g["case_id"] for g in graduated} == {"t3"}
+
+
+def test_stable_set_from_ledger_uses_only_the_latest_train_run(ledger):
+    """A stale earlier train run and a holdout run at the same version must
+    not be pooled into "the" stable set - only the latest train run counts."""
+    from backend.runtime.evaluation import _stable_set_from_ledger
+
+    # An older train run where t1 was flaky.
+    for trial, passed in enumerate([True, False, True]):
+        seed_case_result(ledger, run_id="run_old", case_id="t1", trial=trial, passed=passed)
+    ledger.emit(
+        "run_finished",
+        agent_id="toy",
+        agent_version=0,
+        run_id="run_old",
+        split="train",
+        trials=3,
+        pass_at_1=0.67,
+        pass_pow_k=0.0,
+        pass_rate_std=0.0,
+        pass_rate_min=0.0,
+        pass_rate_max=1.0,
+        total_cost_usd=0.0,
+        p50_latency_ms=0,
+        p95_latency_ms=0,
+        drift_count=0,
+        tokens_saved_by_drift=0,
+    )
+    # A holdout run at the same version where t1 always passes - must not count.
+    for trial in range(3):
+        seed_case_result(ledger, run_id="run_holdout", case_id="t1", trial=trial, passed=True)
+    ledger.emit(
+        "run_finished",
+        agent_id="toy",
+        agent_version=0,
+        run_id="run_holdout",
+        split="holdout",
+        trials=3,
+        pass_at_1=1.0,
+        pass_pow_k=1.0,
+        pass_rate_std=0.0,
+        pass_rate_min=1.0,
+        pass_rate_max=1.0,
+        total_cost_usd=0.0,
+        p50_latency_ms=0,
+        p95_latency_ms=0,
+        drift_count=0,
+        tokens_saved_by_drift=0,
+    )
+    # The latest *train* run, where t1 is stably passing.
+    for trial in range(3):
+        seed_case_result(ledger, run_id="run_latest_train", case_id="t1", trial=trial, passed=True)
+    ledger.emit(
+        "run_finished",
+        agent_id="toy",
+        agent_version=0,
+        run_id="run_latest_train",
+        split="train",
+        trials=3,
+        pass_at_1=1.0,
+        pass_pow_k=1.0,
+        pass_rate_std=0.0,
+        pass_rate_min=1.0,
+        pass_rate_max=1.0,
+        total_cost_usd=0.0,
+        p50_latency_ms=0,
+        p95_latency_ms=0,
+        drift_count=0,
+        tokens_saved_by_drift=0,
+    )
+
+    stable = _stable_set_from_ledger(ledger.read, "toy", 0, "train", 3)
+    assert stable == {"t1"}
 
 
 # -- tools --------------------------------------------------------------
@@ -528,6 +734,41 @@ def test_an_unparseable_answer_fails_with_bad_output_when_off_task_cannot_apply(
     assert transcript.final_output is None
     assert transcript.failure_signature == "bad_output"
     assert case_run.decisions == []
+
+
+def test_a_top_level_json_array_answer_is_bad_output_not_a_crash(
+    toy_package, evaluator_path, knobs, tmp_path
+):
+    """A grader takes a dict; a bare top-level array has nothing to score it
+    and must not reach Transcript.final_output (typed dict | None) or crash
+    the run - it is exactly as good as unparseable JSON."""
+    from backend.runtime.evaluation import run_case
+    from backend.runtime.scoring import load_scorer
+
+    scorer = load_scorer(evaluator_path)
+    llm = ScriptedLLM(lambda case_id, turn, messages: response(text='["bug", "p1"]'))
+    case = {"id": "edge", "input": {"ticket_id": "edge"}, "expected": {}}
+
+    case_run = run_case(
+        package=toy_package,
+        case=case,
+        trial=0,
+        run_id="run_edge_array",
+        knobs=knobs,
+        scorer=scorer,
+        complete=llm.complete,
+        rules=[],
+        tool_notes=[],
+        demoted_ids=set(),
+        model_strong="strong",
+        model_cheap="cheap",
+    )
+    transcript = case_run.transcript
+    assert transcript.final_output is None
+    assert transcript.failure_signature == "bad_output"
+    # And the transcript still writes and validates against the contract.
+    path = transcript.write(tmp_path / "runs")
+    assert Path(path).exists()
 
 
 def test_a_fenced_json_answer_is_parsed(toy_package, evaluator_path, ledger, knobs, tmp_path):
